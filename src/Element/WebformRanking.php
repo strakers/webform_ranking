@@ -137,6 +137,16 @@ class WebformRanking extends FormElementBase {
       '#attributes' => ['class' => ['webform-ranking-matrix']],
     ];
 
+    $element['matrix_live_region'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'div',
+      '#attributes' => [
+        'class' => ['webform-ranking-matrix__live-region', 'visually-hidden'],
+        'aria-live' => 'polite',
+        'aria-atomic' => 'true',
+      ],
+    ];
+
     foreach ($items as $delta => $item) {
       $row_key = $item['value'];
       $element['matrix'][$row_key]['label'] = [
@@ -197,11 +207,40 @@ class WebformRanking extends FormElementBase {
   protected static function buildDragDrop(array $element, array $items) {
     $defaults = \Drupal\webform_ranking\WebformRankingConverter::canonicalToDragdrop($element['#value'] ?? $element['#default_value'] ?? []);
 
+    // Reorder the rendered items to match any existing default value
+    // (editing an existing submission), so the JS's initial sync() call
+    // reflects genuinely-saved state rather than always resetting to
+    // configured order. Ranked items first (in rank order), then N/A
+    // items, then anything left over (new items added to config since
+    // this submission was last saved).
+    $order_list = $defaults['order'] !== '' ? explode(',', $defaults['order']) : [];
+    $na_list = $defaults['na'] !== '' ? explode(',', $defaults['na']) : [];
+    $items_by_value = array_column($items, NULL, 'value');
+    $ordered_items = [];
+    foreach (array_merge($order_list, $na_list) as $value) {
+      if (isset($items_by_value[$value])) {
+        $ordered_items[] = $items_by_value[$value];
+        unset($items_by_value[$value]);
+      }
+    }
+    foreach ($items as $item) {
+      if (isset($items_by_value[$item['value']])) {
+        $ordered_items[] = $item;
+      }
+    }
+    $items = $ordered_items;
+
     $element['dragdrop'] = [
       '#type' => 'container',
       '#attributes' => [
         'class' => ['webform-ranking-dragdrop'],
         'role' => 'list',
+        // Read by JS to decide whether to render the N/A toggle button
+        // per item.
+        'data-allow-na' => !empty($element['#allow_na']) ? '1' : '0',
+        // Read by JS so aria-live announcements use the admin's
+        // configured N/A label rather than a hardcoded fallback.
+        'data-na-label' => (string) $element['#na_label'],
       ],
     ];
 
@@ -244,12 +283,71 @@ class WebformRanking extends FormElementBase {
           'role' => 'listitem',
           'tabindex' => '0',
           'data-webform-ranking-value' => $item['value'],
+          'data-webform-ranking-na' => in_array($item['value'], $na_list, TRUE) ? 'true' : 'false',
         ],
-        'label' => ['#markup' => $item['label']],
-        // 'Move up' / 'Move down' buttons and the N/A toggle (if enabled)
-        // are rendered here in the next pass, alongside the hidden
-        // sync input and the aria-live region.
+        'position' => [
+          '#type' => 'html_tag',
+          '#tag' => 'span',
+          '#value' => '',
+          '#attributes' => ['class' => ['webform-ranking-dragdrop__position']],
+        ],
+        'label' => [
+          '#type' => 'html_tag',
+          '#tag' => 'span',
+          '#value' => $item['label'],
+          '#attributes' => ['class' => ['webform-ranking-dragdrop__label']],
+        ],
+        'controls' => [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['webform-ranking-dragdrop__controls']],
+          // Always-present, real controls — not a JS-only fallback.
+          // type="button" (not "submit") so a click never triggers
+          // form submission; the reorder logic itself is entirely
+          // client-side (element.dragdrop library).
+          'move_up' => [
+            '#type' => 'html_tag',
+            '#tag' => 'button',
+            '#value' => '▲',
+            '#attributes' => [
+              'type' => 'button',
+              'class' => ['webform-ranking-dragdrop__move-up'],
+              'aria-label' => (string) t('Move @item up', ['@item' => $item['label']]),
+            ],
+          ],
+          'move_down' => [
+            '#type' => 'html_tag',
+            '#tag' => 'button',
+            '#value' => '▼',
+            '#attributes' => [
+              'type' => 'button',
+              'class' => ['webform-ranking-dragdrop__move-down'],
+              'aria-label' => (string) t('Move @item down', ['@item' => $item['label']]),
+            ],
+          ],
+        ],
       ];
+
+      if (!empty($element['#allow_na'])) {
+        $element['dragdrop'][$item['value']]['controls']['na'] = [
+          '#type' => 'html_tag',
+          '#tag' => 'label',
+          '#attributes' => ['class' => ['webform-ranking-dragdrop__na-label']],
+          'checkbox' => [
+            '#type' => 'html_tag',
+            '#tag' => 'input',
+            '#attributes' => [
+              'type' => 'checkbox',
+              'class' => ['webform-ranking-dragdrop__na-checkbox'],
+              'checked' => in_array($item['value'], $element['#value']['na'] ?? $element['#default_value']['na'] ?? [], TRUE) ? 'checked' : NULL,
+            ],
+          ],
+          'text' => [
+            '#type' => 'html_tag',
+            '#tag' => 'span',
+            '#value' => (string) $element['#na_label'],
+          ],
+        ];
+      }
 
       // See buildMatrix()'s equivalent block: display-layer only, the
       // resolver's server-side check is authoritative.

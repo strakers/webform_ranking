@@ -1,0 +1,29 @@
+/**
+ * Structural styles only. Visual design (colors, spacing polish,
+ * responsive collapse for narrow viewports per the earlier mobile
+ * discussion) is a separate follow-up pass.
+ */
+.webform-ranking-matrix {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.webform-ranking-matrix th,
+.webform-ranking-matrix td {
+  padding: 0.5em;
+  text-align: center;
+}
+
+.webform-ranking-matrix td:first-child,
+.webform-ranking-matrix th:first-child {
+  text-align: left;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
