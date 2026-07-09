@@ -103,6 +103,26 @@ class WebformRanking extends WebformElementBase {
           '#title' => $this->t('Label'),
           '#required' => TRUE,
         ],
+        // Per-item conditional inclusion. 'webform_element_states' is
+        // Webform's own #states condition-builder widget — reusing it
+        // here means admins get the exact same UI they already use for
+        // element-level conditions, rather than a bespoke one.
+        //
+        // Flagged rather than assumed: this widget is normally used at
+        // the top level of an element's config form, where it has
+        // ready access to the full webform's element list to build its
+        // selector options. Nested one level inside a #webform_multiple
+        // table row is not a configuration I've confirmed works
+        // cleanly out of the box (AJAX rebuild behavior in particular
+        // is worth checking in a real browser before relying on it) —
+        // if it doesn't, the fallback is a plain 'webform_codemirror'
+        // (YAML mode) field here instead, at some cost to admin UX.
+        'states' => [
+          '#type' => 'webform_element_states',
+          '#title' => $this->t('Include this item when'),
+          '#state_options' => ['visible' => $this->t('Visible')],
+          '#selector_options' => [],
+        ],
       ],
       // Uniqueness of 'value' across rows is enforced in
       // validateConfigurationForm() below — #webform_multiple doesn't

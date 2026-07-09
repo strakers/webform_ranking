@@ -21,6 +21,9 @@ webform.webform.webform_ranking:
           label:
             type: label
             label: 'Display label (translatable, supports tokens)'
+          states:
+            type: ignore
+            label: 'Conditional visibility (#states) for this item'
     ranking_style:
       type: string
       label: 'Ranking style (matrix or dragdrop)'

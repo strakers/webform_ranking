@@ -161,6 +161,22 @@ class WebformRanking extends FormElementBase {
         // Row/column disable-on-select behavior and aria-live rank
         // announcements are handled by element.matrix library (next pass).
       ];
+
+      // Conditional item inclusion: applying the item's own #states
+      // condition directly to both cells is what makes states.js hide
+      // the row client-side. This is purely a display convenience —
+      // the authoritative check is WebformRankingVisibilityResolver,
+      // run server-side in validateWebformRanking(), which is what a
+      // user can't bypass by disabling JS or editing the DOM.
+      //
+      // Not yet handled here: dynamic rank relabeling (recomputing
+      // "1st/2nd/3rd" to match the currently-visible item count) is a
+      // client-side JS concern, still open — see element.matrix
+      // library.
+      if (!empty($item['states'])) {
+        $element['matrix'][$row_key]['label']['#states'] = $item['states'];
+        $element['matrix'][$row_key]['rank']['#states'] = $item['states'];
+      }
     }
 
     $element['#attached']['library'][] = 'webform_ranking/element.matrix';
@@ -234,6 +250,12 @@ class WebformRanking extends FormElementBase {
         // are rendered here in the next pass, alongside the hidden
         // sync input and the aria-live region.
       ];
+
+      // See buildMatrix()'s equivalent block: display-layer only, the
+      // resolver's server-side check is authoritative.
+      if (!empty($item['states'])) {
+        $element['dragdrop'][$item['value']]['#states'] = $item['states'];
+      }
     }
 
     $element['#attached']['library'][] = 'webform_ranking/element.dragdrop';
@@ -281,16 +303,21 @@ class WebformRanking extends FormElementBase {
    * is identical for matrix and drag/drop — one set of rules, two
    * front-ends.
    *
-   * Known gap, intentionally left for the conditional-inclusion pass:
-   * $valid_item_values currently comes from the full configured
-   * #items list, not from a server-recomputed "currently visible given
-   * submitted trigger values" set. That recomputation depends on a
-   * shared condition-resolver this validator and
-   * WebformRanking::prepare() both need, which is being built as one
-   * piece rather than duplicated — until then, a conditionally-hidden
-   * item is still *accepted* if a tampered request includes it, even
-   * though it wouldn't be reachable through the normal UI. Not safe to
-   * enable conditional item inclusion in production before that lands.
+   * Now closes the conditional-inclusion gap flagged in the earlier
+   * pass: the visible-item set is recomputed server-side via
+   * WebformRankingVisibilityResolver, from the submitted value of
+   * whatever trigger element(s) each item's #states condition
+   * references — not from anything the client claims about DOM
+   * visibility.
+   *
+   * Note on ordering: the unknown-item tamper check runs against the
+   * *full configured* item set, and is a hard error — a key that was
+   * never configured at all indicates a forged request. Items that
+   * are configured but not currently visible are handled differently:
+   * silently dropped rather than errored, since a stale rank in a
+   * hidden input (e.g. the user changed a trigger element and client
+   * JS hadn't yet cleared the now-invalid row) is an expected,
+   * harmless case — not tampering — and shouldn't block submission.
    */
   public static function validateWebformRanking(&$element, \Drupal\Core\Form\FormStateInterface $form_state, &$complete_form) {
     $value = $element['#value'] ?? ['values' => [], 'na' => []];
@@ -298,21 +325,38 @@ class WebformRanking extends FormElementBase {
     $na = $value['na'] ?? [];
     $title = $element['#title'] ?? '';
     $translation = \Drupal::translation();
+    $items = $element['#items'] ?? [];
 
-    $valid_item_values = array_column($element['#items'] ?? [], 'value');
+    $valid_item_values = array_column($items, 'value');
 
     // Tamper defense: every submitted item key must be one this element
     // actually configured — catches forged POST data referencing item
-    // keys that were never offered at all.
+    // keys that were never offered at all, regardless of conditional
+    // visibility.
     $unknown = array_diff(array_merge($values, $na), $valid_item_values);
     if ($unknown) {
       $form_state->setError($element, $translation->translate('@title contains an invalid selection.', ['@title' => $title]));
       return;
     }
 
-    // Ranks must be a set: no item ranked more than once. (A forged
-    // #value bypassing matrixToCanonical()'s natural de-duplication is
-    // the only way this could fail by the time we get here.)
+    // Recompute which configured items are actually visible/applicable
+    // given the submitted value of any trigger element(s) — never
+    // trust client-reported visibility.
+    $webform_submission = NULL;
+    $form_object = $form_state->getFormObject();
+    if ($form_object instanceof \Drupal\webform\WebformSubmissionForm) {
+      $webform_submission = $form_object->getEntity();
+    }
+    /** @var \Drupal\webform_ranking\WebformRankingVisibilityResolver $resolver */
+    $resolver = \Drupal::service('webform_ranking.visibility_resolver');
+    $visible_item_values = $resolver->resolveVisibleItemValues($items, $webform_submission);
+
+    // Drop (not error on) entries for items that are configured but not
+    // currently visible — see class-level note above.
+    $values = array_values(array_intersect($values, $visible_item_values));
+    $na = array_values(array_intersect($na, $visible_item_values));
+
+    // Ranks must be a set: no item ranked more than once.
     if (count($values) !== count(array_unique($values))) {
       $form_state->setError($element, $translation->translate('@title: each item can only be ranked once.', ['@title' => $title]));
       return;
@@ -342,8 +386,8 @@ class WebformRanking extends FormElementBase {
     }
 
     if (!empty($element['#required_all'])) {
-      $accounted_for = \Drupal\webform_ranking\WebformRankingConverter::accountedFor($value);
-      $missing = array_diff($valid_item_values, $accounted_for);
+      $accounted_for = \Drupal\webform_ranking\WebformRankingConverter::accountedFor(['values' => $values, 'na' => $na]);
+      $missing = array_diff($visible_item_values, $accounted_for);
       if ($missing) {
         $message = !empty($element['#allow_na'])
           ? $translation->translate('@title: every item must be ranked or marked N/A.', ['@title' => $title])
@@ -351,6 +395,11 @@ class WebformRanking extends FormElementBase {
         $form_state->setError($element, $message);
       }
     }
+
+    // Write the filtered (stale entries dropped) value back, so
+    // anything downstream — submit handlers, results storage — sees
+    // the same cleaned value that was actually validated.
+    $form_state->setValueForElement($element, ['values' => $values, 'na' => $na]);
   }
 
 }
