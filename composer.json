@@ -1,0 +1,22 @@
+{
+    "name": "drupal/webform_ranking",
+    "description": "Provides a Webform element for ranking a set of items (matrix or drag/drop), with support for N/A, conditional item inclusion, and #states integration.",
+    "type": "drupal-module",
+    "license": "GPL-2.0-or-later",
+    "homepage": "https://www.drupal.org/project/webform_ranking",
+    "authors": [
+        {
+            "name": "Steven Straker",
+            "homepage": "https://www.drupal.org/u/strakez",
+            "role": "Maintainer"
+        }
+    ],
+    "support": {
+        "issues": "https://www.drupal.org/project/issues/webform_ranking",
+        "source": "https://git.drupalcode.org/project/webform_ranking"
+    },
+    "require": {
+        "drupal/core": "^10.1 || ^11",
+        "drupal/webform": "^6.2"
+    }
+}
