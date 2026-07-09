@@ -1,0 +1,44 @@
+# Schema for the Webform Ranking element.
+#
+# Extends Webform's base element schema so all standard element properties
+# (title, description, required, states, wrapper attributes, etc.) are
+# inherited automatically. Only ranking-specific properties are declared here.
+
+webform.webform.webform_ranking:
+  type: webform.webform.webform_element
+  label: 'Ranking'
+  mapping:
+    items:
+      type: sequence
+      label: 'Items to rank'
+      sequence:
+        type: mapping
+        label: 'Item'
+        mapping:
+          value:
+            type: string
+            label: 'Value (storage key, not translatable)'
+          label:
+            type: label
+            label: 'Display label (translatable, supports tokens)'
+    ranking_style:
+      type: string
+      label: 'Ranking style (matrix or dragdrop)'
+    allow_na:
+      type: boolean
+      label: 'Allow abstaining (N/A) from ranking an item'
+    na_label:
+      type: label
+      label: 'N/A option label'
+    rank_labels:
+      type: sequence
+      label: 'Optional override labels for rank positions (1st, 2nd, ...)'
+      sequence:
+        type: label
+        label: 'Rank label'
+    randomize_item_order:
+      type: boolean
+      label: 'Randomize item order per page load'
+    required_all:
+      type: boolean
+      label: 'Require every visible item to be ranked or marked N/A'

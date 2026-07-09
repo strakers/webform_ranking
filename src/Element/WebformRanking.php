@@ -1,0 +1,356 @@
+<?php
+
+namespace Drupal\webform_ranking\Element;
+
+use Drupal\Core\Render\Element\FormElementBase;
+use Drupal\Core\Render\Element;
+
+/**
+ * Provides a form element for ranking a set of items.
+ *
+ * Canonical value shape (see module design notes):
+ *
+ * @code
+ * [
+ *   'values' => ['item_a', 'item_c'],  // ordered, position = rank - 1.
+ *   'na'     => ['item_b'],            // unordered set of opted-out items.
+ * ]
+ * @endcode
+ *
+ * Items not present in either array are treated as not currently
+ * applicable (e.g. conditionally hidden) rather than an error state.
+ *
+ * @FormElement("webform_ranking")
+ */
+class WebformRanking extends FormElementBase {
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getInfo() {
+    $class = static::class;
+    return [
+      '#input' => TRUE,
+      // Full set of configured items: ['value' => ..., 'label' => ...][].
+      '#items' => [],
+      '#ranking_style' => 'matrix',
+      '#allow_na' => FALSE,
+      '#na_label' => $this->t('N/A'),
+      '#rank_labels' => [],
+      '#required_all' => FALSE,
+      '#process' => [
+        [$class, 'processWebformRanking'],
+      ],
+      '#value_callback' => [$class, 'valueCallback'],
+      // Populated in the next pass — kept here as the intended hook point
+      // rather than left implicit, since server-side validation is
+      // load-bearing (never trust the client-computed visible-item set).
+      '#element_validate' => [
+        [$class, 'validateWebformRanking'],
+      ],
+      '#theme_wrappers' => ['form_element'],
+    ];
+  }
+
+  /**
+   * Value callback: normalizes submitted/default values to canonical shape.
+   *
+   * The matrix (radio) sub-implementation submits item => rank pairs;
+   * this callback is responsible for converting that into the canonical
+   * values/na arrays so every downstream consumer (validation, #states
+   * selectors, results formatting) only ever deals with one shape.
+   *
+   * Left as a pass-through skeleton pending the shared converter service
+   * covered in the next implementation pass.
+   */
+  public static function valueCallback(&$element, $input, \Drupal\Core\Form\FormStateInterface $form_state) {
+    $style = $element['#ranking_style'] ?? 'matrix';
+
+    if ($input !== FALSE && is_array($input)) {
+      return $style === 'dragdrop'
+        ? \Drupal\webform_ranking\WebformRankingConverter::dragdropToCanonical($input['dragdrop'] ?? [])
+        : \Drupal\webform_ranking\WebformRankingConverter::matrixToCanonical($input['matrix'] ?? []);
+    }
+
+    // No submitted input: fall back to #default_value (e.g. editing an
+    // existing submission). Already in canonical shape at this point —
+    // WebformRanking::prepare() is responsible for ensuring
+    // #default_value is canonical before the form is built.
+    return isset($element['#default_value']) ? $element['#default_value'] : [
+      'values' => [],
+      'na' => [],
+    ];
+  }
+
+  /**
+   * Process callback: builds the matrix or drag/drop sub-render array.
+   */
+  public static function processWebformRanking(&$element, \Drupal\Core\Form\FormStateInterface $form_state, &$complete_form) {
+    $element['#tree'] = TRUE;
+
+    // Item visibility (for conditionally-included items) is resolved by
+    // the Webform element plugin before this runs, via #states on each
+    // row/card — see WebformRanking::prepare(). This process callback
+    // only concerns itself with rendering the full configured item set;
+    // the browser hides/shows rows, and server-side validation
+    // independently recomputes which items are actually valid for the
+    // submitted trigger value (never trusts DOM visibility).
+    $items = $element['#items'];
+
+    if (empty($items)) {
+      return $element;
+    }
+
+    switch ($element['#ranking_style']) {
+      case 'dragdrop':
+        $element = static::buildDragDrop($element, $items);
+        break;
+
+      case 'matrix':
+      default:
+        $element = static::buildMatrix($element, $items);
+        break;
+    }
+
+    return $element;
+  }
+
+  /**
+   * Builds the radio-matrix sub-render array.
+   *
+   * One radio group per item (not per rank column) so "each item gets
+   * exactly one rank" is the natural constraint, not something enforced
+   * against the grain of the markup.
+   */
+  protected static function buildMatrix(array $element, array $items) {
+    $rank_count = count($items);
+    $rank_labels = static::getRankLabels($element, $rank_count);
+    $defaults = \Drupal\webform_ranking\WebformRankingConverter::canonicalToMatrix($element['#value'] ?? $element['#default_value'] ?? []);
+
+    $element['matrix'] = [
+      '#type' => 'table',
+      '#header' => array_merge(
+        [''],
+        $rank_labels,
+        $element['#allow_na'] ? [$element['#na_label']] : []
+      ),
+      '#attributes' => ['class' => ['webform-ranking-matrix']],
+    ];
+
+    foreach ($items as $delta => $item) {
+      $row_key = $item['value'];
+      $element['matrix'][$row_key]['label'] = [
+        '#markup' => $item['label'],
+      ];
+
+      $options = [];
+      foreach ($rank_labels as $rank => $label) {
+        $options[$rank + 1] = '';
+      }
+      if ($element['#allow_na']) {
+        $options['na'] = '';
+      }
+
+      $element['matrix'][$row_key]['rank'] = [
+        '#type' => 'radios',
+        '#title' => $item['label'],
+        '#title_display' => 'invisible',
+        '#options' => $options,
+        '#default_value' => $defaults[$row_key] ?? NULL,
+        '#parents' => array_merge($element['#parents'], ['matrix', $row_key]),
+        // Row/column disable-on-select behavior and aria-live rank
+        // announcements are handled by element.matrix library (next pass).
+      ];
+    }
+
+    $element['#attached']['library'][] = 'webform_ranking/element.matrix';
+
+    return $element;
+  }
+
+  /**
+   * Builds the drag/drop sub-render array.
+   *
+   * Markup is a plain ordered list plus per-item "move up"/"move down"
+   * buttons — always present, not a fallback — with a Pointer Events
+   * based reorder engine attached client-side. A hidden input carries
+   * the serialized order for submission and is kept in sync on every
+   * reorder (pointer-drag or keyboard) so it also drives client-side
+   * #states without requiring a full AJAX round trip.
+   */
+  protected static function buildDragDrop(array $element, array $items) {
+    $defaults = \Drupal\webform_ranking\WebformRankingConverter::canonicalToDragdrop($element['#value'] ?? $element['#default_value'] ?? []);
+
+    $element['dragdrop'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'class' => ['webform-ranking-dragdrop'],
+        'role' => 'list',
+      ],
+    ];
+
+    // Hidden inputs are the actual submitted/authoritative values —
+    // the reorder engine (pointer-drag and keyboard alike) keeps these
+    // in sync on every change via one shared JS function, per the
+    // consistency requirement discussed for the reorder engine. This is
+    // also what allows client-side #states to react live to reordering,
+    // since states.js only watches real field values.
+    $element['dragdrop']['order'] = [
+      '#type' => 'hidden',
+      '#default_value' => $defaults['order'],
+      '#attributes' => ['class' => ['webform-ranking-dragdrop__order']],
+      '#parents' => array_merge($element['#parents'], ['dragdrop', 'order']),
+    ];
+    $element['dragdrop']['na'] = [
+      '#type' => 'hidden',
+      '#default_value' => $defaults['na'],
+      '#attributes' => ['class' => ['webform-ranking-dragdrop__na']],
+      '#parents' => array_merge($element['#parents'], ['dragdrop', 'na']),
+    ];
+
+    // aria-live region for reorder/N/A-toggle announcements, shared by
+    // both interaction paths.
+    $element['dragdrop']['live_region'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'div',
+      '#attributes' => [
+        'class' => ['webform-ranking-dragdrop__live-region', 'visually-hidden'],
+        'aria-live' => 'polite',
+        'aria-atomic' => 'true',
+      ],
+    ];
+
+    foreach ($items as $item) {
+      $element['dragdrop'][$item['value']] = [
+        '#type' => 'container',
+        '#attributes' => [
+          'class' => ['webform-ranking-dragdrop__item'],
+          'role' => 'listitem',
+          'tabindex' => '0',
+          'data-webform-ranking-value' => $item['value'],
+        ],
+        'label' => ['#markup' => $item['label']],
+        // 'Move up' / 'Move down' buttons and the N/A toggle (if enabled)
+        // are rendered here in the next pass, alongside the hidden
+        // sync input and the aria-live region.
+      ];
+    }
+
+    $element['#attached']['library'][] = 'webform_ranking/element.dragdrop';
+
+    return $element;
+  }
+
+  /**
+   * Resolves rank position labels, honoring any admin override.
+   */
+  protected static function getRankLabels(array $element, $rank_count) {
+    $overrides = $element['#rank_labels'] ?? [];
+    $labels = [];
+    for ($i = 0; $i < $rank_count; $i++) {
+      $labels[$i] = $overrides[$i] ?? \Drupal::translation()->formatPlural(
+        1,
+        '@position',
+        '@position',
+        ['@position' => static::ordinal($i + 1)]
+      );
+    }
+    return $labels;
+  }
+
+  /**
+   * Simple ordinal formatter (1st, 2nd, 3rd, 4th...).
+   *
+   * Intentionally not locale-aware beyond English ordinal suffix rules;
+   * #rank_labels exists precisely so admins can override this per
+   * language/context via translation rather than relying on this helper
+   * to be linguistically correct everywhere.
+   */
+  protected static function ordinal($number) {
+    $suffixes = ['th', 'st', 'nd', 'rd'];
+    $mod100 = $number % 100;
+    $suffix = $suffixes[$mod100 >= 11 && $mod100 <= 13 ? 0 : ($number % 10 <= 3 ? $number % 10 : 0)];
+    return $number . $suffix;
+  }
+
+  /**
+   * Validation callback.
+   *
+   * Runs entirely against the canonical #value (already normalized by
+   * valueCallback() regardless of which UI produced it), so this logic
+   * is identical for matrix and drag/drop — one set of rules, two
+   * front-ends.
+   *
+   * Known gap, intentionally left for the conditional-inclusion pass:
+   * $valid_item_values currently comes from the full configured
+   * #items list, not from a server-recomputed "currently visible given
+   * submitted trigger values" set. That recomputation depends on a
+   * shared condition-resolver this validator and
+   * WebformRanking::prepare() both need, which is being built as one
+   * piece rather than duplicated — until then, a conditionally-hidden
+   * item is still *accepted* if a tampered request includes it, even
+   * though it wouldn't be reachable through the normal UI. Not safe to
+   * enable conditional item inclusion in production before that lands.
+   */
+  public static function validateWebformRanking(&$element, \Drupal\Core\Form\FormStateInterface $form_state, &$complete_form) {
+    $value = $element['#value'] ?? ['values' => [], 'na' => []];
+    $values = $value['values'] ?? [];
+    $na = $value['na'] ?? [];
+    $title = $element['#title'] ?? '';
+    $translation = \Drupal::translation();
+
+    $valid_item_values = array_column($element['#items'] ?? [], 'value');
+
+    // Tamper defense: every submitted item key must be one this element
+    // actually configured — catches forged POST data referencing item
+    // keys that were never offered at all.
+    $unknown = array_diff(array_merge($values, $na), $valid_item_values);
+    if ($unknown) {
+      $form_state->setError($element, $translation->translate('@title contains an invalid selection.', ['@title' => $title]));
+      return;
+    }
+
+    // Ranks must be a set: no item ranked more than once. (A forged
+    // #value bypassing matrixToCanonical()'s natural de-duplication is
+    // the only way this could fail by the time we get here.)
+    if (count($values) !== count(array_unique($values))) {
+      $form_state->setError($element, $translation->translate('@title: each item can only be ranked once.', ['@title' => $title]));
+      return;
+    }
+
+    // No item both ranked and marked N/A.
+    if (array_intersect($values, $na)) {
+      $form_state->setError($element, $translation->translate('@title: an item cannot be both ranked and marked N/A.', ['@title' => $title]));
+      return;
+    }
+
+    // N/A submitted despite not being enabled for this element.
+    if ($na && empty($element['#allow_na'])) {
+      $form_state->setError($element, $translation->translate('@title does not allow leaving items unranked.', ['@title' => $title]));
+      return;
+    }
+
+    // Ranks must be dense and sequential (1..N, no gaps). Given the
+    // canonical shape stores rank purely as array position, this is
+    // structurally guaranteed *if* $values is a proper list — the only
+    // way to violate it is a non-list (associative/sparse) array
+    // smuggled in via a directly-forged #value, so that's what's
+    // actually being checked.
+    if ($values !== array_values($values)) {
+      $form_state->setError($element, $translation->translate('@title has an invalid ranking order.', ['@title' => $title]));
+      return;
+    }
+
+    if (!empty($element['#required_all'])) {
+      $accounted_for = \Drupal\webform_ranking\WebformRankingConverter::accountedFor($value);
+      $missing = array_diff($valid_item_values, $accounted_for);
+      if ($missing) {
+        $message = !empty($element['#allow_na'])
+          ? $translation->translate('@title: every item must be ranked or marked N/A.', ['@title' => $title])
+          : $translation->translate('@title: every item must be ranked.', ['@title' => $title]);
+        $form_state->setError($element, $message);
+      }
+    }
+  }
+
+}

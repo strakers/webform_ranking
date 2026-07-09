@@ -1,0 +1,24 @@
+# Attached conditionally by the element plugin based on ranking_style.
+# Logic (pointer-events reorder engine, matrix rank-exclusivity handling,
+# and the hidden-input sync layer for client-side #states) comes in a
+# later pass.
+
+element.matrix:
+  js:
+    js/webform_ranking.matrix.js: {}
+  css:
+    theme:
+      css/webform_ranking.matrix.css: {}
+  dependencies:
+    - core/drupal
+    - core/once
+
+element.dragdrop:
+  js:
+    js/webform_ranking.dragdrop.js: {}
+  css:
+    theme:
+      css/webform_ranking.dragdrop.css: {}
+  dependencies:
+    - core/drupal
+    - core/once

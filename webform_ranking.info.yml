@@ -1,0 +1,7 @@
+name: 'Webform Ranking'
+type: module
+description: 'Provides a Webform element for ranking a set of items (matrix or drag/drop), with support for N/A, conditional item inclusion, and #states integration.'
+package: 'Webform'
+core_version_requirement: ^10.1 || ^11
+dependencies:
+  - webform:webform
