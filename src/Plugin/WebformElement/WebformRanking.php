@@ -90,7 +90,6 @@ class WebformRanking extends WebformElementBase {
       '#title' => $this->t('Items to rank'),
       '#description' => $this->t('The order entered here is the default display/rank order. Item values are used as storage keys and cannot be changed once submissions exist.'),
       '#header' => TRUE,
-      '#key' => 'value',
       '#empty_items' => 3,
       '#add_more_items' => 1,
       '#element' => [
@@ -251,7 +250,7 @@ class WebformRanking extends WebformElementBase {
    * item inclusion (see class-level note in the Element for the
    * server-side re-validation this depends on).
    */
-  public function prepare(array &$element, WebformSubmissionInterface $webform_submission = NULL) {
+  public function prepare(array &$element, ?WebformSubmissionInterface $webform_submission = NULL) {
     parent::prepare($element, $webform_submission);
 
     $element['#items'] = $element['#items'] ?? [];
