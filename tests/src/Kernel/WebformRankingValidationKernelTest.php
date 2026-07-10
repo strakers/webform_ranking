@@ -60,7 +60,8 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     // No entity schema/config installs here deliberately — none of
     // these tests touch a real Webform or WebformSubmission entity,
     // only the validate callback and the services it pulls from the
-    // container (webform.conditions_validator via our resolver). If
+    // container (webform_submission.conditions_validator via our
+    // resolver). If
     // bootstrap fails here complaining about missing schema/config,
     // Webform's own module dependencies may require more than this
     // minimal module list — adjust against your installed version.

@@ -1,4 +1,4 @@
 services:
   webform_ranking.visibility_resolver:
     class: Drupal\webform_ranking\WebformRankingVisibilityResolver
-    arguments: ['@webform.conditions_validator']
+    arguments: ['@webform_submission.conditions_validator']
