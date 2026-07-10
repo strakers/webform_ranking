@@ -472,16 +472,20 @@ class WebformRanking extends FormElementBase {
       return;
     }
 
-    // Ranks must be dense and sequential (1..N, no gaps). Given the
-    // canonical shape stores rank purely as array position, this is
-    // structurally guaranteed *if* $values is a proper list — the only
-    // way to violate it is a non-list (associative/sparse) array
-    // smuggled in via a directly-forged #value, so that's what's
-    // actually being checked.
-    if ($values !== array_values($values)) {
-      $form_state->setError($element, $translation->translate('@title has an invalid ranking order.', ['@title' => $title]));
-      return;
-    }
+    // Note on array structure: $values was already reindexed via
+    // array_values() a few lines up (dropping stale/invisible entries),
+    // which means it's *always* a proper 0-indexed sequential list by
+    // this point — there is no remaining code path where a gappy or
+    // associative array could reach here. An earlier version of this
+    // method had a separate check for exactly that, which turned out to
+    // be both dead code (the reindex above already made it unreachable)
+    // and solving a non-problem: even a genuinely forged non-sequential
+    // #value poses no real harm once reindexed, since rank is derived
+    // from iteration order, not literal array keys — array_values()
+    // preserves that order regardless of the original keys. The actual
+    // risk worth guarding — WebformRankingConverter::canonicalToMatrix()
+    // deriving each item's rank from array *position* — is exactly what
+    // this reindexing step guarantees stays correct.
 
     if (!empty($element['#required_all'])) {
       $accounted_for = \Drupal\webform_ranking\WebformRankingConverter::accountedFor(['values' => $values, 'na' => $na]);

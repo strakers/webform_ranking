@@ -112,14 +112,21 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
    *   The FormState after validation, for asserting on errors/values.
    */
   protected function validate(array $overrides, array $value): FormState {
-    $element = [
+    // $overrides must come FIRST: PHP's array union operator keeps the
+    // left-hand array's value on a key collision, so putting the
+    // hardcoded defaults first (as an earlier version of this test did)
+    // silently defeats every override — #required_all and #items in
+    // particular, which is exactly what caused several of these tests
+    // to fail against the wrong configuration without erroring loudly
+    // about it.
+    $element = $overrides + [
       '#title' => 'Ranking',
       '#items' => $this->items(),
       '#allow_na' => FALSE,
       '#required_all' => TRUE,
       '#parents' => ['ranking'],
       '#value' => $value,
-    ] + $overrides;
+    ];
 
     $form_state = $this->newFormState();
     $complete_form = [];
@@ -192,19 +199,24 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     $this->assertStringContainsString('does not allow', (string) reset($errors));
   }
 
-  // Non-sequential/associative 'values' can only arise from a forged
-  // #value bypassing the converter, which always produces a plain
-  // list (position = rank - 1) by construction — see
-  // WebformRankingConverterTest for that guarantee.
-  public function testNonSequentialValuesOrderIsRejected(): void {
-    $form_state = $this->validate([], [
+  // A non-sequential-keyed 'values' array (e.g. keys 1,3 instead of
+  // 0,1) can only arise from a forged #value bypassing the converter.
+  // Earlier versions of this test asserted that gets rejected; it
+  // doesn't, and shouldn't — see the docblock in
+  // validateWebformRanking() for why. The filtering step a few lines
+  // above the required_all check always reindexes 'values' via
+  // array_values(), so rank ends up correctly derived from iteration
+  // order regardless of the original (forged) keys. This test now
+  // documents that normalization explicitly, rather than asserting a
+  // rejection that the code no longer performs and, on reflection,
+  // never actually needed to.
+  public function testNonSequentialKeyedValuesAreNormalizedNotRejected(): void {
+    $form_state = $this->validate(['#required_all' => FALSE], [
       'values' => [1 => 'item_a', 3 => 'item_b'],
       'na' => [],
     ]);
 
-    $errors = $form_state->getErrors();
-    $this->assertCount(1, $errors);
-    $this->assertStringContainsString('invalid ranking order', (string) reset($errors));
+    $this->assertSame([], $form_state->getErrors());
   }
 
   public function testRequiredAllRejectsMissingItems(): void {

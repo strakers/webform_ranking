@@ -70,6 +70,14 @@ class WebformRankingValidationTest extends KernelTestBase {
 
     $form_object = new WebformRankingTestForm($element);
     $form_state = new FormState();
+    // Without this, FormBuilder only treats setUserInput() as a real
+    // submission when the form's expected method matches the *actual*
+    // current HTTP request method — and a Kernel test's synthetic
+    // request context isn't a POST, so input silently never gets
+    // processed and the element falls back to #default_value instead.
+    // setProgrammed(TRUE) is the standard way to tell FormBuilder "trust
+    // the user input I've provided, regardless of the ambient request."
+    $form_state->setProgrammed(TRUE);
     $form_state->setUserInput([
       'ranking' => [
         'matrix' => $matrix_input,
