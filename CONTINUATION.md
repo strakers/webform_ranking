@@ -93,10 +93,16 @@ no-input fallback only ever see canonical shape. The plugin's
   test). Both pass, 0 warnings.
 - `tests/src/Kernel/` — `WebformRankingValidationKernelTest` (calls
   `validateWebformRanking()` directly w/ hand-built `#value`, comprehensive
-  rule coverage incl. forged-input cases) and `WebformRankingValidationTest`
+  rule coverage incl. forged-input cases), `WebformRankingValidationTest`
   (calls real `valueCallback()` then `validateWebformRanking()` — NOT via
-  `FormBuilder::submitForm()`, see Known Gaps). Both pass, 0 warnings/errors
-  as of last run.
+  `FormBuilder::submitForm()`, see Known Gaps), and
+  `WebformRankingPluginTest` (the plugin itself, instantiated via
+  `plugin.manager.webform.element`: `getItemRankValue()`,
+  `getTestValues()`, and private `resolveRankDisplay()` via reflection —
+  NOT `formatHtmlItem()`/`formatTextItem()` themselves, which need a
+  real Webform + WebformSubmission and are left to the same
+  Functional/Nightwatch tier as `#process`, see Known Gaps). All pass,
+  0 warnings/errors as of last run (48 tests total).
 
 ## Key Design Decisions (with rationale)
 1. **Matrix radios**: one radio group per *item* (row), not per rank
@@ -163,10 +169,10 @@ no-input fallback only ever see canonical shape. The plugin's
    live form uses. Items are ordered by **rank**, not configured order
    — ranked first (in rank order), then N/A, then never-accounted-for
    — via `WebformRankingConverter::orderByRank()` (moved there from a
-   plugin-private method once it got a test — see Testing section
-   below — since it has no Drupal dependencies of its own). Each line
-   is self-labeled
-   ("Pizza: 1st"), so reordering loses no information; this only
+   plugin-private method once it got a Unit test — see
+   `tests/src/Unit/` above — since it has no Drupal dependencies of
+   its own). Each line is self-labeled ("Pizza: 1st"), so reordering
+   loses no information; this only
    applies to the `value`/default format — `raw` format also now
    follows rank order for consistency, but shows the raw rank token
    instead of a resolved label.

@@ -183,4 +183,68 @@ class WebformRankingConverterTest extends UnitTestCase {
     $this->assertSame([], WebformRankingConverter::accountedFor([]));
   }
 
+  protected function items(): array {
+    return [
+      ['value' => 'item_a', 'label' => 'Item A'],
+      ['value' => 'item_b', 'label' => 'Item B'],
+      ['value' => 'item_c', 'label' => 'Item C'],
+    ];
+  }
+
+  public function testOrderByRankSortsRankedItemsByRank(): void {
+    // Ranked out of configured order (item_c=1st, item_a=2nd,
+    // item_b=3rd) — result must follow the ranking, not config order.
+    $value = ['item_a' => '2', 'item_b' => '3', 'item_c' => '1'];
+
+    $result = WebformRankingConverter::orderByRank($this->items(), $value);
+
+    $this->assertSame(['item_c', 'item_a', 'item_b'], array_column($result, 'value'));
+  }
+
+  public function testOrderByRankPlacesNaAfterRankedItems(): void {
+    $value = ['item_a' => 'na', 'item_b' => '1'];
+
+    $result = WebformRankingConverter::orderByRank($this->items(), $value);
+
+    // item_b (ranked) first, item_a (na) second, item_c (unaccounted) last.
+    $this->assertSame(['item_b', 'item_a', 'item_c'], array_column($result, 'value'));
+  }
+
+  // An item present in neither values nor na (never accounted for —
+  // conditionally hidden when submitted, or added to configuration
+  // since) has no rank to sort by, so it's appended last, in its
+  // originally configured order relative to other unaccounted items.
+  public function testOrderByRankAppendsUnaccountedItemsLastInConfiguredOrder(): void {
+    $value = ['item_b' => '1'];
+
+    $result = WebformRankingConverter::orderByRank($this->items(), $value);
+
+    $this->assertSame(['item_b', 'item_a', 'item_c'], array_column($result, 'value'));
+  }
+
+  public function testOrderByRankWithNoValueAtAllPreservesConfiguredOrder(): void {
+    $result = WebformRankingConverter::orderByRank($this->items(), []);
+
+    $this->assertSame(['item_a', 'item_b', 'item_c'], array_column($result, 'value'));
+  }
+
+  // A value referencing an item that's no longer in the configured
+  // item set (e.g. removed from configuration after this submission
+  // was made) must be silently skipped, not surfaced as a phantom row
+  // or a crash — the reordered list can only ever contain currently
+  // configured items.
+  public function testOrderByRankIgnoresValuesForItemsNoLongerConfigured(): void {
+    $value = ['item_a' => '1', 'item_removed' => '2'];
+
+    $result = WebformRankingConverter::orderByRank($this->items(), $value);
+
+    $this->assertSame(['item_a', 'item_b', 'item_c'], array_column($result, 'value'));
+  }
+
+  public function testOrderByRankPreservesFullItemData(): void {
+    $result = WebformRankingConverter::orderByRank($this->items(), ['item_a' => '1']);
+
+    $this->assertSame(['value' => 'item_a', 'label' => 'Item A'], $result[0]);
+  }
+
 }
