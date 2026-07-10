@@ -136,4 +136,46 @@ class WebformRankingConverter {
     return array_merge($canonical['values'] ?? [], $canonical['na'] ?? []);
   }
 
+  /**
+   * Orders configured items by their stored rank, for results display.
+   *
+   * Ranked items first (in rank order), then N/A items, then items
+   * never accounted for at all (e.g. conditionally hidden when this
+   * submission was made, or added to configuration afterward) — those
+   * last, in their originally configured order, since they have no
+   * rank to sort by. Used by
+   * WebformRanking::formatHtmlItem()/formatTextItem() (the plugin) so
+   * results read "how was this ranked" rather than mirroring
+   * configuration order; each item is still individually labeled in
+   * that display, so reordering loses no information.
+   *
+   * @param array $items
+   *   The element's configured items (value/label/states each).
+   * @param array $value
+   *   The submission's stored flat item-value => rank map (matrixToCanonical()'s
+   *   input shape).
+   *
+   * @return array
+   *   $items, reordered.
+   */
+  public static function orderByRank(array $items, array $value): array {
+    $canonical = static::matrixToCanonical($value);
+    $items_by_value = array_column($items, NULL, 'value');
+
+    $ordered = [];
+    foreach (array_merge($canonical['values'], $canonical['na']) as $item_value) {
+      if (isset($items_by_value[$item_value])) {
+        $ordered[] = $items_by_value[$item_value];
+        unset($items_by_value[$item_value]);
+      }
+    }
+    // Anything left is never accounted for — append in configured order.
+    foreach ($items as $item) {
+      if (isset($items_by_value[$item['value']])) {
+        $ordered[] = $item;
+      }
+    }
+    return $ordered;
+  }
+
 }

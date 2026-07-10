@@ -162,9 +162,10 @@ no-input fallback only ever see canonical shape. The plugin's
    Element class for this) so results match whatever rank labels the
    live form uses. Items are ordered by **rank**, not configured order
    — ranked first (in rank order), then N/A, then never-accounted-for
-   — via `orderItemsByRank()`, which reuses
-   `WebformRankingConverter::matrixToCanonical()` rather than
-   reimplementing the ordering logic. Each line is self-labeled
+   — via `WebformRankingConverter::orderByRank()` (moved there from a
+   plugin-private method once it got a test — see Testing section
+   below — since it has no Drupal dependencies of its own). Each line
+   is self-labeled
    ("Pizza: 1st"), so reordering loses no information; this only
    applies to the `value`/default format — `raw` format also now
    follows rank order for consistency, but shows the raw rank token
