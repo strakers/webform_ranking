@@ -20,6 +20,16 @@ use Drupal\Core\Render\Element;
  * Items not present in either array are treated as not currently
  * applicable (e.g. conditionally hidden) rather than an error state.
  *
+ * This canonical shape is used for all in-memory processing —
+ * validation rules, the visibility resolver — but is NOT what
+ * ultimately gets persisted. Webform's submission storage can only
+ * store composite elements as a flat map of scalar-valued properties,
+ * so validateWebformRanking() hands off the flat item-value => rank
+ * shape (WebformRankingConverter::canonicalToMatrix()'s shape) as the
+ * element's final #value; see that method and
+ * WebformRankingConverter's class docblock for the full storage-
+ * boundary rationale.
+ *
  * @FormElement("webform_ranking")
  */
 class WebformRanking extends FormElementBase {
@@ -498,10 +508,17 @@ class WebformRanking extends FormElementBase {
       }
     }
 
-    // Write the filtered (stale entries dropped) value back, so
-    // anything downstream — submit handlers, results storage — sees
-    // the same cleaned value that was actually validated.
-    $form_state->setValueForElement($element, ['values' => $values, 'na' => $na]);
+    // Write the filtered (stale entries dropped) value back — but in
+    // the flat item-value => rank shape, not canonical {values, na}.
+    // Webform's submission storage (a composite element, per the
+    // plugin's annotation) only knows how to persist a flat map of
+    // scalar-valued properties; handing it the canonical shape here
+    // would silently corrupt to the literal string "Array" when saved
+    // (both 'values' and 'na' are themselves arrays). See this class's
+    // and WebformRankingConverter's docblocks for the full rationale.
+    // WebformRanking::prepare() is the mirror-image conversion back to
+    // canonical shape when editing an existing submission.
+    $form_state->setValueForElement($element, \Drupal\webform_ranking\WebformRankingConverter::canonicalToMatrix(['values' => $values, 'na' => $na]));
   }
 
 }

@@ -4,6 +4,7 @@ namespace Drupal\webform_ranking\Plugin\WebformElement;
 
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\webform\Plugin\WebformElementBase;
+use Drupal\webform\WebformInterface;
 use Drupal\webform\WebformSubmissionInterface;
 
 /**
@@ -14,6 +15,8 @@ use Drupal\webform\WebformSubmissionInterface;
  *   label = @Translation("Ranking"),
  *   description = @Translation("Provides a form element to rank a set of items, via a matrix of radios or a drag/drop list."),
  *   category = @Translation("Options elements"),
+ *   multiline = TRUE,
+ *   composite = TRUE,
  * )
  */
 class WebformRanking extends WebformElementBase {
@@ -269,6 +272,28 @@ class WebformRanking extends WebformElementBase {
     // visible-item-set resolver exists — needs to be identical logic to
     // what the validate callback recomputes server-side, so it's being
     // built as one shared service rather than duplicated.
+
+    // Webform's submission storage only persists composite elements as
+    // a flat map of scalar-valued properties (see
+    // WebformSubmissionStorage::saveData()) — it has no way to store
+    // the canonical {values, na} shape (both keys are arrays)
+    // without corrupting it. WebformRanking::validateWebformRanking()
+    // therefore hands off the flat item-value => rank shape (same as
+    // WebformRankingConverter::canonicalToMatrix()) as the element's
+    // final #value, which is what ends up in a saved submission and
+    // is what #default_value arrives as here when editing an existing
+    // submission. Convert it back to canonical before buildMatrix(),
+    // buildDragDrop() and valueCallback()'s no-input fallback see it —
+    // all three expect canonical shape. Guarded with is_array() since
+    // a never-submitted element's #default_value may still be the
+    // base class's default empty string, and matrixToCanonical() is
+    // otherwise tolerant of missing/malformed per-item entries (see
+    // its own docblock) so a partially-populated stored value here —
+    // e.g. an item added to configuration after this submission was
+    // saved — degrades to "not yet accounted for" rather than erroring.
+    if (!empty($element['#default_value']) && is_array($element['#default_value'])) {
+      $element['#default_value'] = \Drupal\webform_ranking\WebformRankingConverter::matrixToCanonical($element['#default_value']);
+    }
   }
 
   /**
@@ -333,17 +358,59 @@ class WebformRanking extends WebformElementBase {
    * conditions validator (not states.js — this is the PHP-side
    * equivalent used during validation/access checks) needs "what is
    * item A's rank in this submission," it should call this rather than
-   * comparing the whole canonical array. Returns 'na', a 1-based rank
-   * string, or NULL if the item currently has no value.
+   * reading stored data directly. Returns 'na', a 1-based rank string,
+   * or NULL if the item currently has no value.
    *
-   * @param array $canonical
-   *   A canonical ranking value, per WebformRankingConverter.
+   * @param array $data
+   *   A submission's stored element data for this element, e.g.
+   *   $webform_submission->getElementData($key) — already in the flat
+   *   item-value => rank shape (see prepare()'s #default_value note
+   *   and WebformRankingConverter's storage-boundary docs), NOT the
+   *   {values, na} canonical shape used internally by
+   *   validateWebformRanking(). Defensively tolerant of a missing or
+   *   not-yet-array value (e.g. a submission that never touched this
+   *   element) rather than assuming the shape is always fully formed.
    * @param string $item_value
    *   The item's storage key.
    */
-  public function getItemRankValue(array $canonical, string $item_value): ?string {
-    $matrix = \Drupal\webform_ranking\WebformRankingConverter::canonicalToMatrix($canonical);
-    return $matrix[$item_value] ?? NULL;
+  public function getItemRankValue(array $data, string $item_value): ?string {
+    $value = $data[$item_value] ?? NULL;
+    return is_scalar($value) ? (string) $value : NULL;
+  }
+
+  /**
+   * {@inheritdoc}
+   *
+   * Without this override, WebformSubmissionGenerate's generic
+   * name/type-based fallback guesses at a test value for this element
+   * (there's no 'webform_ranking' entry in its lookup tables) and can
+   * hand back an arbitrary scalar string — which then reaches
+   * WebformRankingConverter::canonicalToMatrix() (via #default_value on
+   * the Test-tab-generated form) and fails its array type hint, a real
+   * error caught live via the "Test" tab after marking this element
+   * composite. Generating a real full random ranking here, in the same
+   * flat item-value => rank shape #default_value is expected to arrive
+   * in (see prepare()'s note), avoids that entirely. Same
+   * wrap-in-an-array return shape as WebformLikert::getTestValues() —
+   * WebformSubmissionGenerate::getTestValue() treats the return as a
+   * list of candidate composite values to pick one from.
+   */
+  public function getTestValues(array $element, WebformInterface $webform, array $options = []) {
+    $items = $element['#items'] ?? [];
+    if (empty($items)) {
+      return NULL;
+    }
+
+    $values = array_column($items, 'value');
+    if (!empty($options['random'])) {
+      shuffle($values);
+    }
+
+    $value = [];
+    foreach ($values as $delta => $item_value) {
+      $value[$item_value] = (string) ($delta + 1);
+    }
+    return [$value];
   }
 
 }

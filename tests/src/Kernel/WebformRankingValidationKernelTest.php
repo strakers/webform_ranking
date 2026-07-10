@@ -145,11 +145,16 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
   }
 
   public function testValidFullRankingPreservesValueWhenNothingIsFiltered(): void {
-    $expected = ['values' => ['item_b', 'item_a', 'item_c'], 'na' => []];
-    $form_state = $this->validate([], $expected);
+    $form_state = $this->validate([], ['values' => ['item_b', 'item_a', 'item_c'], 'na' => []]);
 
     $this->assertSame([], $form_state->getErrors());
-    $this->assertSame($expected, $form_state->getValue('ranking'));
+    // Stored/final #value is the flat item-value => rank shape, not
+    // canonical — see WebformRanking::validateWebformRanking()'s
+    // storage-boundary note.
+    $this->assertSame(
+      ['item_b' => '1', 'item_a' => '2', 'item_c' => '3'],
+      $form_state->getValue('ranking')
+    );
   }
 
   public function testUnknownItemKeyIsRejectedAsTamperDefense(): void {
@@ -275,8 +280,13 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     );
 
     $this->assertSame([], $form_state->getErrors());
+    // Stored/final #value is the flat item-value => rank shape, not
+    // canonical — see WebformRanking::validateWebformRanking()'s
+    // storage-boundary note. item_conditional is correctly absent:
+    // dropped as not-currently-visible, same as the canonical-shape
+    // assertion this replaced.
     $this->assertSame(
-      ['values' => ['item_a', 'item_b', 'item_c'], 'na' => []],
+      ['item_a' => '1', 'item_b' => '2', 'item_c' => '3'],
       $form_state->getValue('ranking')
     );
   }

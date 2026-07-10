@@ -8,13 +8,34 @@ server+client validation. No suitable existing contrib module was found.
 
 ## Architecture
 
-**Canonical value shape** (used everywhere — matrix and dragdrop are both
-just producers/consumers of this):
+**Canonical value shape** (used for all in-memory processing — validation
+rules, the visibility resolver — matrix and dragdrop are both just
+producers/consumers of this):
 ```php
 ['values' => ['item_a', 'item_c'], 'na' => ['item_b']]
 ```
 `values` is an ordered list, position = rank − 1. Items absent from both
 arrays are "not applicable" (e.g. conditionally hidden), not an error.
+
+**Storage shape is different from canonical — this matters.** Webform's
+submission storage (`WebformSubmissionStorage::saveData()`) can only
+persist a scalar, or (for elements marked `composite = TRUE`) a flat map of
+scalar-valued properties. It has no way to store canonical shape (both
+`values` and `na` are themselves arrays) — handing it canonical shape
+silently corrupts to the literal string `"Array"` on save (a real bug hit
+and fixed this session, plus a follow-on `getTestValues()` gap it exposed
+in Webform's Test tab — see Key Design Decision #7). So the element's
+final `#value` after `validateWebformRanking()` — and therefore whatever
+`$webform_submission->getElementData()` returns — is the flat
+`WebformRankingConverter::canonicalToMatrix()` shape instead:
+```php
+['item_a' => '2', 'item_b' => 'na', 'item_c' => '1']
+```
+`WebformRanking::prepare()` converts back to canonical (via
+`matrixToCanonical()`) when populating `#default_value` from an existing
+submission, so `buildMatrix()`/`buildDragDrop()`/`valueCallback()`'s
+no-input fallback only ever see canonical shape. The plugin's
+`getItemRankValue()` takes stored (flat) shape directly, not canonical.
 
 **Files:**
 - `src/WebformRankingConverter.php` — pure static conversion functions:
@@ -32,11 +53,20 @@ arrays are "not applicable" (e.g. conditionally hidden), not an error.
   `processWebformRanking()` (builds matrix or dragdrop sub-render array),
   `validateWebformRanking()` (all server-side validation rules).
 - `src/Plugin/WebformElement/WebformRanking.php` — the `WebformElementBase`
-  plugin: admin config form (`form()`), `defineDefaultProperties()` /
+  plugin: annotated `composite = TRUE` (storage-shape reason above), admin
+  config form (`form()`), `defineDefaultProperties()` /
   `defineTranslatableProperties()` (NOT `getDefaultProperties()` directly —
-  that bypasses Webform's caching/alter-hook layer), `prepare()`,
+  that bypasses Webform's caching/alter-hook layer), `prepare()` (also
+  converts `#default_value` storage-shape → canonical),
   `getElementSelectorOptions()` (matrix-only #states selector fix, see
-  below), `validateConfigurationForm()`.
+  below), `getItemRankValue()`, `getTestValues()` (Webform Test-tab support),
+  `validateConfigurationForm()`. The `items` `webform_multiple` field has
+  **no `#key`** — an earlier version set `#key => 'value'`, which silently
+  strips the `value` sub-field out of each row and uses it as the array key
+  instead (`WebformMultiple::convertValuesToItems()`), breaking every
+  consumer's `$item['value']` assumption (a real "Undefined array key
+  'value'" bug hit and fixed this session). Uniqueness of `value` across
+  rows is instead enforced in this plugin's own `validateConfigurationForm()`.
 - `webform_ranking.services.yml` — registers the resolver, wired to
   `@webform_submission.conditions_validator` (NOT `webform.conditions_validator`
   — that was a wrong guess, corrected against a real error).
@@ -96,6 +126,29 @@ arrays are "not applicable" (e.g. conditionally hidden), not an error.
    rather than guessing a third time. Calls the real production methods
    directly instead. **Trade-off**: no test exercises `#process` (building
    the matrix sub-elements) end-to-end anymore.
+7. **Storage shape != canonical shape** (see Architecture section above).
+   First found via a real browser error on saving the element to a form:
+   `Undefined array key "value"` in `buildMatrix()`, root-caused to
+   `#key => 'value'` on the items `webform_multiple` field silently
+   stripping `value` out of each configured item row. Fixing that surfaced
+   a second, worse bug on submit: Webform's storage layer was casting the
+   whole canonical `{values, na}` array to the literal string `"Array"`
+   on save (confirmed via `webform_submission_data` SQL rows and
+   `$submission->getData()`). Considered JSON-serializing the value at the
+   storage boundary instead (simpler, fully preserves canonical shape,
+   zero test churn) but rejected in favor of marking the element
+   `composite = TRUE` and storing the flat item→rank map — matches
+   Webform's own precedent (`WebformMapping`, `WebformLikert`, both
+   `composite = TRUE` with scalar-per-property shapes) and keeps per-item
+   rank data natively queryable/exportable via Webform's own Views/CSV
+   machinery, at the cost of a `prepare()`/`validateWebformRanking()`
+   conversion boundary and 2 updated test assertions. Marking it composite
+   also exposed a *third* bug: Webform's Test tab generates fallback test
+   data via generic name/type pattern-matching for elements without a
+   `getTestValues()` override, which could hand back an arbitrary scalar
+   string that then failed `canonicalToMatrix()`'s array type hint —
+   fixed by implementing `getTestValues()` to generate a real random
+   full ranking in the correct flat shape.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
@@ -131,6 +184,15 @@ evidence rather than assert confidently.
   `WebformElementBase` are less independently verified than
   `form()`/`getDefaultProperties()` (those got fixed via real errors);
   worth watching for surprises there too.
+- **No custom results/view formatting** (`formatHtmlItem()`/
+  `formatTextItem()` not overridden) — the submission "View" page,
+  results table, and CSV export currently fall through to
+  `WebformElementBase`'s generic default formatting, which was written
+  assuming a scalar value. It hasn't been checked against the module's
+  actual stored shape (flat item→rank map, see Key Design Decision #7)
+  and likely needs per-item-label-aware formatting (à la
+  `WebformLikert::formatHtmlItem()`) to look right — a display/UX task,
+  separate from the storage-correctness fix that surfaced it.
 
 ## Constraints
 - Target: Drupal ^10.1 || ^11, Webform ^6.2 (composer.json).
