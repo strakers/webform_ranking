@@ -373,8 +373,12 @@ class WebformRanking extends FormElementBase {
 
   /**
    * Resolves rank position labels, honoring any admin override.
+   *
+   * Public (not just used internally by buildMatrix()) so the plugin's
+   * results/CSV formatting can render the same rank labels an admin
+   * configured for the live form, rather than a second hardcoded copy.
    */
-  protected static function getRankLabels(array $element, $rank_count) {
+  public static function getRankLabels(array $element, $rank_count) {
     $overrides = $element['#rank_labels'] ?? [];
     $labels = [];
     for ($i = 0; $i < $rank_count; $i++) {

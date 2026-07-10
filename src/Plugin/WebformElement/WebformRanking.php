@@ -413,4 +413,98 @@ class WebformRanking extends WebformElementBase {
     return [$value];
   }
 
+  /**
+   * {@inheritdoc}
+   *
+   * Without this override, the base class's default formatHtmlItem()/
+   * formatTextItem() treat getValue()'s return as a scalar —
+   * formatTextItem() concatenates #field_prefix/#field_suffix onto it,
+   * then formatHtmlItem() wraps the result in `#plain_text` — but our
+   * stored value is the flat item-value => rank map (see
+   * WebformRankingConverter's storage-boundary docs), an array. Handing
+   * an array to `#plain_text` hit a real TypeError in
+   * Html::escape()/Renderer::ensureMarkupIsSafe() on the submission
+   * "View"/results page, caught live after marking this element
+   * composite. Renders items in *configured* order (not rank order) so
+   * the list is stable regardless of what was actually ranked — same
+   * convention WebformMapping::formatHtmlItem() uses for its source
+   * list.
+   */
+  protected function formatHtmlItem(array $element, WebformSubmissionInterface $webform_submission, array $options = []) {
+    $value = $this->getValue($element, $webform_submission, $options);
+    $value = is_array($value) ? $value : [];
+    $items = $element['#items'] ?? [];
+
+    if ($this->getItemFormat($element) === 'raw') {
+      $rows = [];
+      foreach ($items as $item) {
+        $rows[$item['value']] = ['#markup' => $item['value'] . ': ' . ($value[$item['value']] ?? '')];
+      }
+      return ['#theme' => 'item_list', '#items' => $rows];
+    }
+
+    $rank_labels = \Drupal\webform_ranking\Element\WebformRanking::getRankLabels($element, count($items));
+    $rows = [];
+    foreach ($items as $item) {
+      $rows[$item['value']] = [
+        '#markup' => $item['label'] . ': ' . $this->resolveRankDisplay($element, $rank_labels, $value[$item['value']] ?? NULL),
+      ];
+    }
+    return ['#theme' => 'item_list', '#items' => $rows];
+  }
+
+  /**
+   * {@inheritdoc}
+   *
+   * Plain-text counterpart to formatHtmlItem() — see its docblock for
+   * why this override exists at all.
+   */
+  protected function formatTextItem(array $element, WebformSubmissionInterface $webform_submission, array $options = []) {
+    $value = $this->getValue($element, $webform_submission, $options);
+    $value = is_array($value) ? $value : [];
+    $items = $element['#items'] ?? [];
+
+    if ($this->getItemFormat($element) === 'raw') {
+      $lines = [];
+      foreach ($items as $item) {
+        $lines[] = $item['value'] . ': ' . ($value[$item['value']] ?? '');
+      }
+      return implode(PHP_EOL, $lines);
+    }
+
+    $rank_labels = \Drupal\webform_ranking\Element\WebformRanking::getRankLabels($element, count($items));
+    $lines = [];
+    foreach ($items as $item) {
+      $lines[] = $item['label'] . ': ' . $this->resolveRankDisplay($element, $rank_labels, $value[$item['value']] ?? NULL);
+    }
+    return implode(PHP_EOL, $lines);
+  }
+
+  /**
+   * Resolves the display string for one item's stored rank value.
+   *
+   * Shared by formatHtmlItem()/formatTextItem() so "na" vs. a numeric
+   * rank vs. "never accounted for" (e.g. conditionally hidden when
+   * submitted, or an item added to configuration after this submission
+   * was saved) are described consistently in both.
+   *
+   * @param array $element
+   *   The element, for #na_label.
+   * @param array $rank_labels
+   *   Rank position labels, per WebformRanking::getRankLabels() —
+   *   0-indexed, so rank '1' reads index 0.
+   * @param mixed $rank
+   *   The item's stored rank value ('na', a numeric rank string, or
+   *   NULL/absent if never accounted for).
+   */
+  private function resolveRankDisplay(array $element, array $rank_labels, $rank): string {
+    if ($rank === 'na') {
+      return (string) ($element['#na_label'] ?? $this->t('N/A'));
+    }
+    if (is_numeric($rank) && isset($rank_labels[((int) $rank) - 1])) {
+      return (string) $rank_labels[((int) $rank) - 1];
+    }
+    return (string) $this->t('Not ranked');
+  }
+
 }
