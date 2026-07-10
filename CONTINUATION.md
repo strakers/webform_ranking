@@ -74,7 +74,10 @@ no-input fallback only ever see canonical shape. The plugin's
   `type: ignore` (irregular nested structure).
 - `js/webform_ranking.matrix.js` — rank-exclusivity (disable-on-select
   across rows, real `disabled`+`aria-disabled`), `aria-live` announcements.
-  Recompute-from-scratch on every change.
+  Recompute-from-scratch on every change. Structure-agnostic by
+  construction (groups radios by `name`, finds a rank's header by DOM
+  position) — needed zero changes when `buildMatrix()`'s cell layout was
+  fixed (Key Design Decision #9), which is what made that fix low-risk.
 - `js/webform_ranking.dragdrop.js` — Pointer Events reorder engine
   (mouse/touch/pen unified, NOT native HTML5 DnD — inconsistent across
   browsers, no touch support). Server-rendered move-up/move-down buttons
@@ -166,6 +169,39 @@ no-input fallback only ever see canonical shape. The plugin's
    applies to the `value`/default format — `raw` format also now
    follows rank order for consistency, but shows the raw rank token
    instead of a resolved label.
+9. **Matrix radio layout: one `radio` per cell, not one `radios` bundle
+   per row.** Reported bug: all rank options rendered stacked under the
+   1st-rank column only, none under 2nd/3rd. Root cause: the row's
+   single `#type => 'radios'` bundle is one element occupying one table
+   cell — `Table::preRenderTable()` turns each row's *direct* children
+   into separate `<td>`s, and a `radios` bundle is only one child, so
+   every option landed in that one cell regardless of `#options` order.
+   Fixed by building one bare `#type => 'radio'` per rank column
+   (mirroring core's `Radios::processRadios()`: same
+   `#return_value`/`#default_value`/`#parents` pattern, explicit `#id`
+   via `Html::getUniqueId()` to avoid duplicate DOM ids since siblings
+   share `#parents`), each its own array key/cell, so they line up
+   under `#header`'s columns positionally. Sharing the row's `#parents`
+   across all of a row's radios (unchanged from before) is what still
+   makes them one mutually-exclusive native radio group and keeps the
+   submitted field name identical (`preference[matrix][pizza]`) — no
+   changes needed to `WebformRankingConverter`, `valueCallback()`, or
+   the JS. Bonus: each radio now gets a real (invisible) title like
+   "Pizza: 1st" instead of the old bundle's blank per-option label.
+
+## Latent Bug Flagged, Not Fixed
+`WebformRanking::getElementSelectorOptions()` (the Plugin) builds
+matrix-item `#states` selectors as `"{key}[matrix][{item}][rank]"` —
+but the actual matrix radio field name has always been
+`{key}[matrix][{item}]` (no `[rank]` suffix; see Key Design Decision
+#9's `#parents`). This selector has never matched a real DOM input,
+since the field name has always come from that same `#parents` shape,
+even before this session's fixes. Pre-existing since the feature was
+first built, unrelated to any fix in this session — if another
+element's `#states` condition ever tries to trigger off a ranking
+item's matrix radio via this selector, it silently won't work. Not
+fixed here since nothing in this codebase currently exercises that
+path (flagged, not verified to matter yet).
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about

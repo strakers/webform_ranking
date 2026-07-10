@@ -163,39 +163,78 @@ class WebformRanking extends FormElementBase {
         '#markup' => $item['label'],
       ];
 
-      $options = [];
-      foreach ($rank_labels as $rank => $label) {
-        $options[$rank + 1] = '';
-      }
-      if ($element['#allow_na']) {
-        $options['na'] = '';
+      // One real 'radio' input per rank column, each its own cell — NOT
+      // a single 'radios' bundle in one cell. #type 'radios' renders
+      // all its options together inside one wrapper, which was exactly
+      // the bug this replaces: every option landed stacked in the
+      // row's single cell instead of spreading out under each rank's
+      // own header column. Table::preRenderTable() turns each of a
+      // row's *direct* child elements into its own <td>, in insertion
+      // order — so building one bare 'radio' element per column here,
+      // each keyed separately, is what actually lines each button up
+      // under its header, matching #header's column order.
+      //
+      // Mirrors core's own Radios::processRadios() (same
+      // #return_value/#default_value/#parents/#id pattern — every
+      // option sharing the row's #parents is what makes them one
+      // mutually-exclusive native radio group despite living in
+      // separate cells) rather than reinventing that mechanism; the
+      // only difference is *where* each resulting radio element ends
+      // up in the render tree. element.matrix library (rank-exclusivity
+      // JS, aria-live announcements) queries radios by `name` and by
+      // DOM order, not by cell structure, so it needs no changes for
+      // this.
+      $row_parents = array_merge($element['#parents'], ['matrix', $row_key]);
+      $current_value = $defaults[$row_key] ?? NULL;
+      $cell_keys = ['label'];
+
+      foreach ($rank_labels as $rank => $rank_label) {
+        $return_value = (string) ($rank + 1);
+        $cell_key = 'rank_' . $return_value;
+        $cell_keys[] = $cell_key;
+        $element['matrix'][$row_key][$cell_key] = [
+          '#type' => 'radio',
+          // Invisible but real (unlike the old bundle's blank
+          // #options labels) — screen readers get a distinguishing
+          // "Pizza: 1st" per button instead of only the row's name.
+          '#title' => $item['label'] . ': ' . $rank_label,
+          '#title_display' => 'invisible',
+          '#return_value' => $return_value,
+          '#default_value' => $current_value,
+          '#parents' => $row_parents,
+          '#id' => \Drupal\Component\Utility\Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, [$return_value]))),
+        ];
       }
 
-      $element['matrix'][$row_key]['rank'] = [
-        '#type' => 'radios',
-        '#title' => $item['label'],
-        '#title_display' => 'invisible',
-        '#options' => $options,
-        '#default_value' => $defaults[$row_key] ?? NULL,
-        '#parents' => array_merge($element['#parents'], ['matrix', $row_key]),
-        // Row/column disable-on-select behavior and aria-live rank
-        // announcements are handled by element.matrix library (next pass).
-      ];
+      if ($element['#allow_na']) {
+        $cell_keys[] = 'rank_na';
+        $element['matrix'][$row_key]['rank_na'] = [
+          '#type' => 'radio',
+          '#title' => $item['label'] . ': ' . $element['#na_label'],
+          '#title_display' => 'invisible',
+          '#return_value' => 'na',
+          '#default_value' => $current_value,
+          '#parents' => $row_parents,
+          '#id' => \Drupal\Component\Utility\Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, ['na']))),
+        ];
+      }
 
       // Conditional item inclusion: applying the item's own #states
-      // condition directly to both cells is what makes states.js hide
-      // the row client-side. This is purely a display convenience —
-      // the authoritative check is WebformRankingVisibilityResolver,
-      // run server-side in validateWebformRanking(), which is what a
-      // user can't bypass by disabling JS or editing the DOM.
+      // condition to every cell in the row is what makes states.js
+      // hide the row client-side. This is purely a display
+      // convenience — the authoritative check is
+      // WebformRankingVisibilityResolver, run server-side in
+      // validateWebformRanking(), which is what a user can't bypass by
+      // disabling JS or editing the DOM.
       //
       // Not yet handled here: dynamic rank relabeling (recomputing
       // "1st/2nd/3rd" to match the currently-visible item count) is a
       // client-side JS concern, still open — see element.matrix
       // library.
       if (!empty($item['states'])) {
-        $element['matrix'][$row_key]['label']['#states'] = $item['states'];
-        $element['matrix'][$row_key]['rank']['#states'] = $item['states'];
+        foreach ($cell_keys as $cell_key) {
+          $element['matrix'][$row_key][$cell_key]['#states'] = $item['states'];
+        }
       }
     }
 
