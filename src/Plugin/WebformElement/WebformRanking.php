@@ -329,6 +329,19 @@ class WebformRanking extends WebformElementBase {
    * differ slightly across Webform 6.2.x vs 6.3.x — worth confirming
    * against the exact Webform version this module targets before
    * relying on this signature.
+   *
+   * Selector bug fixed: this previously built
+   * "{key}[matrix][{item}][rank]", a trailing `[rank]` suffix that
+   * never matched any real DOM input — each matrix row's radios share
+   * the row's own `#parents` directly (`{key}[matrix][{item}]`, no
+   * `[rank]` segment; see buildMatrix()). A real, reported symptom of
+   * this: an admin-configured #states condition on another element,
+   * targeting "Ranking > Item (rank)" as its trigger, never reacted to
+   * rank selection at all — states.js (client-side) queries the live
+   * DOM by this exact selector string, so a selector matching nothing
+   * silently never binds a listener. Confirmed live in a browser after
+   * the fix: toggling a rank now correctly shows/hides a dependent
+   * element with no page reload.
    */
   public function getElementSelectorOptions(array $element) {
     $selectors = parent::getElementSelectorOptions($element);
@@ -341,7 +354,7 @@ class WebformRanking extends WebformElementBase {
     $items = $element['#items'] ?? [];
 
     foreach ($items as $item) {
-      $item_selector = ":input[name=\"{$element['#webform_key']}[matrix][{$item['value']}][rank]\"]";
+      $item_selector = ":input[name=\"{$element['#webform_key']}[matrix][{$item['value']}]\"]";
       $selectors[$item_selector] = $this->t('@title: @item (rank)', [
         '@title' => $title,
         '@item' => $item['label'],

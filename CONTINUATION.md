@@ -115,6 +115,9 @@ no-input fallback only ever see canonical shape. The plugin's
    per-item selectors for matrix (real DOM radio inputs) but **NOT for
    dragdrop** (rank only exists inside a comma-joined hidden input;
    `states.js` can't parse that) — explicit, documented limitation.
+   (The selector string this method built had its own separate bug —
+   a bogus `[rank]` suffix that never matched a real input — fixed
+   later; see Key Design Decision #10.)
 4. **Per-item conditional visibility admin UI**: originally
    `webform_element_states` (Webform's visual conditions builder) nested
    inside the `webform_multiple` items table — **crashed in production**
@@ -196,19 +199,29 @@ no-input fallback only ever see canonical shape. The plugin's
    the JS. Bonus: each radio now gets a real (invisible) title like
    "Pizza: 1st" instead of the old bundle's blank per-option label.
 
-## Latent Bug Flagged, Not Fixed
-`WebformRanking::getElementSelectorOptions()` (the Plugin) builds
-matrix-item `#states` selectors as `"{key}[matrix][{item}][rank]"` —
-but the actual matrix radio field name has always been
-`{key}[matrix][{item}]` (no `[rank]` suffix; see Key Design Decision
-#9's `#parents`). This selector has never matched a real DOM input,
-since the field name has always come from that same `#parents` shape,
-even before this session's fixes. Pre-existing since the feature was
-first built, unrelated to any fix in this session — if another
-element's `#states` condition ever tries to trigger off a ranking
-item's matrix radio via this selector, it silently won't work. Not
-fixed here since nothing in this codebase currently exercises that
-path (flagged, not verified to matter yet).
+10. **`getElementSelectorOptions()`'s `[rank]` selector bug — now
+    fixed** (previously flagged here as a latent, unverified bug; the
+    user then hit it for real). Built matrix-item `#states` selectors
+    as `"{key}[matrix][{item}][rank]"`, but the actual matrix radio
+    field name has always been `{key}[matrix][{item}]` (no `[rank]`
+    suffix; see Key Design Decision #9's `#parents`) — the selector
+    never matched a real DOM input. Reported symptom: 3 elements each
+    conditioned on a different ranking item being ranked 1st never
+    reacted to rank changes at all — states.js binds purely by
+    querying the live DOM for the selector string, so a selector
+    matching nothing silently never attaches a listener. Fixed by
+    dropping the `[rank]` suffix. **Important trade-off discovered
+    while fixing**: this only fixes selectors the admin UI generates
+    *going forward* — an already-saved `#states` condition has the
+    literal broken selector string baked into its config `#states`
+    array as data, so existing conditions (like the ones the user had
+    already configured) needed their saved config corrected directly,
+    not just the code. Verified live in a browser: toggling ranks now
+    correctly shows/hides each of 3 dependent elements with no page
+    reload, including the "switch which item holds rank 1" case
+    (verified through our own rank-exclusivity JS, which disables a
+    rank everywhere else once assigned — an easy false negative if you
+    click a still-disabled radio expecting it to register).
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
