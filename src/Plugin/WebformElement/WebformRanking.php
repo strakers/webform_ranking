@@ -104,30 +104,63 @@ class WebformRanking extends WebformElementBase {
           '#title' => $this->t('Label'),
           '#required' => TRUE,
         ],
-        // Per-item conditional inclusion. 'webform_element_states' is
-        // Webform's own #states condition-builder widget — reusing it
-        // here means admins get the exact same UI they already use for
-        // element-level conditions, rather than a bespoke one.
+        // Per-item conditional inclusion. This was originally
+        // 'webform_element_states' — Webform's own #states
+        // condition-builder widget — which would have given admins the
+        // exact same UI they already use for element-level conditions.
+        // Flagged at the time as unconfirmed: "Nested one level inside
+        // a #webform_multiple table row is not a configuration I've
+        // confirmed works cleanly out of the box." That risk
+        // materialized — adding a second item row crashed with a
+        // TypeError inside WebformCodeMirror::validateWebformCodeMirror(),
+        // an array reaching a YAML validator expecting a string,
+        // strongly suggesting webform_element_states (which appears to
+        // use a codemirror YAML view internally for advanced-mode
+        // editing) doesn't handle being embedded inside another
+        // #tree-based multiple-value widget correctly.
         //
-        // Flagged rather than assumed: this widget is normally used at
-        // the top level of an element's config form, where it has
-        // ready access to the full webform's element list to build its
-        // selector options. Nested one level inside a #webform_multiple
-        // table row is not a configuration I've confirmed works
-        // cleanly out of the box (AJAX rebuild behavior in particular
-        // is worth checking in a real browser before relying on it) —
-        // if it doesn't, the fallback is a plain 'webform_codemirror'
-        // (YAML mode) field here instead, at some cost to admin UX.
+        // Using the flagged fallback instead: a plain YAML-mode
+        // codemirror field. Real cost to admin UX (raw YAML instead of
+        // a visual conditions builder), but functional and confirmed
+        // by the same production error to at least avoid that specific
+        // nesting failure mode. WebformCodeMirror's YAML mode decodes
+        // the submitted string into an array for the element's value,
+        // which is the same #states-shaped array structure
+        // WebformRankingVisibilityResolver and the client-side #states
+        // attachment in buildMatrix()/buildDragDrop() already expect —
+        // no changes needed on that side.
+        // Progressive disclosure: most items won't need a condition at
+        // all, so the YAML field stays hidden until this checkbox is
+        // checked. This checkbox is purely a client-side convenience —
+        // it is NEVER read server-side, never validated, and never
+        // added to config schema. The 'states' field's own content
+        // (empty or not) remains the single source of truth on the
+        // backend, exactly as before this checkbox existed. JS (see
+        // element.itemsAdmin library, attached below) handles: showing
+        // the YAML field when checked; clearing it when unchecked (so
+        // an unchecked box and lingering stale YAML can never
+        // disagree); and, on page load, auto-checking + revealing the
+        // field for any row that already has YAML content, so editing
+        // an existing conditional item doesn't look broken.
+        'use_states' => [
+          '#type' => 'checkbox',
+          '#title' => $this->t('Use conditional visibility for this item'),
+          '#default_value' => FALSE,
+          '#attributes' => ['class' => ['webform-ranking-item-use-states']],
+        ],
         'states' => [
-          '#type' => 'webform_element_states',
-          '#title' => $this->t('Include this item when'),
-          '#state_options' => ['visible' => $this->t('Visible')],
-          '#selector_options' => [],
+          '#type' => 'webform_codemirror',
+          '#mode' => 'yaml',
+          '#title' => $this->t('Include this item when (#states, YAML)'),
+          '#description' => $this->t('Optional, advanced. Enter a #states conditions array in YAML — e.g. <code>visible:</code> on one line, then <code>  \':input[name="other_element"]\': {value: student}</code> indented beneath it.'),
+          '#wrapper_attributes' => ['class' => ['webform-ranking-item-states-wrapper']],
+          '#attributes' => ['class' => ['webform-ranking-item-states']],
         ],
       ],
       // Uniqueness of 'value' across rows is enforced in
       // validateConfigurationForm() below — #webform_multiple doesn't
       // do this on its own.
+      '#attached' => ['library' => ['webform_ranking/element.itemsAdmin']],
     ];
 
     $form['ranking']['ranking_style'] = [
@@ -187,6 +220,12 @@ class WebformRanking extends WebformElementBase {
     $items = $form_state->getValue('items') ?: [];
     $values_seen = [];
     foreach ($items as $delta => $item) {
+      // 'use_states' is a client-side-only progressive-disclosure
+      // toggle (see the field definition in form()) — never meant to
+      // reach config. Stripping it here rather than in the schema
+      // keeps the schema describing only what's actually persisted.
+      unset($items[$delta]['use_states']);
+
       $value = trim($item['value'] ?? '');
       if ($value === '') {
         continue;
@@ -197,6 +236,7 @@ class WebformRanking extends WebformElementBase {
       }
       $values_seen[$value] = TRUE;
     }
+    $form_state->setValue('items', $items);
 
     if (count($items) < 2) {
       $form_state->setErrorByName('items', $this->t('Provide at least two items to rank.'));
