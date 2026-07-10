@@ -18,5 +18,14 @@
     "require": {
         "drupal/core": "^10.1 || ^11",
         "drupal/webform": "^6.2"
+    },
+    "require-dev": {
+        "drush/drush": "*"
+    },
+    "config": {
+        "allow-plugins": {
+            "symfony/runtime": true,
+            "drupal/core-composer-scaffold": true
+        }
     }
 }
