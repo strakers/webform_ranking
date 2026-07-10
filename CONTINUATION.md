@@ -149,6 +149,23 @@ no-input fallback only ever see canonical shape. The plugin's
    string that then failed `canonicalToMatrix()`'s array type hint —
    fixed by implementing `getTestValues()` to generate a real random
    full ranking in the correct flat shape.
+8. **Results/CSV formatting** (`formatHtmlItem()`/`formatTextItem()` in
+   the plugin): the base class's default formatting assumes a scalar
+   value and hit a real `TypeError` in `Html::escape()` (an array
+   reaching `#plain_text`) the first time a submission's "View" page
+   was loaded after this element became composite. Fixed by rendering
+   each configured item as "Label: rank" (or the admin's `#na_label`,
+   or "Not ranked"), reusing `getRankLabels()` (bumped `public` on the
+   Element class for this) so results match whatever rank labels the
+   live form uses. Items are ordered by **rank**, not configured order
+   — ranked first (in rank order), then N/A, then never-accounted-for
+   — via `orderItemsByRank()`, which reuses
+   `WebformRankingConverter::matrixToCanonical()` rather than
+   reimplementing the ordering logic. Each line is self-labeled
+   ("Pizza: 1st"), so reordering loses no information; this only
+   applies to the `value`/default format — `raw` format also now
+   follows rank order for consistency, but shows the raw rank token
+   instead of a resolved label.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
@@ -184,15 +201,11 @@ evidence rather than assert confidently.
   `WebformElementBase` are less independently verified than
   `form()`/`getDefaultProperties()` (those got fixed via real errors);
   worth watching for surprises there too.
-- **No custom results/view formatting** (`formatHtmlItem()`/
-  `formatTextItem()` not overridden) — the submission "View" page,
-  results table, and CSV export currently fall through to
-  `WebformElementBase`'s generic default formatting, which was written
-  assuming a scalar value. It hasn't been checked against the module's
-  actual stored shape (flat item→rank map, see Key Design Decision #7)
-  and likely needs per-item-label-aware formatting (à la
-  `WebformLikert::formatHtmlItem()`) to look right — a display/UX task,
-  separate from the storage-correctness fix that surfaced it.
+- **Results/view formatting done, but only the `value`/`raw` formats**
+  (see Key Design Decision #8) — `table` format (like
+  `WebformMapping`/`WebformLikert` offer) isn't implemented; falls
+  through to the `value` format's item list instead. Not attempted
+  since nothing's asked for it yet.
 
 ## Constraints
 - Target: Drupal ^10.1 || ^11, Webform ^6.2 (composer.json).

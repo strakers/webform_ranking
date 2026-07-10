@@ -425,15 +425,16 @@ class WebformRanking extends WebformElementBase {
    * an array to `#plain_text` hit a real TypeError in
    * Html::escape()/Renderer::ensureMarkupIsSafe() on the submission
    * "View"/results page, caught live after marking this element
-   * composite. Renders items in *configured* order (not rank order) so
-   * the list is stable regardless of what was actually ranked — same
-   * convention WebformMapping::formatHtmlItem() uses for its source
-   * list.
+   * composite. Renders items in *rank* order (1st, 2nd, ... then N/A,
+   * then never-accounted-for) rather than configured order — each line
+   * is still self-labeled ("Pizza: 1st"), so nothing is lost by
+   * reordering, and rank order is what actually answers "how was this
+   * ranked" at a glance. See orderItemsByRank().
    */
   protected function formatHtmlItem(array $element, WebformSubmissionInterface $webform_submission, array $options = []) {
     $value = $this->getValue($element, $webform_submission, $options);
     $value = is_array($value) ? $value : [];
-    $items = $element['#items'] ?? [];
+    $items = $this->orderItemsByRank($element['#items'] ?? [], $value);
 
     if ($this->getItemFormat($element) === 'raw') {
       $rows = [];
@@ -457,12 +458,13 @@ class WebformRanking extends WebformElementBase {
    * {@inheritdoc}
    *
    * Plain-text counterpart to formatHtmlItem() — see its docblock for
-   * why this override exists at all.
+   * why this override exists at all, and orderItemsByRank() for the
+   * rank-order rationale.
    */
   protected function formatTextItem(array $element, WebformSubmissionInterface $webform_submission, array $options = []) {
     $value = $this->getValue($element, $webform_submission, $options);
     $value = is_array($value) ? $value : [];
-    $items = $element['#items'] ?? [];
+    $items = $this->orderItemsByRank($element['#items'] ?? [], $value);
 
     if ($this->getItemFormat($element) === 'raw') {
       $lines = [];
@@ -478,6 +480,45 @@ class WebformRanking extends WebformElementBase {
       $lines[] = $item['label'] . ': ' . $this->resolveRankDisplay($element, $rank_labels, $value[$item['value']] ?? NULL);
     }
     return implode(PHP_EOL, $lines);
+  }
+
+  /**
+   * Orders configured items by their stored rank, for results display.
+   *
+   * Ranked items first (in rank order), then N/A items, then items
+   * never accounted for at all (e.g. conditionally hidden when this
+   * submission was made, or added to configuration afterward) — those
+   * last, in their originally configured order, since they have no
+   * rank to sort by. Reuses
+   * WebformRankingConverter::matrixToCanonical() rather than
+   * reimplementing the rank-ordering logic it already gets right.
+   *
+   * @param array $items
+   *   The element's configured items (value/label/states each).
+   * @param array $value
+   *   The submission's stored flat item-value => rank map.
+   *
+   * @return array
+   *   $items, reordered.
+   */
+  private function orderItemsByRank(array $items, array $value): array {
+    $canonical = \Drupal\webform_ranking\WebformRankingConverter::matrixToCanonical($value);
+    $items_by_value = array_column($items, NULL, 'value');
+
+    $ordered = [];
+    foreach (array_merge($canonical['values'], $canonical['na']) as $item_value) {
+      if (isset($items_by_value[$item_value])) {
+        $ordered[] = $items_by_value[$item_value];
+        unset($items_by_value[$item_value]);
+      }
+    }
+    // Anything left is never accounted for — append in configured order.
+    foreach ($items as $item) {
+      if (isset($items_by_value[$item['value']])) {
+        $ordered[] = $item;
+      }
+    }
+    return $ordered;
   }
 
   /**
