@@ -20,8 +20,21 @@ class WebformRanking extends WebformElementBase {
 
   /**
    * {@inheritdoc}
+   *
+   * Overrides defineDefaultProperties() (protected), not
+   * getDefaultProperties() directly — the base class's public
+   * getDefaultProperties() wraps this with caching and the
+   * hook_webform_element_default_properties_alter() hook. An earlier
+   * version of this class overrode getDefaultProperties() (and
+   * getDefaultProperty(), and defineDefaultProperties() all at once,
+   * redundantly) directly instead; that still technically works per
+   * Webform's own deprecation notice, but silently bypasses that
+   * caching/alter layer, and having three overlapping overrides was a
+   * mess in its own right. Confirmed against Details, BooleanBase,
+   * Address, and WebformAttachmentBase, which all consistently use
+   * this pattern in current Webform.
    */
-  public function getDefaultProperties() {
+  protected function defineDefaultProperties() {
     return [
       // Standard properties inherited from WebformElementBase are merged
       // automatically (title, description, required, states, wrapper
@@ -33,32 +46,20 @@ class WebformRanking extends WebformElementBase {
       'rank_labels' => [],
       'randomize_item_order' => FALSE,
       'required_all' => TRUE,
-    ] + parent::getDefaultProperties();
-  }
-
-  /**
-   * {@inheritdoc}
-   */
-  public function getDefaultProperty($property_name) {
-    return $this->getDefaultProperties()[$property_name] ?? parent::getDefaultProperty($property_name);
-  }
-
-  /**
-   * {@inheritdoc}
-   */
-  protected function defineDefaultProperties() {
-    return $this->getDefaultProperties();
+    ] + parent::defineDefaultProperties();
   }
 
   /**
    * {@inheritdoc}
    *
-   * Marks 'items[].label' and 'na_label' as translatable/token-enabled.
-   * Values are deliberately excluded — they're storage keys and must
-   * stay stable across languages and #states conditions.
+   * Marks 'na_label' and 'rank_labels' as translatable/token-enabled.
+   * Item values are deliberately excluded — they're storage keys and
+   * must stay stable across languages and #states conditions. Same
+   * defineTranslatableProperties() pattern as above — overrides the
+   * protected hook method, not the public cached getter.
    */
-  public function getTranslatableProperties() {
-    return array_merge(parent::getTranslatableProperties(), [
+  protected function defineTranslatableProperties() {
+    return array_merge(parent::defineTranslatableProperties(), [
       'na_label',
       'rank_labels',
       // 'items' handled specially in buildConfigurationForm() /
@@ -70,7 +71,7 @@ class WebformRanking extends WebformElementBase {
   /**
    * {@inheritdoc}
    */
-  protected function form(array $form, FormStateInterface $form_state) {
+  public function form(array $form, FormStateInterface $form_state) {
     $form = parent::form($form, $form_state);
 
     $form['ranking'] = [
