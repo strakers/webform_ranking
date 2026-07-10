@@ -4,16 +4,13 @@ namespace Drupal\Tests\webform_ranking\Unit;
 
 use Drupal\Tests\UnitTestCase;
 use Drupal\webform_ranking\WebformRankingConverter;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Group;
 
-/**
- * @coversDefaultClass \Drupal\webform_ranking\WebformRankingConverter
- * @group webform_ranking
- */
+#[CoversClass(WebformRankingConverter::class)]
+#[Group('webform_ranking')]
 class WebformRankingConverterTest extends UnitTestCase {
 
-  /**
-   * @covers ::matrixToCanonical
-   */
   public function testMatrixToCanonicalOrdersByRank(): void {
     $raw = [
       'item_a' => '2',
@@ -27,9 +24,6 @@ class WebformRankingConverterTest extends UnitTestCase {
     $this->assertSame(['item_c'], $result['na']);
   }
 
-  /**
-   * @covers ::matrixToCanonical
-   */
   public function testMatrixToCanonicalIgnoresEmptyAndInvalidEntries(): void {
     $raw = [
       'item_a' => '1',
@@ -50,17 +44,13 @@ class WebformRankingConverterTest extends UnitTestCase {
     $this->assertSame([], $result['na']);
   }
 
-  /**
-   * @covers ::matrixToCanonical
-   *
-   * A duplicate rank (two items both claiming rank '1') is exactly the
-   * kind of tampered/forged input the converter deliberately does NOT
-   * reject — it silently collapses to one winner here, and
-   * validateWebformRanking() catches the duplication independently by
-   * comparing counts against array_unique(). This test documents that
-   * division of responsibility rather than asserting a specific winner
-   * (which one wins is an implementation detail, not a contract).
-   */
+  // A duplicate rank (two items both claiming rank '1') is exactly the
+  // kind of tampered/forged input the converter deliberately does NOT
+  // reject — it silently collapses to one winner here, and
+  // validateWebformRanking() catches the duplication independently by
+  // comparing counts against array_unique(). This test documents that
+  // division of responsibility rather than asserting a specific winner
+  // (which one wins is an implementation detail, not a contract).
   public function testMatrixToCanonicalDuplicateRankCollapsesToOneEntry(): void {
     $raw = [
       'item_a' => '1',
@@ -72,9 +62,6 @@ class WebformRankingConverterTest extends UnitTestCase {
     $this->assertCount(1, $result['values']);
   }
 
-  /**
-   * @covers ::matrixToCanonical
-   */
   public function testMatrixToCanonicalWithNoInputReturnsEmptyArrays(): void {
     $result = WebformRankingConverter::matrixToCanonical([]);
 
@@ -82,9 +69,6 @@ class WebformRankingConverterTest extends UnitTestCase {
     $this->assertSame([], $result['na']);
   }
 
-  /**
-   * @covers ::canonicalToMatrix
-   */
   public function testCanonicalToMatrixRoundTrip(): void {
     $canonical = [
       'values' => ['item_a', 'item_c'],
@@ -100,14 +84,10 @@ class WebformRankingConverterTest extends UnitTestCase {
     ], $result);
   }
 
-  /**
-   * @covers ::canonicalToMatrix
-   *
-   * An item present in neither values nor na (e.g. conditionally
-   * hidden, or simply not yet answered) must be absent from the
-   * result entirely — not present with a NULL or empty-string rank —
-   * so the matrix row correctly renders with nothing pre-selected.
-   */
+  // An item present in neither values nor na (e.g. conditionally
+  // hidden, or simply not yet answered) must be absent from the
+  // result entirely — not present with a NULL or empty-string rank —
+  // so the matrix row correctly renders with nothing pre-selected.
   public function testCanonicalToMatrixOmitsUnaccountedItems(): void {
     $result = WebformRankingConverter::canonicalToMatrix([
       'values' => ['item_a'],
@@ -118,10 +98,6 @@ class WebformRankingConverterTest extends UnitTestCase {
     $this->assertArrayNotHasKey('item_b', $result);
   }
 
-  /**
-   * @covers ::matrixToCanonical
-   * @covers ::canonicalToMatrix
-   */
   public function testMatrixRoundTripIsStable(): void {
     $canonical = [
       'values' => ['item_c', 'item_a', 'item_b'],
@@ -135,9 +111,6 @@ class WebformRankingConverterTest extends UnitTestCase {
     $this->assertSame($canonical['na'], $result['na']);
   }
 
-  /**
-   * @covers ::dragdropToCanonical
-   */
   public function testDragdropToCanonicalParsesCommaSeparatedValues(): void {
     $raw = [
       'order' => 'item_a,item_c',
@@ -150,9 +123,6 @@ class WebformRankingConverterTest extends UnitTestCase {
     $this->assertSame(['item_b'], $result['na']);
   }
 
-  /**
-   * @covers ::dragdropToCanonical
-   */
   public function testDragdropToCanonicalTrimsWhitespaceAroundValues(): void {
     $raw = [
       'order' => ' item_a , item_c ',
@@ -164,9 +134,6 @@ class WebformRankingConverterTest extends UnitTestCase {
     $this->assertSame(['item_a', 'item_c'], $result['values']);
   }
 
-  /**
-   * @covers ::dragdropToCanonical
-   */
   public function testDragdropToCanonicalHandlesEmptyAndMissingKeys(): void {
     $this->assertSame(
       ['values' => [], 'na' => []],
@@ -178,12 +145,8 @@ class WebformRankingConverterTest extends UnitTestCase {
     );
   }
 
-  /**
-   * @covers ::dragdropToCanonical
-   *
-   * A stray trailing/leading/doubled comma (e.g. "item_a,,item_c")
-   * must not produce an empty-string "item".
-   */
+  // A stray trailing/leading/doubled comma (e.g. "item_a,,item_c")
+  // must not produce an empty-string "item".
   public function testDragdropToCanonicalFiltersOutEmptySegments(): void {
     $result = WebformRankingConverter::dragdropToCanonical([
       'order' => 'item_a,,item_c,',
@@ -193,9 +156,6 @@ class WebformRankingConverterTest extends UnitTestCase {
     $this->assertSame(['item_a', 'item_c'], $result['values']);
   }
 
-  /**
-   * @covers ::canonicalToDragdrop
-   */
   public function testCanonicalToDragdropRoundTrip(): void {
     $canonical = [
       'values' => ['item_a', 'item_c'],
@@ -208,9 +168,6 @@ class WebformRankingConverterTest extends UnitTestCase {
     $this->assertSame('item_b', $result['na']);
   }
 
-  /**
-   * @covers ::accountedFor
-   */
   public function testAccountedForMergesValuesAndNa(): void {
     $canonical = [
       'values' => ['item_a', 'item_c'],
@@ -222,9 +179,6 @@ class WebformRankingConverterTest extends UnitTestCase {
     $this->assertEqualsCanonicalizing(['item_a', 'item_b', 'item_c'], $result);
   }
 
-  /**
-   * @covers ::accountedFor
-   */
   public function testAccountedForWithMissingKeysReturnsEmptyArray(): void {
     $this->assertSame([], WebformRankingConverter::accountedFor([]));
   }
