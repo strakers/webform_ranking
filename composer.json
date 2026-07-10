@@ -20,6 +20,8 @@
         "drupal/webform": "^6.2"
     },
     "require-dev": {
+        "drupal/admin_toolbar": "*",
+        "drupal/gin": "*",
         "drush/drush": "*"
     },
     "config": {
