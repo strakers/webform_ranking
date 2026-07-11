@@ -143,4 +143,55 @@ class WebformRankingValidationTest extends KernelTestBase {
     $this->assertNotEmpty($errors);
   }
 
+  // The exact reported bug this rule fixes: item_b/item_c ranked 2nd
+  // and 3rd, item_a marked N/A — every item is accounted for
+  // (required_all would be satisfied), but nothing is ranked 1st.
+  // Only reachable end-to-end (not via a hand-built #value) because
+  // the check reads the raw per-item input valueCallback() stashes —
+  // see WebformRankingConverter::matrixRanksAreSequential()'s docblock
+  // for why canonical shape alone can't detect this.
+  public function testSkippedFirstRankIsRejectedEndToEnd(): void {
+    $errors = $this->submitAndGetErrors(
+      [
+        '#items' => $this->baseItems(),
+        '#allow_na' => TRUE,
+        '#required_all' => TRUE,
+      ],
+      ['item_a' => 'na', 'item_b' => '2', 'item_c' => '3']
+    );
+
+    $this->assertNotEmpty($errors);
+  }
+
+  // A gap in the *middle* (1st and 3rd used, 2nd skipped) must be
+  // rejected the same way as a skipped 1st place.
+  public function testGapInMiddleRankIsRejectedEndToEnd(): void {
+    $errors = $this->submitAndGetErrors(
+      [
+        '#items' => $this->baseItems(),
+        '#allow_na' => TRUE,
+        '#required_all' => TRUE,
+      ],
+      ['item_a' => '1', 'item_b' => 'na', 'item_c' => '3']
+    );
+
+    $this->assertNotEmpty($errors);
+  }
+
+  // A genuinely partial-but-sequential ranking (1st and 2nd used, 3rd
+  // left N/A) must still pass — the rule only rejects *skipped*
+  // leading ranks, not partial rankings that start from the top.
+  public function testPartialButSequentialRankingPassesEndToEnd(): void {
+    $errors = $this->submitAndGetErrors(
+      [
+        '#items' => $this->baseItems(),
+        '#allow_na' => TRUE,
+        '#required_all' => TRUE,
+      ],
+      ['item_a' => '1', 'item_b' => '2', 'item_c' => 'na']
+    );
+
+    $this->assertSame([], $errors);
+  }
+
 }

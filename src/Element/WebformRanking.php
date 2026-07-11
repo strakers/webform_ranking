@@ -77,9 +77,21 @@ class WebformRanking extends FormElementBase {
     $style = $element['#ranking_style'] ?? 'matrix';
 
     if ($input !== FALSE && is_array($input)) {
-      return $style === 'dragdrop'
-        ? \Drupal\webform_ranking\WebformRankingConverter::dragdropToCanonical($input['dragdrop'] ?? [])
-        : \Drupal\webform_ranking\WebformRankingConverter::matrixToCanonical($input['matrix'] ?? []);
+      if ($style === 'dragdrop') {
+        return \Drupal\webform_ranking\WebformRankingConverter::dragdropToCanonical($input['dragdrop'] ?? []);
+      }
+
+      $matrix_input = $input['matrix'] ?? [];
+      // Stashed for validateWebformRanking()'s sequential-rank check —
+      // matrixToCanonical()'s canonical output below only preserves
+      // relative order, not the literal rank numbers submitted, so
+      // that check needs this raw shape and it's only available here.
+      // #_-prefixed per Drupal's own convention for internal
+      // bookkeeping properties (e.g. WebformElementBase's
+      // #_title_display), not a real element/HTML property.
+      $element['#_matrix_raw_input'] = $matrix_input;
+
+      return \Drupal\webform_ranking\WebformRankingConverter::matrixToCanonical($matrix_input);
     }
 
     // No submitted input: fall back to #default_value (e.g. editing an
@@ -506,6 +518,26 @@ class WebformRanking extends FormElementBase {
     // currently visible — see class-level note above.
     $values = array_values(array_intersect($values, $visible_item_values));
     $na = array_values(array_intersect($na, $visible_item_values));
+
+    // Ranks must be assigned starting from 1st place with no gaps —
+    // e.g. 2nd/3rd can't be used unless 1st is also used. Matrix-only:
+    // dragdrop's ordering is inherently gapless by construction (see
+    // WebformRankingConverter::matrixRanksAreSequential()'s docblock
+    // for why this matters — a skipped rank is invisible in the
+    // canonical $values/$na this method otherwise works with, so this
+    // checks the raw per-item input stashed by valueCallback()
+    // instead). Filtered to currently-visible items first, same as
+    // $values/$na above, so a stale rank on a conditionally-hidden
+    // item can't cause a false-positive gap, and can't mask a real
+    // one among visible items either.
+    $raw_matrix_input = array_intersect_key(
+      $element['#_matrix_raw_input'] ?? [],
+      array_flip($visible_item_values)
+    );
+    if (!\Drupal\webform_ranking\WebformRankingConverter::matrixRanksAreSequential($raw_matrix_input)) {
+      $form_state->setError($element, $translation->translate('@title: ranks must be assigned starting from the top, with no gaps — a lower rank cannot be used unless every rank above it is also used.', ['@title' => $title]));
+      return;
+    }
 
     // Ranks must be a set: no item ranked more than once.
     if (count($values) !== count(array_unique($values))) {

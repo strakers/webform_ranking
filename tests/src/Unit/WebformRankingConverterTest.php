@@ -247,4 +247,60 @@ class WebformRankingConverterTest extends UnitTestCase {
     $this->assertSame(['value' => 'item_a', 'label' => 'Item A'], $result[0]);
   }
 
+  public function testMatrixRanksAreSequentialWithNoRanksAtAllIsTrue(): void {
+    $this->assertTrue(WebformRankingConverter::matrixRanksAreSequential([]));
+  }
+
+  // N/A entries alone (nothing numerically ranked) is vacuously
+  // sequential — there's no numeric rank to have a gap in.
+  public function testMatrixRanksAreSequentialWithOnlyNaEntriesIsTrue(): void {
+    $raw = ['item_a' => 'na', 'item_b' => 'na'];
+
+    $this->assertTrue(WebformRankingConverter::matrixRanksAreSequential($raw));
+  }
+
+  public function testMatrixRanksAreSequentialWithDenseRanksIsTrue(): void {
+    $raw = ['item_a' => '1', 'item_b' => '2', 'item_c' => '3'];
+
+    $this->assertTrue(WebformRankingConverter::matrixRanksAreSequential($raw));
+  }
+
+  // The exact reported bug: 2nd and 3rd used, but nothing ranked 1st.
+  public function testMatrixRanksAreSequentialRejectsSkippedFirstRank(): void {
+    $raw = ['item_a' => 'na', 'item_b' => '2', 'item_c' => '3'];
+
+    $this->assertFalse(WebformRankingConverter::matrixRanksAreSequential($raw));
+  }
+
+  // A single item ranked '2', with nothing else ranked at all — the
+  // simplest possible case of the same underlying gap.
+  public function testMatrixRanksAreSequentialRejectsSingleNonFirstRank(): void {
+    $this->assertFalse(WebformRankingConverter::matrixRanksAreSequential(['item_a' => '2']));
+  }
+
+  public function testMatrixRanksAreSequentialRejectsGapInMiddle(): void {
+    // 1st and 3rd used, 2nd skipped.
+    $raw = ['item_a' => '1', 'item_b' => '3'];
+
+    $this->assertFalse(WebformRankingConverter::matrixRanksAreSequential($raw));
+  }
+
+  public function testMatrixRanksAreSequentialWithPartialRankingUsingRequiredAllFalseStillRequiresSequential(): void {
+    // Only one item ranked (item_c left completely blank, not even
+    // na) — still must start at 1, regardless of #required_all.
+    $raw = ['item_a' => '2'];
+
+    $this->assertFalse(WebformRankingConverter::matrixRanksAreSequential($raw));
+  }
+
+  // Duplicate ranks collapse to one distinct value here — that's a
+  // separate rule (validateWebformRanking()'s own duplicate check),
+  // not this method's concern. Two items both at rank '1' is
+  // trivially sequential on its own.
+  public function testMatrixRanksAreSequentialIgnoresDuplicateRanks(): void {
+    $raw = ['item_a' => '1', 'item_b' => '1'];
+
+    $this->assertTrue(WebformRankingConverter::matrixRanksAreSequential($raw));
+  }
+
 }
