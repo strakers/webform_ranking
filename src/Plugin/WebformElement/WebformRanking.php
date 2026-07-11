@@ -307,23 +307,23 @@ class WebformRanking extends WebformElementBase {
    * resolve to a real DOM input with a scalar value, never the
    * composite array as a whole.
    *
-   * Deliberate scope limit, stated plainly rather than silently
-   * omitted: this only covers the *matrix* style. Each matrix row's
-   * radios element is a real, individually-named DOM input, so
-   * states.js (client-side) and the server-side conditions validator
-   * both evaluate it exactly like any other radios field.
-   *
-   * The *drag/drop* style has no equivalent — an item's rank there
-   * only exists as its position within a comma-joined hidden input
-   * (see WebformRankingConverter), and states.js has no way to express
-   * "parse this CSV value and check whether item X sits at index 1."
-   * Making dragdrop-sourced items usable as #states triggers would mean
-   * either a custom states.js condition evaluator, or maintaining a
-   * second set of real per-item hidden inputs purely for #states to
-   * bind to (duplicating what's already in 'order'/'na'). Not
-   * attempted here — flagging it as a known gap rather than a silent
-   * one. If it's needed, it's a separable follow-up rather than
-   * something to bolt on quickly.
+   * Both display styles are covered, but via different real DOM
+   * inputs:
+   * - Matrix: each row's radios element is already a real,
+   *   individually-named DOM input (`{key}[matrix][{item}]`), so no
+   *   extra data is needed — states.js and the server-side conditions
+   *   validator evaluate it exactly like any other radios field.
+   * - Drag/drop: an item's rank has no equivalent real input of its
+   *   own — it only exists as its position within a comma-joined
+   *   hidden input (see WebformRankingConverter), and states.js has no
+   *   way to express "parse this CSV value and check whether item X
+   *   sits at index 1." Selectors here instead point at a second,
+   *   purely-derived per-item hidden input (`{key}[dragdrop][rank][{item}]`)
+   *   that buildDragDrop()/element.dragdrop's sync() keep in lockstep
+   *   with the real 'order'/'na' inputs specifically so #states has
+   *   something real to bind to. See buildDragDrop()'s docblock for
+   *   the staleness risk this duplication carries and why it's
+   *   confined to one write path.
    *
    * The name of the base class method used for selector suffix
    * construction (getElementSelectorOptions() vs. an equivalent) may
@@ -331,7 +331,7 @@ class WebformRanking extends WebformElementBase {
    * against the exact Webform version this module targets before
    * relying on this signature.
    *
-   * Selector bug fixed: this previously built
+   * Selector bug fixed (matrix): this previously built
    * "{key}[matrix][{item}][rank]", a trailing `[rank]` suffix that
    * never matched any real DOM input — each matrix row's radios share
    * the row's own `#parents` directly (`{key}[matrix][{item}]`, no
@@ -347,7 +347,8 @@ class WebformRanking extends WebformElementBase {
   public function getElementSelectorOptions(array $element) {
     $selectors = parent::getElementSelectorOptions($element);
 
-    if (($element['#ranking_style'] ?? 'matrix') !== 'matrix') {
+    $style = $element['#ranking_style'] ?? 'matrix';
+    if ($style !== 'matrix' && $style !== 'dragdrop') {
       return $selectors;
     }
 
@@ -355,7 +356,9 @@ class WebformRanking extends WebformElementBase {
     $items = $element['#items'] ?? [];
 
     foreach ($items as $item) {
-      $item_selector = ":input[name=\"{$element['#webform_key']}[matrix][{$item['value']}]\"]";
+      $item_selector = $style === 'matrix'
+        ? ":input[name=\"{$element['#webform_key']}[matrix][{$item['value']}]\"]"
+        : ":input[name=\"{$element['#webform_key']}[dragdrop][rank][{$item['value']}]\"]";
       $selectors[$item_selector] = $this->t('@title: @item (rank)', [
         '@title' => $title,
         '@item' => $item['label'],
@@ -411,19 +414,34 @@ class WebformRanking extends WebformElementBase {
    * evaluated (comparing the string "Array" against the trigger's
    * rank value), just never correctly.
    *
-   * Only handles matrix per-item selectors (the only kind
-   * getElementSelectorOptions() exposes, see its docblock for why
-   * dragdrop has no equivalent); anything else defers to the parent
-   * implementation.
+   * Handles both matrix per-item selectors
+   * ("{key}[matrix][{item}]") and drag/drop per-item rank-echo
+   * selectors ("{key}[dragdrop][rank][{item}]", see
+   * getElementSelectorOptions()'s docblock and
+   * WebformRanking::buildDragDrop() for what that echo input is and
+   * why it exists). Either way the item value is the resolved via
+   * getItemRankValue() against the submission's stored data — storage
+   * is unconditionally the flat matrix-shaped map regardless of
+   * display style (validateWebformRanking() always finishes with
+   * canonicalToMatrix()), so no style branching is needed once the
+   * item value is extracted from the selector. Anything else defers
+   * to the parent implementation.
    */
   public function getElementSelectorInputValue($selector, $trigger, array $element, WebformSubmissionInterface $webform_submission) {
-    if (($element['#ranking_style'] ?? 'matrix') === 'matrix') {
-      $input_name = WebformSubmissionConditionsValidator::getSelectorInputName($selector);
-      $parts = $input_name ? WebformSubmissionConditionsValidator::getInputNameAsArray($input_name) : [];
-      if (($parts[1] ?? NULL) === 'matrix' && isset($parts[2])) {
-        $data = $webform_submission->getElementData($element['#webform_key']);
-        return $this->getItemRankValue(is_array($data) ? $data : [], $parts[2]);
-      }
+    $input_name = WebformSubmissionConditionsValidator::getSelectorInputName($selector);
+    $parts = $input_name ? WebformSubmissionConditionsValidator::getInputNameAsArray($input_name) : [];
+
+    $item_value = NULL;
+    if (($parts[1] ?? NULL) === 'matrix' && isset($parts[2])) {
+      $item_value = $parts[2];
+    }
+    elseif (($parts[1] ?? NULL) === 'dragdrop' && ($parts[2] ?? NULL) === 'rank' && isset($parts[3])) {
+      $item_value = $parts[3];
+    }
+
+    if ($item_value !== NULL) {
+      $data = $webform_submission->getElementData($element['#webform_key']);
+      return $this->getItemRankValue(is_array($data) ? $data : [], $item_value);
     }
 
     return parent::getElementSelectorInputValue($selector, $trigger, $element, $webform_submission);

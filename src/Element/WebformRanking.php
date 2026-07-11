@@ -324,6 +324,54 @@ class WebformRanking extends FormElementBase {
       '#parents' => array_merge($element['#parents'], ['dragdrop', 'na']),
     ];
 
+    // Per-item rank echo — a *second*, purely-derived data channel that
+    // exists only so #states has a real per-item selector to point at
+    // (mirrors buildMatrix()'s one-radio-per-item selectors; see
+    // WebformRanking plugin's getElementSelectorOptions()). NOT
+    // authoritative: dragdropToCanonical() only ever reads 'order'/'na'
+    // above, this is never consulted for storage or validation. It
+    // exists solely because 'order' bundles every item's position into
+    // one CSV string, which #states's trigger vocabulary (value/
+    // pattern/etc.) has no way to index into — see docs/CONTINUATION.md
+    // for the full rationale.
+    //
+    // CRITICAL: kept in sync ONLY by element.dragdrop's sync()
+    // function, in lockstep with the order/na writes above. Any new
+    // code path that mutates order/na without going through sync()
+    // will desync this channel — #states would then show a stale rank
+    // while the actually-submitted order/na stays correct, since
+    // storage never reads this. Flagged explicitly so a future edit
+    // doesn't reintroduce a source of stale #states data the way the
+    // matrix Array-to-string bug did for a different reason.
+    $rank_by_value = [];
+    foreach ($order_list as $position => $value) {
+      $rank_by_value[$value] = (string) ($position + 1);
+    }
+    foreach ($na_list as $value) {
+      $rank_by_value[$value] = 'na';
+    }
+    foreach ($items as $item) {
+      $element['dragdrop']['rank'][$item['value']] = [
+        '#type' => 'hidden',
+        '#default_value' => $rank_by_value[$item['value']] ?? '',
+        '#attributes' => [
+          'class' => ['webform-ranking-dragdrop__rank'],
+          // Deliberately a *different* attribute name than the item
+          // container's own data-webform-ranking-value (not just a
+          // different element) — a generic
+          // `[data-webform-ranking-value="x"]` query would otherwise
+          // match whichever of the two happens to come first in DOM
+          // order, silently picking the wrong node. Real bug hit while
+          // browser-testing this feature: a querySelector meant for
+          // the item container instead matched this hidden input
+          // (which renders earlier in the tree) and failed on a null
+          // move-up button.
+          'data-webform-ranking-rank-for' => $item['value'],
+        ],
+        '#parents' => array_merge($element['#parents'], ['dragdrop', 'rank', $item['value']]),
+      ];
+    }
+
     // aria-live region for reorder/N/A-toggle announcements, shared by
     // both interaction paths.
     $element['dragdrop']['live_region'] = [

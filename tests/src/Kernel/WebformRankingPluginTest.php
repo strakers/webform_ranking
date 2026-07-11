@@ -208,22 +208,64 @@ class WebformRankingPluginTest extends KernelTestBase {
     );
   }
 
-  // Dragdrop has no per-item selectors (see getElementSelectorOptions()'s
-  // docblock), so a selector without a "matrix" segment must defer to
-  // the parent implementation rather than being misinterpreted as one.
-  public function testGetElementSelectorInputValueDefersToParentForNonMatrixSelector(): void {
+  // A dragdrop selector that isn't the "rank" echo input (e.g. the
+  // real 'order' field itself) must defer to the parent implementation
+  // rather than being misinterpreted as a per-item rank selector.
+  public function testGetElementSelectorInputValueDefersToParentForNonRankDragdropSelector(): void {
     $webform_submission = $this->createMock(WebformSubmissionInterface::class);
     $webform_submission->method('getElementData')
       ->willReturn(['pizza' => '1', 'burgers' => '2', 'poutine' => 'na']);
 
-    $element = ['#webform_key' => 'preference', '#ranking_style' => 'matrix'];
+    $element = ['#webform_key' => 'preference', '#ranking_style' => 'dragdrop'];
 
-    // Parent's composite-key extraction looks for a 'dragdrop' key in
-    // the flat storage map, which doesn't exist there (matrix-only
-    // data) — NULL is the correct degrade, not a crash or the raw map.
+    // Parent's composite-key extraction looks for an 'order' key in
+    // the flat storage map, which doesn't exist there (storage is
+    // keyed by item value regardless of display style) — NULL is the
+    // correct degrade, not a crash or the raw map.
     $this->assertNull(
       $this->plugin->getElementSelectorInputValue(':input[name="preference[dragdrop][order]"]', 'value', $element, $webform_submission)
     );
+  }
+
+  /**
+   * Drag/drop's per-item rank echo input (see
+   * WebformRanking::buildDragDrop() and this plugin's
+   * getElementSelectorOptions()) must resolve identically to a matrix
+   * per-item selector — same underlying flat storage, just a
+   * differently-shaped selector pointing at it.
+   */
+  public function testGetElementSelectorInputValueResolvesDragdropItemRank(): void {
+    $webform_submission = $this->createMock(WebformSubmissionInterface::class);
+    $webform_submission->method('getElementData')
+      ->with('preference')
+      ->willReturn(['pizza' => '1', 'burgers' => '2', 'poutine' => 'na']);
+
+    $element = ['#webform_key' => 'preference', '#ranking_style' => 'dragdrop'];
+
+    $this->assertSame(
+      '1',
+      $this->plugin->getElementSelectorInputValue(':input[name="preference[dragdrop][rank][pizza]"]', 'value', $element, $webform_submission)
+    );
+    $this->assertSame(
+      'na',
+      $this->plugin->getElementSelectorInputValue(':input[name="preference[dragdrop][rank][poutine]"]', 'value', $element, $webform_submission)
+    );
+  }
+
+  public function testGetElementSelectorOptionsExposesPerItemSelectorsForBothStyles(): void {
+    $element = [
+      '#webform_key' => 'preference',
+      '#title' => 'Preference',
+      '#items' => $this->items(),
+    ];
+
+    $matrix_selectors = $this->plugin->getElementSelectorOptions($element + ['#ranking_style' => 'matrix']);
+    $this->assertArrayHasKey(':input[name="preference[matrix][item_a]"]', $matrix_selectors);
+    $this->assertArrayNotHasKey(':input[name="preference[dragdrop][rank][item_a]"]', $matrix_selectors);
+
+    $dragdrop_selectors = $this->plugin->getElementSelectorOptions($element + ['#ranking_style' => 'dragdrop']);
+    $this->assertArrayHasKey(':input[name="preference[dragdrop][rank][item_a]"]', $dragdrop_selectors);
+    $this->assertArrayNotHasKey(':input[name="preference[matrix][item_a]"]', $dragdrop_selectors);
   }
 
 }

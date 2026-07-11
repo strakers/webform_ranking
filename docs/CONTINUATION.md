@@ -98,13 +98,17 @@ no-input fallback only ever see canonical shape. The plugin's
   `FormBuilder::submitForm()`, see Known Gaps), and
   `WebformRankingPluginTest` (the plugin itself, instantiated via
   `plugin.manager.webform.element`: `getItemRankValue()`,
-  `getTestValues()`, `getElementSelectorInputValue()` (mocked
-  `WebformSubmissionInterface`, see Key Design Decision #12), and
-  private `resolveRankDisplay()` via reflection — NOT
-  `formatHtmlItem()`/`formatTextItem()` themselves, which need a
-  real Webform + WebformSubmission and are left to the same
-  Functional/Nightwatch tier as `#process`, see Known Gaps). All pass,
-  0 warnings/errors as of last run (62 tests total).
+  `getTestValues()`, `getElementSelectorInputValue()` and
+  `getElementSelectorOptions()` for both matrix and dragdrop selector
+  shapes (mocked `WebformSubmissionInterface`, see Key Design
+  Decisions #12/#13), and private `resolveRankDisplay()` via
+  reflection — NOT `formatHtmlItem()`/`formatTextItem()` themselves,
+  which need a real Webform + WebformSubmission and are left to the
+  same Functional/Nightwatch tier as `#process`, see Known Gaps). All
+  pass, 0 warnings/errors as of last run (64 tests total). Note: the
+  dragdrop `#states` reorder→reveal behavior itself (the `sync()`/JS
+  side of Key Design Decision #13) has no automated coverage — it was
+  verified manually in a browser, same caveat as `#process` below.
 
 ## Key Design Decisions (with rationale)
 1. **Matrix radios**: one radio group per *item* (row), not per rank
@@ -114,12 +118,15 @@ no-input fallback only ever see canonical shape. The plugin's
    even a forged non-sequential array is harmless once reindexed since
    rank = iteration order, not literal keys).
 3. **`#states`/Likert-bug fix**: `getElementSelectorOptions()` exposes
-   per-item selectors for matrix (real DOM radio inputs) but **NOT for
-   dragdrop** (rank only exists inside a comma-joined hidden input;
-   `states.js` can't parse that) — explicit, documented limitation.
-   (The selector string this method built had its own separate bug —
-   a bogus `[rank]` suffix that never matched a real input — fixed
-   later; see Key Design Decision #10.)
+   per-item selectors so an admin building a condition is only ever
+   offered sub-selectors resolving to a real scalar, never the
+   composite array as a whole. Originally matrix-only, with dragdrop
+   flagged as a known, deliberate gap (rank only existed inside a
+   comma-joined hidden input, which `states.js` can't parse) — dragdrop
+   support was added later via a second per-item data channel; see Key
+   Design Decision #13. (The selector string this method built had its
+   own separate bug — a bogus `[rank]` suffix that never matched a
+   real input — fixed later; see Key Design Decision #10.)
 4. **Per-item conditional visibility admin UI**: originally
    `webform_element_states` (Webform's visual conditions builder) nested
    inside the `webform_multiple` items table — **crashed in production**
@@ -268,6 +275,70 @@ no-input fallback only ever see canonical shape. The plugin's
     selector. Verified live: submitting a valid ranking produces zero
     watchdog warnings and correct stored data.
 
+13. **Drag/drop items can now be used as `#states` trigger sources**
+    (previously a documented, deliberate gap — see the old text of
+    Key Design Decision #3). Root cause recap: `#states`'s trigger
+    vocabulary (`value`/`pattern`/`empty`/etc., both client-side in
+    `states.js` and server-side in
+    `WebformSubmissionConditionsValidator::checkConditionTrigger()`)
+    only ever compares *one selector's raw value* — it has no concept
+    of "parse this delimited string and pull out field N." Drag/drop's
+    only real DOM inputs are two hidden fields, `order` (a comma-joined
+    CSV of ranked item values) and `na` — an item's rank exists only as
+    its *position* in that CSV, which isn't a thing any trigger type
+    can express, so there was no real input to build a per-item
+    selector against.
+    Fixed by adding a **second, purely-derived data channel**: one
+    extra hidden input per item (`{key}[dragdrop][rank][{item}]`,
+    `WebformRanking::buildDragDrop()`), holding that item's own
+    rank/`na`/`''`. `element.dragdrop`'s `sync()` — the single function
+    every reorder path (drag, buttons, arrow keys) already funnels
+    through — writes these alongside `order`/`na` and dispatches a
+    native `change` event on each (`states.js`'s `value` trigger listens
+    for `keyup`/`change`; a programmatically-set `.value` fires
+    neither on its own). `getElementSelectorOptions()` now emits one
+    selector per item for *both* styles; `getElementSelectorInputValue()`
+    resolves either shape (`[matrix][{item}]` or
+    `[dragdrop][rank][{item}]`) down to the same `getItemRankValue()`
+    call, since storage is unconditionally the flat matrix-shaped map
+    regardless of display style (`validateWebformRanking()` always
+    finishes with `canonicalToMatrix()`) — no style branching needed
+    once the item value is extracted from the selector.
+    **This is a second source of truth, and that's a real, permanent
+    risk, not just a one-time implementation detail**: nothing
+    *enforces* that the per-item echo stays in lockstep with
+    `order`/`na` except the convention that `sync()` is the only place
+    any of the three are ever written. A future change to reordering
+    logic that updates `order`/`na` through a different path (e.g. a
+    quick fix that sets `orderInput.value` directly instead of calling
+    `sync()`) would silently desync `#states` from the actually-
+    submitted ranking — validation/storage would still be correct
+    (they only ever read `order`/`na`), but a dependent field could
+    show/hide based on stale rank data with no error raised anywhere.
+    Anyone touching `element.dragdrop`'s reorder paths should route
+    through `sync()`, never write `order`/`na`/the rank inputs
+    directly elsewhere, and re-verify this specific scenario
+    (`#states` triggered by a dragdrop item's rank) if that function is
+    restructured. The equivalent single-source-of-truth risk for matrix
+    doesn't exist, since matrix's real radio inputs *are* the storage
+    values — nothing there needed a second channel.
+    A second, unrelated bug surfaced during manual verification: the
+    rank-echo hidden input was initially given the *same*
+    `data-webform-ranking-value` attribute as the item container, so a
+    generic `[data-webform-ranking-value="x"]` query could silently
+    match whichever element happened to render first in the DOM
+    instead of the intended one (hit for real: a test script's
+    `querySelector` meant for the item container matched the hidden
+    input instead, then failed on a null `move-up` button). Fixed by
+    giving the echo input its own distinct attribute,
+    `data-webform-ranking-rank-for`.
+    Verified live in a browser: promoting an item to 1st via the
+    move-up button revealed its dependent markup element instantly, no
+    reload; moving a different item to 1st correctly hid the first and
+    revealed the second; marking an item N/A correctly showed `'na'`
+    and re-promoted the next item; the final submission stored the
+    correct data with zero watchdog warnings.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,
@@ -281,6 +352,14 @@ evidence rather than assert confidently.
 ## Known Gaps / Pending Tasks (not hidden, explicitly flagged in code)
 - **`#process` has zero automated coverage** — needs Functional/Nightwatch,
   not Kernel (renders actual HTML).
+- **Dragdrop's per-item `#states` rank echo (Key Design Decision #13) has
+  no automated coverage of the JS/DOM behavior itself** — `sync()` writing
+  and dispatching `change` on the echo inputs was verified manually in a
+  browser only. The PHP-side selector generation/resolution is unit-tested;
+  the actual reorder→live-reveal behavior isn't. Same Functional/Nightwatch
+  tier as `#process` above; also the piece most likely to silently regress
+  if `element.dragdrop`'s reorder logic is ever restructured without
+  routing through `sync()` (see #13's staleness-risk note).
 - **Resolver's "item becomes visible because real trigger matched" path**
   is untested — only fail-closed/no-context side is covered. Needs a real
   `Webform` entity + `WebformSubmissionForm` integration test.
