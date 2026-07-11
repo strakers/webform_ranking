@@ -5,6 +5,7 @@ namespace Drupal\webform_ranking\Plugin\WebformElement;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\webform\Plugin\WebformElementBase;
 use Drupal\webform\WebformInterface;
+use Drupal\webform\WebformSubmissionConditionsValidator;
 use Drupal\webform\WebformSubmissionInterface;
 
 /**
@@ -389,6 +390,43 @@ class WebformRanking extends WebformElementBase {
   public function getItemRankValue(array $data, string $item_value): ?string {
     $value = $data[$item_value] ?? NULL;
     return is_scalar($value) ? (string) $value : NULL;
+  }
+
+  /**
+   * {@inheritdoc}
+   *
+   * Without this override, the server-side conditions validator falls
+   * back to WebformElementBase's generic composite-key extraction,
+   * which assumes a composite's sub-properties are known, fixed keys
+   * (e.g. WebformName's 'first'/'last') and reduces stored data via
+   * `$value[$composite_key]`. Our per-item selectors (see
+   * getElementSelectorOptions()) use the item's *value* as the third
+   * selector segment (e.g. "preference[matrix][pizza]"), which isn't
+   * a real key in that sense — it doesn't match anything in the flat
+   * item-value => rank storage map, and the generic extraction can't
+   * reduce it. Confirmed via watchdog: the whole flat map reached
+   * checkConditionTrigger() as $element_value, which then hit
+   * `(string) $element_value`, an array, producing PHP's "Array to
+   * string conversion" warning — the trigger condition still
+   * evaluated (comparing the string "Array" against the trigger's
+   * rank value), just never correctly.
+   *
+   * Only handles matrix per-item selectors (the only kind
+   * getElementSelectorOptions() exposes, see its docblock for why
+   * dragdrop has no equivalent); anything else defers to the parent
+   * implementation.
+   */
+  public function getElementSelectorInputValue($selector, $trigger, array $element, WebformSubmissionInterface $webform_submission) {
+    if (($element['#ranking_style'] ?? 'matrix') === 'matrix') {
+      $input_name = WebformSubmissionConditionsValidator::getSelectorInputName($selector);
+      $parts = $input_name ? WebformSubmissionConditionsValidator::getInputNameAsArray($input_name) : [];
+      if (($parts[1] ?? NULL) === 'matrix' && isset($parts[2])) {
+        $data = $webform_submission->getElementData($element['#webform_key']);
+        return $this->getItemRankValue(is_array($data) ? $data : [], $parts[2]);
+      }
+    }
+
+    return parent::getElementSelectorInputValue($selector, $trigger, $element, $webform_submission);
   }
 
   /**

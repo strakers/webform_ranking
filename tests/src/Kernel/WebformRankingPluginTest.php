@@ -4,6 +4,7 @@ namespace Drupal\Tests\webform_ranking\Kernel;
 
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\webform\WebformInterface;
+use Drupal\webform\WebformSubmissionInterface;
 use PHPUnit\Framework\Attributes\Group;
 
 /**
@@ -166,6 +167,63 @@ class WebformRankingPluginTest extends KernelTestBase {
     $result = $this->invokePrivate('resolveRankDisplay', [[], ['1st'], '5']);
 
     $this->assertSame('Not ranked', (string) $result);
+  }
+
+  /**
+   * Real bug this override fixes: without it, the server-side
+   * conditions validator (WebformSubmissionConditionsValidator) hands
+   * the whole flat storage map to checkConditionTrigger(), which then
+   * does `(string) $element_value` on an array — a real "Array to
+   * string conversion" PHP warning, confirmed via watchdog before this
+   * fix. getElementSelectorInputValue() must instead resolve a single
+   * item's rank via getItemRankValue(), the companion method this was
+   * built for but never wired up until now.
+   */
+  public function testGetElementSelectorInputValueResolvesSingleItemRank(): void {
+    $webform_submission = $this->createMock(WebformSubmissionInterface::class);
+    $webform_submission->method('getElementData')
+      ->with('preference')
+      ->willReturn(['pizza' => 'na', 'burgers' => '2', 'poutine' => '3']);
+
+    $element = ['#webform_key' => 'preference', '#ranking_style' => 'matrix'];
+
+    $this->assertSame(
+      '2',
+      $this->plugin->getElementSelectorInputValue(':input[name="preference[matrix][burgers]"]', 'value', $element, $webform_submission)
+    );
+    $this->assertSame(
+      'na',
+      $this->plugin->getElementSelectorInputValue(':input[name="preference[matrix][pizza]"]', 'value', $element, $webform_submission)
+    );
+  }
+
+  public function testGetElementSelectorInputValueReturnsNullForItemNotYetRanked(): void {
+    $webform_submission = $this->createMock(WebformSubmissionInterface::class);
+    $webform_submission->method('getElementData')->willReturn(['pizza' => '1']);
+
+    $element = ['#webform_key' => 'preference', '#ranking_style' => 'matrix'];
+
+    $this->assertNull(
+      $this->plugin->getElementSelectorInputValue(':input[name="preference[matrix][burgers]"]', 'value', $element, $webform_submission)
+    );
+  }
+
+  // Dragdrop has no per-item selectors (see getElementSelectorOptions()'s
+  // docblock), so a selector without a "matrix" segment must defer to
+  // the parent implementation rather than being misinterpreted as one.
+  public function testGetElementSelectorInputValueDefersToParentForNonMatrixSelector(): void {
+    $webform_submission = $this->createMock(WebformSubmissionInterface::class);
+    $webform_submission->method('getElementData')
+      ->willReturn(['pizza' => '1', 'burgers' => '2', 'poutine' => 'na']);
+
+    $element = ['#webform_key' => 'preference', '#ranking_style' => 'matrix'];
+
+    // Parent's composite-key extraction looks for a 'dragdrop' key in
+    // the flat storage map, which doesn't exist there (matrix-only
+    // data) — NULL is the correct degrade, not a crash or the raw map.
+    $this->assertNull(
+      $this->plugin->getElementSelectorInputValue(':input[name="preference[dragdrop][order]"]', 'value', $element, $webform_submission)
+    );
   }
 
 }

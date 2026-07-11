@@ -98,11 +98,13 @@ no-input fallback only ever see canonical shape. The plugin's
   `FormBuilder::submitForm()`, see Known Gaps), and
   `WebformRankingPluginTest` (the plugin itself, instantiated via
   `plugin.manager.webform.element`: `getItemRankValue()`,
-  `getTestValues()`, and private `resolveRankDisplay()` via reflection —
-  NOT `formatHtmlItem()`/`formatTextItem()` themselves, which need a
+  `getTestValues()`, `getElementSelectorInputValue()` (mocked
+  `WebformSubmissionInterface`, see Key Design Decision #12), and
+  private `resolveRankDisplay()` via reflection — NOT
+  `formatHtmlItem()`/`formatTextItem()` themselves, which need a
   real Webform + WebformSubmission and are left to the same
   Functional/Nightwatch tier as `#process`, see Known Gaps). All pass,
-  0 warnings/errors as of last run (48 tests total).
+  0 warnings/errors as of last run (62 tests total).
 
 ## Key Design Decisions (with rationale)
 1. **Matrix radios**: one radio group per *item* (row), not per rank
@@ -222,6 +224,49 @@ no-input fallback only ever see canonical shape. The plugin's
     (verified through our own rank-exclusivity JS, which disables a
     rank everywhere else once assigned — an easy false negative if you
     click a still-disabled radio expecting it to register).
+
+11. **Matrix ranks must be sequential from 1st place, no gaps** — real
+    reported bug: item_b/item_c ranked 2nd/3rd, item_a marked N/A,
+    `#required_all` satisfied (every item accounted for), but nothing
+    ranked 1st. `matrixToCanonical()`'s output only preserves relative
+    order, not literal rank numbers, so a skipped leading rank is
+    silently "coalesced" away once canonical — meaning a live `#states`
+    condition checking "is item X ranked 1st" never fires client-side
+    (nothing in the DOM is literally '1'), even though item X would be
+    stored as 1st on submit. Fixed with
+    `WebformRankingConverter::matrixRanksAreSequential()` (pure, unit
+    tested) plus a stash of the *raw* per-item matrix input on
+    `$element['#_matrix_raw_input']` in `valueCallback()` (canonical
+    shape alone can't detect the gap — see the method's own docblock),
+    checked in `validateWebformRanking()` against currently-visible
+    items only. Verified live in a browser: submitting exactly this
+    scenario now shows "ranks must be assigned starting from the top,
+    with no gaps..."; a valid sequential ranking (1st/2nd used, 3rd
+    N/A) submits cleanly.
+
+12. **`getItemRankValue()` existed but was never wired up — real
+    `Warning: Array to string conversion` hit live.** The plugin had
+    `getItemRankValue()` (Key Design Decision area, added for exactly
+    this purpose, unit-tested via `WebformRankingPluginTest`) but no
+    caller ever invoked it. `WebformElementBase`'s default
+    `getElementSelectorInputValue()` (used by the server-side
+    conditions validator, `WebformSubmissionConditionsValidator`, to
+    resolve what value a `#states` selector currently points to) does
+    composite-key extraction assuming fixed sub-property keys (e.g.
+    `WebformName`'s 'first'/'last') via `$value[$composite_key]`. Our
+    per-item selectors (`getElementSelectorOptions()`) use the item's
+    *value* as the third selector segment (e.g.
+    `"preference[matrix][pizza]"`), which isn't a real key in the flat
+    item-value => rank storage map, so the generic extraction silently
+    failed to reduce it — the whole flat map reached
+    `checkConditionTrigger()`, which then did `(string) $element_value`
+    on an array. Confirmed via watchdog before the fix: the exact PHP
+    warning, with `element_value=Array(...)`. Fixed by overriding
+    `getElementSelectorInputValue()` in the plugin to parse the item
+    value out of the selector and call `getItemRankValue()` directly;
+    falls back to `parent::` for anything that isn't a matrix per-item
+    selector. Verified live: submitting a valid ranking produces zero
+    watchdog warnings and correct stored data.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
