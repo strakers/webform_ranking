@@ -50,6 +50,17 @@ class WebformRankingPluginTest extends KernelTestBase {
    */
   protected function setUp(): void {
     parent::setUp();
+    // Needed for prepare() (see WebformElementBase::prepare()), which
+    // reads webform.settings:element.allowed_tags — unset, that's NULL,
+    // and passing NULL to preg_split() there triggers a PHP
+    // deprecation. Setting the one key directly rather than
+    // installConfig(['webform']): the latter pulls in webform's full
+    // default config, including config *entities* (e.g. the 'contact'
+    // webform) that need entity schema this minimal test doesn't
+    // install, and fails on a missing DB table.
+    \Drupal::configFactory()->getEditable('webform.settings')
+      ->set('element.allowed_tags', 'admin')
+      ->save();
     $this->plugin = \Drupal::service('plugin.manager.webform.element')->createInstance('webform_ranking');
   }
 
@@ -266,6 +277,72 @@ class WebformRankingPluginTest extends KernelTestBase {
     $dragdrop_selectors = $this->plugin->getElementSelectorOptions($element + ['#ranking_style' => 'dragdrop']);
     $this->assertArrayHasKey(':input[name="preference[dragdrop][rank][item_a]"]', $dragdrop_selectors);
     $this->assertArrayNotHasKey(':input[name="preference[matrix][item_a]"]', $dragdrop_selectors);
+  }
+
+  /**
+   * Real bug: config saved before 'states' had '#decode_value' => TRUE
+   * on the admin form (see form()'s docblock for that field) left
+   * per-item 'states' as a raw YAML *string*. Left un-decoded,
+   * buildMatrix()/buildDragDrop() hand that string directly to
+   * '#states', and Drupal's FormHelper::processStates() JSON-encodes a
+   * string exactly as readily as an array — producing a
+   * data-drupal-states attribute states.js can't parse as a
+   * conditions object, with no error anywhere. prepare() must decode
+   * it back into a real array so already-saved config self-heals
+   * without a manual data migration.
+   */
+  public function testPrepareDecodesStringItemStatesIntoArray(): void {
+    $element = [
+      '#items' => [
+        [
+          'value' => 'item_a',
+          'label' => 'Item A',
+          'states' => "invisible:\n  ':input[name=\"field\"]':\n    filled: true",
+        ],
+      ],
+    ];
+
+    $this->plugin->prepare($element);
+
+    $this->assertSame(
+      ['invisible' => [':input[name="field"]' => ['filled' => TRUE]]],
+      $element['#items'][0]['states']
+    );
+  }
+
+  // Config saved *after* the '#decode_value' fix already has 'states'
+  // as a real array — prepare() must leave it untouched rather than
+  // double-processing (WebformYaml::decode() called on an already-array
+  // value would be a type error).
+  public function testPrepareLeavesArrayItemStatesUntouched(): void {
+    $states = ['visible' => [':input[name="field"]' => ['value' => 'yes']]];
+    $element = [
+      '#items' => [
+        ['value' => 'item_a', 'label' => 'Item A', 'states' => $states],
+      ],
+    ];
+
+    $this->plugin->prepare($element);
+
+    $this->assertSame($states, $element['#items'][0]['states']);
+  }
+
+  // An item with no condition configured at all has 'states' as an
+  // empty string (the admin never checked "use conditional
+  // visibility") — must decode to an empty array, not an error, so
+  // downstream `!empty($item['states'])` checks (buildMatrix()/
+  // buildDragDrop(), WebformRankingVisibilityResolver) correctly treat
+  // it as "no condition".
+  public function testPrepareDecodesEmptyStringItemStatesToEmptyArray(): void {
+    $element = [
+      '#items' => [
+        ['value' => 'item_a', 'label' => 'Item A', 'states' => ''],
+      ],
+    ];
+
+    $this->plugin->prepare($element);
+
+    $this->assertSame([], $element['#items'][0]['states']);
   }
 
 }

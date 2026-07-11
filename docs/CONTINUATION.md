@@ -101,11 +101,16 @@ no-input fallback only ever see canonical shape. The plugin's
   `getTestValues()`, `getElementSelectorInputValue()` and
   `getElementSelectorOptions()` for both matrix and dragdrop selector
   shapes (mocked `WebformSubmissionInterface`, see Key Design
-  Decisions #12/#13), and private `resolveRankDisplay()` via
-  reflection — NOT `formatHtmlItem()`/`formatTextItem()` themselves,
-  which need a real Webform + WebformSubmission and are left to the
-  same Functional/Nightwatch tier as `#process`, see Known Gaps). All
-  pass, 0 warnings/errors as of last run (64 tests total). Note: the
+  Decisions #12/#13), `prepare()`'s string-vs-array `states`
+  normalization (Key Design Decision #14; `setUp()` sets
+  `webform.settings:element.allowed_tags` directly rather than
+  `installConfig(['webform'])`, which pulls in config *entities*
+  needing DB schema this minimal test doesn't install), and private
+  `resolveRankDisplay()` via reflection — NOT
+  `formatHtmlItem()`/`formatTextItem()` themselves, which need a real
+  Webform + WebformSubmission and are left to the same
+  Functional/Nightwatch tier as `#process`, see Known Gaps). All pass,
+  0 warnings/errors as of last run (67 tests total). Note: the
   dragdrop `#states` reorder→reveal behavior itself (the `sync()`/JS
   side of Key Design Decision #13) has no automated coverage — it was
   verified manually in a browser, same caveat as `#process` below.
@@ -338,6 +343,63 @@ no-input fallback only ever see canonical shape. The plugin's
     revealed the second; marking an item N/A correctly showed `'na'`
     and re-promoted the next item; the final submission stored the
     correct data with zero watchdog warnings.
+
+14. **Per-item conditional visibility (#states YAML) never actually
+    worked — root cause: the YAML string was never decoded into an
+    array.** Reported bug (GitHub issue #5): an item's configured
+    condition never hid/showed it, even though the identical condition
+    applied correctly to an ordinary control element used as an A/B
+    comparison. Confirmed live: the item's `data-drupal-states`
+    attribute was `"invisible:\n  ...` — the JSON-encoding of a
+    **string** (the raw YAML source), not a JSON object. Traced to
+    `web/modules/contrib/webform/src/Element/WebformCodeMirror.php`'s
+    `validateWebformCodeMirror()`: it only auto-decodes a submitted
+    YAML string into an array when `#default_value` is already an
+    array, or when `'#decode_value' => TRUE` is set — neither was true
+    for our per-item `states` field (its default comes from stored
+    config via `#webform_multiple`, which for a not-yet-fixed item was
+    itself a string). Without that, `$item['states']` stayed a raw
+    string all the way through `validateConfigurationForm()` into saved
+    config (visible in exported config as a YAML block-scalar,
+    `states: |- ...`, instead of a real nested mapping) and into
+    `buildMatrix()`/`buildDragDrop()`'s `#states` assignment — Drupal's
+    `FormHelper::processStates()` JSON-encodes a string exactly as
+    happily as an array, so nothing errored anywhere; the condition
+    just silently never matched. The same un-decoded string would also
+    reach `WebformRankingVisibilityResolver`, which passes it to
+    `WebformSubmissionConditionsValidator::validateConditions(array
+    $conditions, ...)` — a strictly array-typed parameter — though a
+    resulting server-side `TypeError` was only a hypothesis in the
+    original issue, not separately confirmed before the fix.
+    Fixed with two changes, matching the two ways broken data could
+    exist:
+    - **Going forward**: added `'#decode_value' => TRUE` to the
+      `states` field definition in `form()` — the same, already-real
+      Webform-core pattern used by `WebformTable.php` for an identical
+      "array edited as YAML text inside another admin form" situation.
+      This makes `WebformCodeMirror`'s own validate callback decode and
+      save a real array from now on, and gets free "not valid YAML"
+      error messaging on the admin form as a side effect.
+    - **Self-healing for already-saved config**: `prepare()` now
+      normalizes any item whose `states` is still a string, decoding it
+      via `WebformYaml::decode()`. Both `buildMatrix()`/`buildDragDrop()`
+      and `WebformRankingVisibilityResolver` read `#items` from this
+      same prepared `$element`, so one normalization point covers both
+      consumers with no separate data migration needed — unlike Key
+      Design Decision #10's already-saved-selector fix, which did need
+      one, because that bug lived in config as a broken *string value*
+      with no single shared read path to intercept it at.
+    Verified live in a browser: the previously-broken item now hides in
+    lockstep with its A/B-comparison control field with zero manual
+    config changes (self-healing fix alone); re-saving the element
+    through the actual admin config form afterward produces a properly
+    nested YAML mapping in exported config instead of a block-scalar
+    string (forward-going fix); final submission with the item
+    conditionally hidden completes with no errors and correctly
+    excludes it from stored data (the hypothesized resolver `TypeError`
+    did not reproduce post-fix — not independently verified pre-fix,
+    so treat that specific detail as unconfirmed rather than
+    disproven).
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
