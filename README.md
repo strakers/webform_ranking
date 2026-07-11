@@ -16,9 +16,9 @@ and full server- and client-side validation.
   instead of ranking it.
 - **Per-item conditional visibility** — show or hide individual items
   based on other form values, using a `#states`-style YAML condition.
-- **`#states` integration** — in matrix mode, each item's rank can be
-  used as a trigger for other elements' conditions (e.g. "show this
-  field only if Pizza is ranked 1st").
+- **`#states` integration** — in both display styles, each item's rank
+  can be used as a trigger for other elements' conditions (e.g. "show
+  this field only if Pizza is ranked 1st").
 - **Randomizable item order** — reduce position bias in survey-style
   rankings.
 - **Custom rank labels** — override the default "1st, 2nd, 3rd..."
@@ -60,17 +60,15 @@ drush en webform_ranking
 
 ### Using an item's rank as a condition trigger
 
-In matrix mode, each item exposes its own selector (e.g. "Ranking:
-Pizza (rank)") in the `#states` condition-builder UI on *other*
-elements, so you can show/hide a field based on whether a specific
-item was ranked 1st, 2nd, etc. Drag-and-drop mode does not support
-this — an item's rank there only exists as its position in a single
-combined value, which `#states` can't parse.
+In both matrix and drag-and-drop mode, each item exposes its own
+selector (e.g. "Ranking: Pizza (rank)") in the `#states`
+condition-builder UI on *other* elements, so you can show/hide a
+field based on whether a specific item was ranked 1st, 2nd, etc., or
+marked N/A. This reacts live in the browser as the respondent
+re-ranks items — no page reload needed.
 
 ## Known limitations
 
-- Drag-and-drop items can't be used as `#states` trigger sources (see
-  above).
 - Per-item conditional visibility is configured as raw YAML, not
   Webform's visual conditions builder.
 - The matrix style's rank columns are static and don't renumber when

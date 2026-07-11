@@ -39,6 +39,23 @@
     var naInput = container.querySelector('.webform-ranking-dragdrop__na');
     var liveRegion = container.querySelector('.webform-ranking-dragdrop__live-region');
 
+    // Per-item rank echo inputs (see WebformRanking::buildDragDrop()) —
+    // the only reason these exist is to give #states a real per-item
+    // selector, since 'order' bundles every item into one CSV that
+    // #states can't index into. Looked up via data-webform-ranking-
+    // rank-for, deliberately a different attribute than the item
+    // container's own data-webform-ranking-value (config-time-
+    // enforced unique per item, see validateConfigurationForm()'s
+    // values_seen check) — a generic query for the latter would
+    // otherwise match whichever of the two happens to come first in
+    // DOM order. Do NOT write these inputs anywhere else — a second
+    // write path is exactly how this channel would end up stale
+    // relative to the actually-submitted order/na.
+    var rankInputsByValue = {};
+    Array.prototype.slice.call(container.querySelectorAll('.webform-ranking-dragdrop__rank')).forEach(function (input) {
+      rankInputsByValue[input.getAttribute('data-webform-ranking-rank-for')] = input;
+    });
+
     function allItems() {
       return Array.prototype.slice.call(container.children).filter(function (el) {
         return el.classList && el.classList.contains('webform-ranking-dragdrop__item');
@@ -134,6 +151,11 @@
      * #states react live to a reorder elsewhere on the form — states.js
      * only watches real field values, it has no idea a plain DOM
      * mutation just happened.
+     *
+     * Also writes each item's own rank echo input (see
+     * rankInputsByValue above) in the same pass, for the same reason —
+     * this is the ONLY place any of these inputs are ever written, by
+     * design, so order/na and the per-item echoes can never disagree.
      */
     function sync() {
       var order = rankedItems().map(function (item) {
@@ -148,7 +170,26 @@
       orderInput.dispatchEvent(new Event('change', {bubbles: true}));
       naInput.dispatchEvent(new Event('change', {bubbles: true}));
 
+      order.forEach(function (value, index) {
+        setRankInput(value, String(index + 1));
+      });
+      na.forEach(function (value) {
+        setRankInput(value, 'na');
+      });
+
       renumber();
+    }
+
+    function setRankInput(value, rank) {
+      var input = rankInputsByValue[value];
+      if (!input) {
+        return;
+      }
+      if (input.value === rank) {
+        return;
+      }
+      input.value = rank;
+      input.dispatchEvent(new Event('change', {bubbles: true}));
     }
 
     function moveItem(item, delta) {
