@@ -320,6 +320,15 @@
         var before = event.clientY < (rect.top + rect.height / 2);
         container.insertBefore(item, before ? targetItem : targetItem.nextSibling);
 
+        // Reparenting the captured element mid-gesture silently breaks
+        // pointer capture in Chromium (no error, no lostpointercapture
+        // event — subsequent pointermove events for this pointerId
+        // simply stop arriving at all). Confirmed via an isolated
+        // pointermove counter in a FunctionalJavascript test: a second,
+        // later move in the same drag never fired after the first
+        // insertBefore(), even though its coordinates should have
+        // resolved to a different item. Re-capturing immediately after
+        // every reorder keeps the rest of the same drag gesture alive.
         item.setPointerCapture(pointerId);
       });
 
