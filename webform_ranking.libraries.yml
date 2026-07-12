@@ -24,13 +24,14 @@ element.dragdrop:
     - core/once
 
 # Attached only to the element's config/admin form (see form() in the
-# WebformElement plugin), not to rendered form output. Purely a
-# progressive-disclosure UI convenience — see the field definitions and
-# validateConfigurationForm() in the plugin class for why this never
-# touches saved config.
+# WebformElement plugin), not to rendered form output. Purely a UI
+# convenience — see the field definitions and validateConfigurationForm()
+# in the plugin class for why this never touches saved config.
 element.itemsAdmin:
   js:
     js/webform_ranking.items_admin.js: {}
   dependencies:
     - core/drupal
     - core/once
+    - core/jquery
+    - core/drupal.dialog
