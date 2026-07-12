@@ -1,108 +1,153 @@
 /**
  * @file
- * Progressive disclosure for the per-item "conditional visibility"
- * YAML field on the Ranking element's config form.
+ * Per-item "conditional visibility" YAML field on the Ranking element's
+ * config form: presented in a dialog rather than inline in the items
+ * table, so the table itself stays compact regardless of how many items
+ * have a condition configured.
  *
- * Deliberately not using Drupal's States API for this toggle, even
- * though that's the normal mechanism for show/hide-on-checkbox — see
- * the field definitions in WebformRanking::form() for why: the
- * previous attempt at conditional UI here (webform_element_states
- * nested inside a #webform_multiple row) crashed in production, and
- * this avoids leaning on another not-fully-verified Drupal-internals
- * mechanism inside the same nested-widget context. Plain DOM show/hide
- * instead.
+ * History: an earlier version used a per-row checkbox to inline
+ * show/hide the YAML field (progressive disclosure), scoped to "this
+ * row" via a structure-agnostic DOM walk-up (findRowContainer()). That
+ * checkbox/toggle never actually worked (GitHub issue #4) — the walk-up
+ * heuristic scoped checkboxes to the wrong row's wrapper against
+ * webform_multiple's real markup. Rather than debug that heuristic
+ * further, this was redesigned per-item to a dialog: even inline-and-
+ * expanded, a raw YAML field per row was still real, permanent visual
+ * clutter once more than a couple of items had a condition — see GitHub
+ * issue #4's discussion. A dialog also sidesteps the row-scoping problem
+ * entirely, since the trigger button is inserted immediately next to its
+ * own item's wrapper, not matched up to it via a separate DOM search.
  *
- * Verification note: the strategy for finding "this checkbox's row"
- * (findRowContainer(), below) is deliberately structure-agnostic —
- * it does NOT assume webform_multiple renders rows as <tr>, a
- * particular class, or any specific markup, because that markup was
- * not verified against the installed Webform version. If the toggle
- * doesn't correctly scope to a single row when tested, this function
- * is the first place to look.
+ * Deliberately not using Drupal's States API for the trigger, for the
+ * same reason as before: the previous conditional-UI attempt here
+ * (webform_element_states nested inside a #webform_multiple row) crashed
+ * in production, and this avoids leaning on another not-fully-verified
+ * Drupal-internals mechanism inside the same nested-widget context.
+ *
+ * Dialog + form-submission note: jQuery UI's dialog widget, by default,
+ * appends its wrapper to <body>. If the wrapped element's own form isn't
+ * itself a descendant of <body> in a way that keeps it inside <form>
+ * (typical for an admin page's layout), moving the YAML field's wrapper
+ * there would silently drop it out of the submitted form. `appendTo` is
+ * explicitly set to the closest <form> below to guarantee the field
+ * stays a form descendant regardless of dialog visual positioning
+ * (dialogs are CSS-positioned as an overlay, so this doesn't affect
+ * where it appears on screen). Verified via a real submission in
+ * WebformRankingItemsAdminJavaScriptTest: reopening the saved element's
+ * config form after using the dialog shows the condition persisted.
+ *
+ * Uses const/let, unlike this module's other JS files (still var as of
+ * writing) — see the module's tracked refactor issue to bring those in
+ * line.
  */
-(function (Drupal, once) {
+(function ($, Drupal, once) {
   'use strict';
 
   Drupal.behaviors.webformRankingItemsAdmin = {
     attach: function (context) {
-      once('webform-ranking-items-admin', '.webform-ranking-item-use-states', context).forEach(function (checkbox) {
-        var row = findRowContainer(checkbox);
-        if (!row) {
-          // Could not confidently scope this checkbox to a single
-          // row's YAML field — bail out rather than risk toggling the
-          // wrong row's field.
+      once('webform-ranking-items-admin', '.webform-ranking-item-states-wrapper', context).forEach(function (wrapper) {
+        // #webform_multiple applies '#wrapper_attributes' to both its
+        // own per-item table cell AND the nested form-item div Drupal's
+        // Form API generates for the same element, so this selector
+        // matches two ancestor/descendant elements per item, not one —
+        // confirmed via a real DOM inspection in
+        // WebformRankingItemsAdminJavaScriptTest, which caught this
+        // producing a trigger+dialog nested inside another trigger's
+        // dialog. Only the innermost match (nothing further nested
+        // inside it) is the real field wrapper; skip the outer one.
+        if (wrapper.querySelector('.webform-ranking-item-states-wrapper')) {
           return;
         }
-
-        var yamlField = row.querySelector('.webform-ranking-item-states');
-        var yamlWrapper = row.querySelector('.webform-ranking-item-states-wrapper');
-        if (!yamlField || !yamlWrapper) {
-          return;
-        }
-
-        function setVisible(visible) {
-          yamlWrapper.style.display = visible ? '' : 'none';
-        }
-
-        // Initial state on page load: if this row already has YAML
-        // content (editing an existing conditional item), show it and
-        // check the box; otherwise hide it. This is what makes editing
-        // an existing conditional item not look broken.
-        var hasContent = Boolean(yamlField.value && yamlField.value.trim() !== '');
-        checkbox.checked = hasContent;
-        setVisible(hasContent);
-
-        checkbox.addEventListener('change', function () {
-          if (checkbox.checked) {
-            setVisible(true);
-            return;
-          }
-
-          // Clearing on uncheck: an unchecked box and lingering stale
-          // YAML must never disagree with each other. The field's own
-          // content is the real source of truth server-side (see
-          // validateConfigurationForm() — this checkbox itself is
-          // never read there), so leaving stale text behind while
-          // hidden would silently re-activate a condition the admin
-          // believes they turned off.
-          yamlField.value = '';
-          // CodeMirror-backed fields often mirror their value into a
-          // separate rendered editor instance, not just the underlying
-          // <textarea>. Dispatching input/change lets Webform's own
-          // CodeMirror JS (if attached) pick up the clear; if it
-          // doesn't, the plain <textarea> value is still correctly
-          // cleared for submission either way.
-          yamlField.dispatchEvent(new Event('input', {bubbles: true}));
-          yamlField.dispatchEvent(new Event('change', {bubbles: true}));
-          setVisible(false);
-        });
+        initRow(wrapper);
       });
     }
   };
 
-  /**
-   * Walks up from a checkbox to find the nearest ancestor scoped to
-   * exactly this row — the smallest container whose descendants
-   * include exactly one '.webform-ranking-item-states-wrapper'.
-   * Structure-agnostic on purpose (see file-level note above).
-   *
-   * @param {HTMLElement} checkbox
-   * @return {HTMLElement|null}
-   */
-  function findRowContainer(checkbox) {
-    var node = checkbox.parentElement;
-    var attempts = 0;
-    // Capped rather than walking indefinitely toward <body>/<html>,
-    // where it would start matching every row's wrapper at once.
-    while (node && attempts < 12) {
-      var matches = node.querySelectorAll('.webform-ranking-item-states-wrapper');
-      if (matches.length === 1) {
-        return node;
-      }
-      node = node.parentElement;
-      attempts++;
+  function initRow(wrapper) {
+    const yamlField = wrapper.querySelector('.webform-ranking-item-states');
+    if (!yamlField) {
+      return;
     }
-    return null;
+
+    const form = wrapper.closest('form');
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'webform-ranking-item-configure-states button';
+    // One static label regardless of whether a condition is already
+    // configured — the dialog it opens shows that either way (empty or
+    // pre-filled), so there's no need for a second "is this already
+    // configured" state to track and keep in sync on the button itself.
+    trigger.textContent = Drupal.t('Conditions');
+    wrapper.parentNode.insertBefore(trigger, wrapper);
+
+    // Hidden until opened in the dialog — the trigger button is the
+    // only thing visible in the row itself.
+    wrapper.style.display = 'none';
+
+    let dialog = null;
+
+    trigger.addEventListener('click', function () {
+      if (!dialog) {
+        dialog = Drupal.dialog(wrapper, {
+          title: Drupal.t('Item visibility condition'),
+          appendTo: form,
+          width: 500,
+          buttons: [
+            {
+              text: Drupal.t('Clear condition'),
+              click: function () {
+                yamlField.value = '';
+                // CodeMirror-backed fields often mirror their value
+                // into a separate rendered editor instance, not just
+                // the underlying <textarea> — dispatching input/change
+                // lets Webform's own CodeMirror JS (if attached) pick
+                // up the clear.
+                yamlField.dispatchEvent(new Event('input', {bubbles: true}));
+                yamlField.dispatchEvent(new Event('change', {bubbles: true}));
+              }
+            },
+            {
+              text: Drupal.t('Done'),
+              primary: true,
+              click: function () {
+                dialog.close();
+              }
+            }
+          ],
+          // Overrides Drupal core's default dialog close handler
+          // (drupalSettings.dialog.close), which calls
+          // Drupal.detachBehaviors(event.target, null, 'unload') — built
+          // for disposable AJAX-loaded dialog content that's discarded
+          // after closing. This dialog wraps a permanent, reusable part
+          // of the same form, reopened on every click, so that default
+          // handler is actively harmful here: detaching behaviors for
+          // 'unload' tore down the wrapped field entirely, discovered
+          // via a real form-submission test
+          // (WebformRankingItemsAdminJavaScriptTest::
+          // testConditionPersistsThroughSubmission) where the edited
+          // item's <textarea> was simply gone from the DOM after
+          // closing the dialog once. A no-op keeps the same DOM nodes
+          // alive and reusable across opens.
+          close: function () {}
+        });
+      }
+
+      wrapper.style.display = '';
+      dialog.showModal();
+
+      // CodeMirror measures line/character dimensions against the
+      // element's rendered size — if it initialized while the wrapper
+      // was display:none (the row's default state), it needs a refresh
+      // once actually visible, or it renders collapsed/blank.
+      // CodeMirror.fromTextArea() hides the original <textarea> and
+      // inserts its generated wrapper as the very next sibling, which
+      // itself exposes the live editor instance via a '.CodeMirror'
+      // property — see CodeMirror's own fromTextArea() documentation.
+      const codeMirrorWrapper = yamlField.nextElementSibling;
+      if (codeMirrorWrapper && codeMirrorWrapper.CodeMirror) {
+        codeMirrorWrapper.CodeMirror.refresh();
+      }
+    });
   }
 
-})(Drupal, once);
+})(jQuery, Drupal, once);

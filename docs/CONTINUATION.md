@@ -85,9 +85,11 @@ no-input fallback only ever see canonical shape. The plugin's
   drag is a convenience layer. All three funnel through one `sync()`.
   Renumbers "N of M" position indicator based on `offsetParent !== null`
   (currently states.js-visible items) — dynamic ranks for dragdrop.
-- `js/webform_ranking.items_admin.js` — admin-form-only progressive
-  disclosure for the per-item conditional-visibility YAML field (see
-  below). Structure-agnostic DOM-walk to scope checkbox→row.
+- `js/webform_ranking.items_admin.js` — admin-form-only per-item
+  conditional-visibility YAML field, presented in a `Drupal.dialog()`
+  modal per item (Key Design Decision #17; previously a per-row
+  checkbox toggle, which never worked). Uses `const`/`let`, unlike this
+  module's other JS files — see the module's tracked refactor issue.
 - `tests/src/Unit/` — `WebformRankingConverterTest`,
   `WebformRankingVisibilityResolverTest` (incl. fail-closed regression
   test). Both pass, 0 warnings.
@@ -124,6 +126,11 @@ no-input fallback only ever see canonical shape. The plugin's
   `testGradualPointerDragReordersItems()` (Key Design Decision #16)
   additionally covers a multi-step, W3C-Actions-driven drag distinct
   from `testPointerDragReordersItems()`'s single-jump `dragTo()`.
+  `WebformRankingItemsAdminJavaScriptTest` (Key Design Decision #17)
+  covers the per-item conditional-visibility dialog on the admin config
+  form — requires `webform_ui` in `$modules`, unlike the other
+  FunctionalJavascript tests here, since that's what provides the
+  element edit form route.
 
 ## Key Design Decisions (with rationale)
 1. **Matrix radios**: one radio group per *item* (row), not per rank
@@ -560,6 +567,79 @@ no-input fallback only ever see canonical shape. The plugin's
     devices is still open — worth revisiting if a touch-specific
     report comes in.
 
+17. **GitHub issue #4 (per-item conditional-visibility toggle checkbox
+    doesn't work) redesigned to a per-item dialog, not fixed in place —
+    with two further real bugs caught along the way by testing the
+    redesign itself.** The original per-row checkbox (Key Design
+    Decision #5) never actually worked: a
+    WebformRankingItemsAdminJavaScriptTest confirmed the reported
+    symptom (item A's field stayed visible, item B's stayed hidden —
+    inverted from expected), consistent with the file's own flagged
+    risk that `findRowContainer()`'s walk-up heuristic wasn't verified
+    against `#webform_multiple`'s real markup. Rather than debug that
+    heuristic, the UI was redesigned per user direction: a per-item
+    modal/dialog (Drupal core's `Drupal.dialog()`), triggered by one
+    static-label button per item ("Conditions"), showing the same YAML
+    field either empty or pre-filled — replacing both the checkbox and
+    the two-state "Add"/"Edit (configured)" label a first draft of this
+    redesign had (simplified to one static label per user feedback,
+    since the dialog itself already shows whether a condition exists).
+    This also obsoletes `findRowContainer()` entirely: the trigger
+    button is inserted directly next to its own item's wrapper, so
+    there's no separate row-matching search to get wrong.
+    **Two more real bugs found via testing the redesign itself, not
+    guessed:**
+    - *Duplicate wrapper matches per item.* `#webform_multiple` applies
+      `#wrapper_attributes` to both its own per-item table cell (a
+      `<td>`) and the nested `.form-item` div Drupal's Form API
+      generates for the same element — so the
+      `.webform-ranking-item-states-wrapper` selector matched **two**
+      ancestor/descendant elements per item, not one. Every item
+      therefore got two trigger buttons and a trigger+dialog nested
+      inside another trigger's dialog — this is what the user actually
+      saw and described as "an intermediary modal appearing first."
+      Confirmed via a live DOM dump in a FunctionalJavascript test
+      (4 wrapper matches for 2 items, not 2). Fixed by skipping any
+      wrapper match that itself contains another match, keeping only
+      the innermost — structure-agnostic (doesn't assume the outer one
+      is always a `<td>`), consistent with this file's established
+      "don't assume `#webform_multiple` markup" caution.
+    - *Drupal's default dialog close handler tore down the field on
+      close.* Not passing a `close` option meant `Drupal.dialog()`
+      fell back to `drupalSettings.dialog.close`, which calls
+      `Drupal.detachBehaviors(event.target, null, 'unload')` — correct
+      for disposable, AJAX-loaded dialog content (its intended use
+      case), actively wrong here, since this dialog wraps a permanent,
+      reused part of the same form, reopened on every click. Caught by
+      a real end-to-end test
+      (`testConditionPersistsThroughSubmission`): after opening the
+      dialog, entering a condition, clicking "Done," and submitting the
+      whole element form, the saved config came back with an *empty*
+      `states` value — a debug dump showed the edited item's
+      `<textarea>` had vanished from the DOM entirely after the dialog
+      closed once. Fixed with an explicit no-op `close` option,
+      overriding the harmful default.
+    A third, narrower issue surfaced and was fixed during the same
+    testing pass, specific to test methodology rather than the
+    production code: Webform's own CodeMirror JS
+    (`webform.element.codemirror.js`) hides the real `<textarea>`
+    and debounces syncing its own editor content back to it by 500ms
+    (`setTimeout(() => editor.save(), 500)`), so a test that sets the
+    textarea's value directly and immediately submits can race that
+    stale debounce and have its change silently overwritten. Fixed by
+    having the test write through CodeMirror's own API
+    (`.CodeMirror.setValue()` + an immediate `.save()`) instead of the
+    textarea directly, when CodeMirror is attached.
+    New test file: `tests/src/FunctionalJavascript/
+    WebformRankingItemsAdminJavaScriptTest.php` — dialog open/edit/clear,
+    an already-configured item showing pre-filled content, and the
+    submission-persistence check that caught the close-handler bug.
+    Also new: `webform_ranking/element.itemsAdmin` now depends on
+    `core/jquery` and `core/drupal.dialog` (previously just
+    `core/drupal`/`core/once`); the `use_states` checkbox field and its
+    stripping in `validateConfigurationForm()` were removed from the
+    plugin entirely, since the field no longer exists.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,
@@ -594,10 +674,10 @@ evidence rather than assert confidently.
 - **Matrix style has no dynamic rank renumbering** (dragdrop does). The
   `<thead>` is static, sized to full configured item count regardless of
   which rows are currently states.js-visible.
-- **`findRowContainer()` in `items_admin.js` is unverified against real
-  DOM** — structure-agnostic by design (walks up until exactly one YAML
-  wrapper matches) specifically because `webform_multiple`'s row markup
-  wasn't confirmed. First thing to check if the toggle misbehaves.
+- ~~**`findRowContainer()` in `items_admin.js` is unverified against real
+  DOM**~~ — resolved by Key Design Decision #17's redesign: the checkbox
+  + row-matching heuristic this referred to no longer exists (replaced
+  by a per-item dialog with no row-matching step at all).
 - **No visual CSS design pass** — current CSS is structural/layout only.
 - **`webform_element_states` nested-widget crash root cause never actually
   diagnosed** — worked around, not fixed/understood. Could theoretically

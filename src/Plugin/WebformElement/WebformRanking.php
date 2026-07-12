@@ -132,25 +132,21 @@ class WebformRanking extends WebformElementBase {
         // WebformRankingVisibilityResolver and the client-side #states
         // attachment in buildMatrix()/buildDragDrop() already expect —
         // no changes needed on that side.
-        // Progressive disclosure: most items won't need a condition at
-        // all, so the YAML field stays hidden until this checkbox is
-        // checked. This checkbox is purely a client-side convenience —
-        // it is NEVER read server-side, never validated, and never
-        // added to config schema. The 'states' field's own content
-        // (empty or not) remains the single source of truth on the
-        // backend, exactly as before this checkbox existed. JS (see
-        // element.itemsAdmin library, attached below) handles: showing
-        // the YAML field when checked; clearing it when unchecked (so
-        // an unchecked box and lingering stale YAML can never
-        // disagree); and, on page load, auto-checking + revealing the
-        // field for any row that already has YAML content, so editing
-        // an existing conditional item doesn't look broken.
-        'use_states' => [
-          '#type' => 'checkbox',
-          '#title' => $this->t('Use conditional visibility for this item'),
-          '#default_value' => FALSE,
-          '#attributes' => ['class' => ['webform-ranking-item-use-states']],
-        ],
+        // Most items won't need a condition at all, so this field is
+        // presented in a dialog (see element.itemsAdmin library, attached
+        // below) rather than inline in the row — a raw per-item YAML
+        // field left inline, even collapsed behind a checkbox, was still
+        // real visual clutter once more than a couple of items had a
+        // condition (GitHub issue #4). An earlier version used a
+        // 'use_states' checkbox for inline progressive disclosure, but
+        // that toggle never actually worked — its row-scoping heuristic
+        // matched the wrong row against webform_multiple's real markup —
+        // and was removed rather than debugged further in favor of this
+        // redesign, which has no equivalent row-matching step (the
+        // dialog's trigger button is inserted directly next to its own
+        // item's wrapper). The field's own content (empty or not) is the
+        // single source of truth on the backend either way; nothing
+        // about that changed.
         // '#decode_value' => TRUE is load-bearing, not decorative: it's
         // what makes WebformCodeMirror::validateWebformCodeMirror()
         // (the element's own #element_validate, registered by
@@ -247,13 +243,7 @@ class WebformRanking extends WebformElementBase {
 
     $items = $form_state->getValue('items') ?: [];
     $values_seen = [];
-    foreach ($items as $delta => $item) {
-      // 'use_states' is a client-side-only progressive-disclosure
-      // toggle (see the field definition in form()) — never meant to
-      // reach config. Stripping it here rather than in the schema
-      // keeps the schema describing only what's actually persisted.
-      unset($items[$delta]['use_states']);
-
+    foreach ($items as $item) {
       $value = trim($item['value'] ?? '');
       if ($value === '') {
         continue;
