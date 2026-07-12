@@ -151,9 +151,34 @@ class WebformRanking extends WebformElementBase {
           '#default_value' => FALSE,
           '#attributes' => ['class' => ['webform-ranking-item-use-states']],
         ],
+        // '#decode_value' => TRUE is load-bearing, not decorative: it's
+        // what makes WebformCodeMirror::validateWebformCodeMirror()
+        // (the element's own #element_validate, registered by
+        // processWebformCodeMirror()) decode the submitted YAML string
+        // into a real array via Yaml::decode() before it ever reaches
+        // $form_state->getValue('items'). Without it, that method's
+        // auto-decode branch only fires when '#default_value' already
+        // happens to be an array — which it never is here, since
+        // #webform_multiple populates each row's default straight from
+        // stored config. Confirmed via a real bug: omitting this meant
+        // $item['states'] stayed a raw YAML *string* all the way through
+        // validateConfigurationForm() into saved config, and then into
+        // buildMatrix()/buildDragDrop()'s '#states' assignment — Drupal's
+        // FormHelper::processStates() JSON-encodes a string exactly as
+        // happily as an array, so no error surfaced anywhere; the
+        // condition just silently never matched (states.js can't parse
+        // a JSON-encoded string as a conditions object). Same '#decode_value'
+        // pattern already used by core Webform for the same reason — see
+        // WebformTable.php's '#decode_value' => TRUE.
+        //
+        // NOT sufficient on its own for already-saved config from before
+        // this fix (that path only runs at submit time) — see prepare()'s
+        // read-side normalization below for the self-healing half of this
+        // fix.
         'states' => [
           '#type' => 'webform_codemirror',
           '#mode' => 'yaml',
+          '#decode_value' => TRUE,
           '#title' => $this->t('Include this item when (#states, YAML)'),
           '#description' => $this->t('Optional, advanced. Enter a #states conditions array in YAML — e.g. <code>visible:</code> on one line, then <code>  \':input[name="other_element"]\': {value: student}</code> indented beneath it.'),
           '#wrapper_attributes' => ['class' => ['webform-ranking-item-states-wrapper']],
@@ -268,11 +293,24 @@ class WebformRanking extends WebformElementBase {
       shuffle($element['#items']);
     }
 
-    // Per-item #states (conditional inclusion) applied to each row/card
-    // is wired up here in the next pass, once the shared
-    // visible-item-set resolver exists — needs to be identical logic to
-    // what the validate callback recomputes server-side, so it's being
-    // built as one shared service rather than duplicated.
+    // Self-healing normalization for config saved before 'states'
+    // #decode_value => TRUE existed on the admin form (see form()'s
+    // docblock for that field): older saved items can still have
+    // 'states' as a raw YAML *string* rather than a decoded array.
+    // Both buildMatrix()/buildDragDrop() (which assign this directly to
+    // a sub-element's '#states') and WebformRankingVisibilityResolver
+    // (which passes it to WebformSubmissionConditionsValidator
+    // ::validateConditions(array $conditions, ...), a strictly
+    // array-typed parameter) require a real array — a leftover string
+    // silently produces an unparseable #states value client-side, and
+    // a TypeError server-side. Normalizing here, once, covers both:
+    // every consumer reads '#items' from this same prepared $element.
+    foreach ($element['#items'] as &$item) {
+      if (isset($item['states']) && is_string($item['states'])) {
+        $item['states'] = \Drupal\webform\Utility\WebformYaml::decode($item['states']);
+      }
+    }
+    unset($item);
 
     // Webform's submission storage only persists composite elements as
     // a flat map of scalar-valued properties (see
