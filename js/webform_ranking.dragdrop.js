@@ -319,6 +319,8 @@
         var rect = targetItem.getBoundingClientRect();
         var before = event.clientY < (rect.top + rect.height / 2);
         container.insertBefore(item, before ? targetItem : targetItem.nextSibling);
+
+        item.setPointerCapture(pointerId);
       });
 
       function endDrag(event) {
