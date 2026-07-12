@@ -14,6 +14,9 @@
   padding: 0.5em 0.75em;
   border: 1px solid;
   cursor: grab;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
 }
 
 .webform-ranking-dragdrop__item--dragging {
