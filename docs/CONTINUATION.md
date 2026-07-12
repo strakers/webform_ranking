@@ -548,9 +548,17 @@ no-input fallback only ever see canonical shape. The plugin's
     checking, but not needed to explain or fix the confirmed root
     cause above, so left as-is rather than speculative scope creep):
     `touch-action` on `.webform-ranking-dragdrop__item` for touch
-    devices, and `event.preventDefault()` on `pointerdown`/`pointermove`
-    to suppress native text selection. Worth revisiting if a
-    touch-specific or text-selection-specific report ever comes in.
+    devices, and suppressing native text selection during a drag.
+    The text-selection item was addressed separately, in the same PR:
+    `user-select: none` (plus `-webkit-`/`-ms-` prefixes) added to
+    `.webform-ranking-dragdrop__item` in
+    `css/webform_ranking.dragdrop.css`, applied unconditionally rather
+    than scoped to `--dragging`, so there's no race between the
+    browser arming native selection on `pointerdown`/`mousemove` and
+    the JS applying the dragging class. CSS-only, so it can't interact
+    with the pointer-capture fix above. `touch-action` for touch
+    devices is still open — worth revisiting if a touch-specific
+    report comes in.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
