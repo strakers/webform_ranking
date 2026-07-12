@@ -88,6 +88,14 @@ Run the test suite with:
 ddev phpunit --group webform_ranking
 ```
 
+The `FunctionalJavascript` tests need a real WebDriver browser, which
+isn't part of the base DDEV setup. Install it once with:
+
+```
+ddev add-on get ddev/ddev-selenium-standalone-chrome
+ddev restart
+```
+
 ## Maintainers
 
 - [Steven Straker](https://www.drupal.org/u/strakez)

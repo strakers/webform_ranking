@@ -105,10 +105,15 @@ no-input fallback only ever see canonical shape. The plugin's
   reflection — NOT `formatHtmlItem()`/`formatTextItem()` themselves,
   which need a real Webform + WebformSubmission and are left to the
   same Functional/Nightwatch tier as `#process`, see Known Gaps). All
-  pass, 0 warnings/errors as of last run (64 tests total). Note: the
-  dragdrop `#states` reorder→reveal behavior itself (the `sync()`/JS
-  side of Key Design Decision #13) has no automated coverage — it was
-  verified manually in a browser, same caveat as `#process` below.
+  pass, 0 warnings/errors as of last run (64 tests total).
+- `tests/src/FunctionalJavascript/` — `WebformRankingDragdropJavaScriptTest`
+  and `WebformRankingMatrixJavaScriptTest` (see Key Design Decision #14):
+  real-browser coverage via `WebDriverTestBase`/Mink, driven by a real
+  WebDriver Chrome session (`ddev/ddev-selenium-standalone-chrome`, a
+  local-only setup step — see #14 for why). Covers what Unit/Kernel tests
+  structurally can't: `#process` rendering, drag/pointer/keyboard/button
+  reordering, N/A toggling, and live `#states` reactions for both display
+  styles.
 
 ## Key Design Decisions (with rationale)
 1. **Matrix radios**: one radio group per *item* (row), not per rank
@@ -339,6 +344,85 @@ no-input fallback only ever see canonical shape. The plugin's
     and re-promoted the next item; the final submission stored the
     correct data with zero watchdog warnings.
 
+14. **FunctionalJavascript (not Nightwatch) chosen for browser-driven
+    tests** (GitHub issue #6). Drupal core uses Nightwatch (Node.js/npm
+    toolchain) for its own JS behavior tests, but Webform — the module
+    this codebase mirrors conventions from throughout — uses
+    FunctionalJavascript instead: pure PHPUnit, runs via the same
+    `ddev phpunit` command already used for Unit/Kernel tests, no
+    separate toolchain. Chosen over Nightwatch for that reason, and
+    because it turned out to solve a real problem hit along the way
+    (see next point).
+    **Local environment requirement, not tracked in git** (`.ddev/` is
+    gitignored in this repo): FunctionalJavascript needs a real
+    WebDriver-compatible browser. Install with
+    `ddev add-on get ddev/ddev-selenium-standalone-chrome` (the
+    official companion to the already-installed `ddev-drupal-contrib`
+    addon this project uses) and `ddev restart`. Anyone running these
+    tests locally needs to do this themselves once; it's not something
+    `ddev phpunit` alone provides.
+    **Also hit and fixed a real, unrelated environment bug getting
+    here**: every FunctionalJavascript test initially failed with a
+    502 from nginx — `upstream sent too big header while reading
+    response header from upstream`. Root cause: `.ddev/nginx_full/
+    nginx-site.conf`'s `fastcgi_buffer_size` (32k, already larger than
+    nginx's tiny default) still wasn't enough for the large cache-tag
+    response headers Drupal's WebDriverTestBase environment produces
+    with many core modules enabled. Fixed by bumping to
+    `fastcgi_buffers 16 64k; fastcgi_buffer_size 128k;` — but doing
+    that turned out to be a two-step problem: DDEV auto-regenerates any
+    file starting with the literal marker string `#ddev-generated` on
+    `ddev restart`, and the *first* attempt to remove that marker
+    accidentally left the literal substring `#ddev-generated` sitting
+    inside my own explanatory comment about why I'd removed it — which
+    was enough for DDEV's marker detection to keep re-triggering
+    regeneration. Had to phrase the comment without using that exact
+    string for the customization to actually stick.
+    **A second real bug found and fixed while writing the drag/drop
+    test** (`data-webform-ranking-value` collision): see
+    `js/webform_ranking.dragdrop.js`'s comment near
+    `rankInputsByValue` — not repeated here, cross-referenced from Key
+    Design Decision #13 already.
+    **Significant finding for GitHub issue #3** (drag/drop pointer
+    reorder reportedly not working): a real WebDriver-driven mouse
+    drag (`NodeElement::dragTo()`, genuine W3C Actions
+    pointerMove/pointerDown/pointerUp, not synthetic JS events) *does*
+    correctly reorder items — directly contradicting the original
+    report. An earlier attempt to reproduce the bug via chrome-cli's JS
+    execution had turned out to run in an isolated JS world separate
+    from the page's real global scope (confirmed: `window.Drupal`,
+    `jQuery`, and `drupalSettings` were all `undefined` from that
+    execution context), making it unable to reliably observe or
+    intercept the actual page-world listeners — a red herring, not
+    evidence of a real bug. What the WebDriver test clarified instead:
+    `dragTo()` moves the pointer to the destination element's top-left
+    corner, landing in the *upper half* of its bounding box, and the
+    production pointermove handler's own midpoint check
+    (`event.clientY < rect.top + rect.height / 2`) correctly treats
+    that as "insert before," which is exactly what happened. Per-user
+    decision: don't chase this further on this branch — issue #3 is
+    left open for separate, deeper investigation (possibly
+    environment/hardware-specific — real trackpad input generates many
+    rapid incremental `pointermove` events rather than one jump; worth
+    testing a multi-step drag path specifically) rather than closed out
+    from this finding alone.
+    New test files: `tests/src/FunctionalJavascript/
+    WebformRankingDragdropJavaScriptTest.php` (pointer drag, move-up/
+    down buttons, arrow keys, N/A toggle, dragdrop `#states` live
+    reveal) and `WebformRankingMatrixJavaScriptTest.php` (rank
+    exclusivity, aria-live announcements, matrix `#states` live
+    reveal). Also discovered along the way: `NodeElement::keyDown()`/
+    `keyUp()` go through Mink's bundled `syn.js`, a JS-simulated
+    keyboard event that only sets the legacy `keyCode`/`which`
+    correctly — its `.key` string comes through wrong (`chr($code)`,
+    not e.g. `'ArrowDown'`). Since this element's JS checks the modern
+    `event.key`, the arrow-key test sends a real native key via the
+    WebDriver session's legacy element-value endpoint directly
+    (`\WebDriver\Key::DOWN_ARROW` via `postValue(['text' => ...])` —
+    `'text'`, not the older `'value'` array form, since this
+    environment runs in W3C WebDriver mode) instead of
+    `NodeElement::keyDown()`.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,
@@ -350,19 +434,26 @@ already were wrong once. When in doubt, search for real source/error
 evidence rather than assert confidently.
 
 ## Known Gaps / Pending Tasks (not hidden, explicitly flagged in code)
-- **`#process` has zero automated coverage** — needs Functional/Nightwatch,
-  not Kernel (renders actual HTML).
-- **Dragdrop's per-item `#states` rank echo (Key Design Decision #13) has
-  no automated coverage of the JS/DOM behavior itself** — `sync()` writing
-  and dispatching `change` on the echo inputs was verified manually in a
-  browser only. The PHP-side selector generation/resolution is unit-tested;
-  the actual reorder→live-reveal behavior isn't. Same Functional/Nightwatch
-  tier as `#process` above; also the piece most likely to silently regress
-  if `element.dragdrop`'s reorder logic is ever restructured without
-  routing through `sync()` (see #13's staleness-risk note).
+- ~~**`#process` has zero automated coverage**~~ — resolved by Key Design
+  Decision #14's FunctionalJavascript suite (matrix and dragdrop rendering
+  are now both exercised end-to-end in a real browser). Formatting methods
+  (`formatHtmlItem()`/`formatTextItem()`) still aren't directly covered —
+  narrower gap, see below.
+- ~~**Dragdrop's per-item `#states` rank echo has no automated coverage**~~
+  — resolved: `WebformRankingDragdropJavaScriptTest::testStatesReactToRankSelection()`
+  now exercises the full reorder→live-reveal path in a real browser.
 - **Resolver's "item becomes visible because real trigger matched" path**
-  is untested — only fail-closed/no-context side is covered. Needs a real
-  `Webform` entity + `WebformSubmissionForm` integration test.
+  is untested — only fail-closed/no-context side is covered. The new
+  FunctionalJavascript matrix/dragdrop `#states` tests exercise this
+  indirectly (a real submission context, a real trigger element, a real
+  visibility reaction) but don't assert against
+  `WebformRankingVisibilityResolver` directly — still worth a focused
+  integration test if this resolver is ever touched again.
+- **`formatHtmlItem()`/`formatTextItem()`** (results/CSV item formatting)
+  still need a real Webform + WebformSubmission with stored data — not
+  attempted in the new FunctionalJavascript suite, which focused on
+  live-interaction behavior (drag, buttons, `#states`) rather than
+  results-page rendering.
 - **Matrix style has no dynamic rank renumbering** (dragdrop does). The
   `<thead>` is static, sized to full configured item count regardless of
   which rows are currently states.js-visible.
