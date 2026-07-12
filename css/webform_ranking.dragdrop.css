@@ -14,6 +14,12 @@
   padding: 0.5em 0.75em;
   border: 1px solid;
   cursor: grab;
+  /* Without this, a press-and-drag gesture can also trigger the
+     browser's native text selection, visually competing with the
+     custom pointer-drag reorder. */
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
 }
 
 .webform-ranking-dragdrop__item--dragging {

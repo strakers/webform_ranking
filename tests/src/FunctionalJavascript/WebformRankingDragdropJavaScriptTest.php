@@ -125,6 +125,95 @@ class WebformRankingDragdropJavaScriptTest extends WebDriverTestBase {
   }
 
   /**
+   * Tests a *gradual*, multi-step pointer drag — as opposed to
+   * testPointerDragReordersItems()'s single-jump NodeElement::dragTo(),
+   * which issues exactly one pointerMove straight from source to
+   * destination (duration: 0, see Selenium2Driver::dragTo()). Real
+   * mouse/trackpad input instead fires many incremental pointermove
+   * events as the cursor physically travels, passing over every item
+   * in between rather than jumping straight to the final one.
+   *
+   * docs/CONTINUATION.md (Key Design Decision #14) flagged this as the
+   * next thing worth checking for GitHub issue #3, since the single-jump
+   * test contradicted the original bug report and a real physical drag
+   * is a meaningfully different input shape. Built directly on the W3C
+   * WebDriver Actions API (postActions()) with absolute viewport
+   * coordinates and >0 durations between steps, rather than
+   * NodeElement::dragTo(), specifically to get that multi-step shape.
+   *
+   * Drags item A down through item B's midpoint and item C's midpoint
+   * in 10 discrete steps.
+   */
+  public function testGradualPointerDragReordersItems(): void {
+    $this->drupalGet('/webform/test_ranking_dragdrop');
+
+    $page = $this->getSession()->getPage();
+    $assert_session = $this->assertSession();
+
+    $assert_session->waitForElement('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="a"]');
+    $this->assertOrder(['a', 'b', 'c']);
+
+    $item_a = $page->find('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="a"]');
+    $this->assertNotNull($item_a);
+
+    // Centers of A and C's bounding boxes, in viewport coordinates —
+    // dragging from A's center to C's center (not top-left corners,
+    // unlike dragTo()) passes squarely through B along the way and
+    // lands mid-way inside C, so the production midpoint check
+    // (event.clientY < rect.top + rect.height / 2) is expected to treat
+    // the final position as "after" C.
+    $centers = $this->getSession()->evaluateScript(<<<'JS'
+(function () {
+  function centerOf(selector) {
+    var rect = document.querySelector(selector).getBoundingClientRect();
+    return {x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2)};
+  }
+  return {
+    a: centerOf('.webform-ranking-dragdrop__item[data-webform-ranking-value="a"]'),
+    c: centerOf('.webform-ranking-dragdrop__item[data-webform-ranking-value="c"]')
+  };
+})()
+JS
+    );
+
+    $steps = 10;
+    $move_actions = [];
+    for ($i = 1; $i <= $steps; $i++) {
+      $move_actions[] = [
+        'type' => 'pointerMove',
+        'duration' => 50,
+        'origin' => 'viewport',
+        'x' => (int) round($centers['a']['x'] + ($centers['c']['x'] - $centers['a']['x']) * $i / $steps),
+        'y' => (int) round($centers['a']['y'] + ($centers['c']['y'] - $centers['a']['y']) * $i / $steps),
+      ];
+    }
+
+    $webdriver_session = $this->getSession()->getDriver()->getWebDriverSession();
+    $webdriver_session->postActions([
+      'actions' => [
+        [
+          'type' => 'pointer',
+          'id' => 'mouse1',
+          'parameters' => ['pointerType' => 'mouse'],
+          'actions' => array_merge(
+            [
+              ['type' => 'pointerMove', 'duration' => 0, 'origin' => 'viewport', 'x' => $centers['a']['x'], 'y' => $centers['a']['y']],
+              ['type' => 'pointerDown', 'button' => 0],
+            ],
+            $move_actions,
+            [['type' => 'pointerUp', 'button' => 0]]
+          ),
+        ],
+      ],
+    ]);
+    $webdriver_session->deleteActions();
+
+    // Landing at C's center (not its top-left corner) means "after C",
+    // not "before C" — see this method's docblock.
+    $this->assertOrder(['b', 'c', 'a']);
+  }
+
+  /**
    * Tests that the always-present move-up/move-down buttons — the
    * primary, fully-equivalent interaction per this element's own
    * accessibility model (see js/webform_ranking.dragdrop.js's file

@@ -121,6 +121,9 @@ no-input fallback only ever see canonical shape. The plugin's
   styles. Note: the dragdrop `#states` reorder→reveal behavior's
   underlying `sync()`/JS mechanics (Key Design Decision #13) are now
   covered by `testStatesReactToRankSelection()` in the dragdrop test.
+  `testGradualPointerDragReordersItems()` (Key Design Decision #16)
+  additionally covers a multi-step, W3C-Actions-driven drag distinct
+  from `testPointerDragReordersItems()`'s single-jump `dragTo()`.
 
 ## Key Design Decisions (with rationale)
 1. **Matrix radios**: one radio group per *item* (row), not per rank
@@ -486,6 +489,76 @@ no-input fallback only ever see canonical shape. The plugin's
     did not reproduce post-fix — not independently verified pre-fix,
     so treat that specific detail as unconfirmed rather than
     disproven).
+
+16. **GitHub issue #3 root-caused and fixed: pointer capture silently
+    breaks after the first mid-drag DOM reorder.** Key Design Decision
+    #14 left this open, having only disproven the original report using
+    a *single-jump* `dragTo()` drag (which succeeds) and flagging a
+    *gradual, multi-step* drag — closer to real trackpad/mouse input,
+    which fires many incremental `pointermove` events rather than one —
+    as the next thing worth testing. Built directly, since
+    `Selenium2Driver::dragTo()` only issues one post-pointerdown move:
+    a new test drives the raw W3C WebDriver Actions API
+    (`postActions()`) with several discrete `pointerMove` steps in a
+    single gesture (`WebformRankingDragdropJavaScriptTest::
+    testGradualPointerDragReordersItems()`). Result: the reported bug
+    **did reproduce** — the item's order came back completely
+    unchanged, unlike the single-jump case.
+    Root-caused by bisecting the gesture down to two discrete
+    `pointerMove` steps and instrumenting item A with an independent
+    `pointermove` event counter (separate from the production
+    listener, added via `evaluateScript()`, to distinguish "the browser
+    stopped sending events" from "the production JS's own state broke").
+    First instrumentation attempt itself gave a false reading (counter
+    stayed at 0 the whole time) — traced to a test bug, not a page bug:
+    Mink's `Selenium2Driver::evaluateScript()` prepends a bare `return`
+    to any script not already starting with one, so a multi-statement
+    script starting with a plain assignment (`window.__pmCount = 0;
+    document.querySelector(...).addEventListener(...)`) got turned into
+    `return window.__pmCount = 0; document.querySelector(...)...` — the
+    `return` exits immediately, so the `addEventListener()` call after
+    it was dead code that never ran. Fixed the instrumentation itself by
+    wrapping it in an IIFE, `(function () { ... })()`, before trusting
+    its readings.
+    With correct instrumentation: two `pointerMove` actions after
+    `pointerDown` (to item B's center, then item C's center) produced
+    exactly **two** `pointermove` events on item A — both genuinely
+    fired — yet only the **first** one caused a reorder
+    (`container.insertBefore()`); the second fired but had no visible
+    effect at all, even though its coordinates resolved to a different
+    item (confirmed via `elementFromPoint()`). Conclusion: calling
+    `container.insertBefore(item, ...)` on the *pointer-captured element
+    itself*, mid-gesture, silently breaks that capture in Chromium — no
+    error, no observable `lostpointercapture` side effect checked here,
+    just no further `pointermove` delivery for the rest of that
+    gesture. This is a real, load-bearing distinction from the
+    single-jump `dragTo()` case: that test's *one* post-pointerdown move
+    already lands on the final destination, so it never needs a *second*
+    move to survive a capture-breaking reparent in the middle.
+    Fixed with a one-line addition in `js/webform_ranking.dragdrop.js`'s
+    `pointermove` handler: re-call `item.setPointerCapture(pointerId)`
+    immediately after `insertBefore()`, every time. `item` is still the
+    correct, valid node reference after reparenting (only its position
+    in the tree changed), so re-capturing is cheap and safe. Verified:
+    `testGradualPointerDragReordersItems()` (10-step interpolated drag
+    from item A's original position through B's and into C's) now
+    passes, and the full existing dragdrop/matrix FunctionalJavascript
+    and Unit/Kernel suites (76 tests total) still pass unchanged.
+    **Not attempted here** (flagged in the original issue as also worth
+    checking, but not needed to explain or fix the confirmed root
+    cause above, so left as-is rather than speculative scope creep):
+    `touch-action` on `.webform-ranking-dragdrop__item` for touch
+    devices, and suppressing native text selection during a drag.
+    The text-selection item was addressed separately, in the same PR:
+    `user-select: none` (plus `-webkit-`/`-ms-` prefixes) added to
+    `.webform-ranking-dragdrop__item` in
+    `css/webform_ranking.dragdrop.css`, applied unconditionally rather
+    than scoped to `--dragging`, so there's no race between the
+    browser arming native selection on `pointerdown`/`mousemove` and
+    the JS applying the dragging class. CSS-only, so it can't interact
+    with the pointer-capture fix above. `touch-action` for touch
+    devices is still open — worth revisiting if a touch-specific
+    report comes in.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
