@@ -102,7 +102,7 @@ class WebformRankingConverter {
    * - 'na': unordered list of opted-out item values.
    *
    * @param array $raw
-   *   ['order' => 'item_a,item_c', 'na' => 'item_b'].
+   *   Array shaped like ['order' => 'item_a,item_c', 'na' => 'item_b'].
    */
   public static function dragdropToCanonical(array $raw): array {
     $parse = function ($string) {
@@ -152,8 +152,8 @@ class WebformRankingConverter {
    * @param array $items
    *   The element's configured items (value/label/states each).
    * @param array $value
-   *   The submission's stored flat item-value => rank map (matrixToCanonical()'s
-   *   input shape).
+   *   The submission's stored flat item-value => rank map
+   *   (matrixToCanonical()'s input shape).
    *
    * @return array
    *   $items, reordered.

@@ -8,9 +8,10 @@ use Drupal\webform_ranking\Element\WebformRanking as WebformRankingElement;
 use PHPUnit\Framework\Attributes\Group;
 
 /**
- * Pipeline smoke test: real matrix input through the actual
- * valueCallback() -> matrixToCanonical() -> validateWebformRanking()
- * chain.
+ * Pipeline smoke test for real matrix input through valueCallback().
+ *
+ * Exercises the actual valueCallback() -> matrixToCanonical() ->
+ * validateWebformRanking() chain.
  *
  * Deliberately narrow scope: WebformRankingValidationKernelTest (in
  * this same directory) calls validateWebformRanking() directly with
@@ -64,6 +65,9 @@ class WebformRankingValidationTest extends KernelTestBase {
     $this->installEntitySchema('user');
   }
 
+  /**
+   * Returns a fixed set of three configured items for these tests.
+   */
   protected function baseItems(): array {
     return [
       ['value' => 'item_a', 'label' => 'Item A'],
@@ -73,8 +77,7 @@ class WebformRankingValidationTest extends KernelTestBase {
   }
 
   /**
-   * Runs raw matrix input through the real valueCallback(), then the
-   * real validateWebformRanking(), and returns the resulting errors.
+   * Runs matrix input through the real valueCallback()/validate chain.
    *
    * @return string[]
    *   Form errors keyed by element name.
@@ -110,8 +113,11 @@ class WebformRankingValidationTest extends KernelTestBase {
 
   // Confirms the happy path survives the real conversion + validation
   // chain: raw matrix input -> valueCallback() -> matrixToCanonical()
-  // -> validate -> no errors. Rule-level edge cases belong in
-  // WebformRankingValidationKernelTest, not duplicated here.
+  // -> validate -> no errors. Rule-level edge cases belong in.
+
+  /**
+   * WebformRankingValidationKernelTest, not duplicated here.
+   */
   public function testFullyRankedSubmissionPassesValidationEndToEnd(): void {
     $errors = $this->submitAndGetErrors(
       [
@@ -128,8 +134,11 @@ class WebformRankingValidationTest extends KernelTestBase {
   // Confirms tamper defense holds when the unknown key arrives via raw
   // matrix input, not just a hand-fed #value — i.e. that
   // matrixToCanonical() correctly carries an unconfigured item key
-  // through rather than silently discarding it, and that the validator
-  // then rejects it.
+  // through rather than silently discarding it, and that the validator.
+
+  /**
+   * Then rejects it.
+   */
   public function testUnknownItemKeyIsRejectedEndToEnd(): void {
     $errors = $this->submitAndGetErrors(
       [
@@ -148,8 +157,11 @@ class WebformRankingValidationTest extends KernelTestBase {
   // (required_all would be satisfied), but nothing is ranked 1st.
   // Only reachable end-to-end (not via a hand-built #value) because
   // the check reads the raw per-item input valueCallback() stashes —
-  // see WebformRankingConverter::matrixRanksAreSequential()'s docblock
-  // for why canonical shape alone can't detect this.
+  // see WebformRankingConverter::matrixRanksAreSequential()'s docblock.
+
+  /**
+   * For why canonical shape alone can't detect this.
+   */
   public function testSkippedFirstRankIsRejectedEndToEnd(): void {
     $errors = $this->submitAndGetErrors(
       [
@@ -163,8 +175,11 @@ class WebformRankingValidationTest extends KernelTestBase {
     $this->assertNotEmpty($errors);
   }
 
-  // A gap in the *middle* (1st and 3rd used, 2nd skipped) must be
-  // rejected the same way as a skipped 1st place.
+  // A gap in the *middle* (1st and 3rd used, 2nd skipped) must be.
+
+  /**
+   * Rejected the same way as a skipped 1st place.
+   */
   public function testGapInMiddleRankIsRejectedEndToEnd(): void {
     $errors = $this->submitAndGetErrors(
       [
@@ -179,8 +194,11 @@ class WebformRankingValidationTest extends KernelTestBase {
   }
 
   // A genuinely partial-but-sequential ranking (1st and 2nd used, 3rd
-  // left N/A) must still pass — the rule only rejects *skipped*
-  // leading ranks, not partial rankings that start from the top.
+  // left N/A) must still pass — the rule only rejects *skipped*.
+
+  /**
+   * Leading ranks, not partial rankings that start from the top.
+   */
   public function testPartialButSequentialRankingPassesEndToEnd(): void {
     $errors = $this->submitAndGetErrors(
       [
