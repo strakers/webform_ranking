@@ -1,104 +1,56 @@
 # Webform Ranking
 
-A [Webform](https://www.drupal.org/project/webform) element that lets
-respondents rank a set of admin-defined items (1st, 2nd, 3rd...), with an
-optional N/A opt-out, two display styles, per-item conditional visibility,
-and full server- and client-side validation.
+The Webform Ranking module adds a flexible ranking element to the Drupal [Webform](https://www.drupal.org/project/webform) ecosystem. It allows form creators to build fields where respondents rank a predefined set of items (e.g., 1st, 2nd, 3rd) using accessible, user-friendly interfaces.
 
 ## Features
 
-- **Two display styles**
-  - **Matrix** — one row per item, one radio button per rank column.
-  - **Drag and drop** — reorder a list with pointer-based drag, move
-    up/down buttons, and arrow-key shortcuts (mouse, touch, and pen all
-    supported).
-- **N/A opt-out** — respondents can mark an item as not applicable
-  instead of ranking it.
-- **Per-item conditional visibility** — show or hide individual items
-  based on other form values, using a `#states`-style YAML condition.
-- **`#states` integration** — in both display styles, each item's rank
-  can be used as a trigger for other elements' conditions (e.g. "show
-  this field only if Pizza is ranked 1st").
-- **Randomizable item order** — reduce position bias in survey-style
-  rankings.
-- **Custom rank labels** — override the default "1st, 2nd, 3rd..."
-  labels.
-- **Results/CSV formatting** — submission views and exports list each
-  item with its resolved rank (or N/A / not ranked).
+- **Two Interactive Display Styles:** Form authors can choose between a **Drag and Drop** list—which supports pointer drag, touch gestures, arrow keys, and dedicated move buttons—or a traditional **Matrix Grid** featuring one row per item and one radio button per column.
+- **Abstain / N/A Option:** Form respondents can mark specific items as "Not Applicable" instead of assigning them a numeric rank.
+- **Built-in Validation:** The element automatically enforces clean submissions by ensuring user rankings contain no duplicate ranks and leave no numerical gaps.
+- **Conditional Visibility:** Items within the ranking list can be hidden or revealed based on other form responses. Conversely, individual item ranks can serve as triggers to show or hide completely separate elements on the form.
+- **Shuffled Item Order:** Survey creators can randomize the display order of items on every page load to minimize positioning bias.
+- **Custom Clean Labels:** Default rank positions (1st, 2nd, 3rd...) can be overridden with custom text. Submission results map cleanly to webform views and CSV data exports.
 
 ## Requirements
 
 - Drupal ^10.1 || ^11
-- [Webform](https://www.drupal.org/project/webform) ^6.2
+- Webform ^6.2
 
 ## Installation
 
-Install as you would normally install a contributed Drupal module:
+Install the module using Composer and enable it via Drush or the Drupal administrative interface:
 
-```
+```bash
 composer require drupal/webform_ranking
 drush en webform_ranking
 ```
 
-## Usage
+## Configuration and Usage
 
-1. Edit a webform and add a **Ranking** element.
-2. Under **Ranking settings**, configure:
-   - **Items to rank** — one row per item (a storage `Value` and a
-     display `Label`). Optionally check **Use conditional visibility
-     for this item** to enter a `#states` condition (YAML) that
-     controls whether the item appears at all.
-   - **Display style** — Matrix or Drag and drop.
-   - **Allow abstaining (N/A)** and its label.
-   - **Randomize item order per page load**.
-   - **Rank position label overrides** — optional, one label per rank
-     position.
-   - **Require every visible item to be ranked or marked N/A**.
-3. Save. Respondents rank items in the chosen style; validation
-   enforces a gapless, non-duplicate ranking among currently-visible
-   items.
+Add a **Ranking** element to your webform to begin. Under the element settings, define your **Items to rank** by entering a unique storage value and a customer-facing display label for each choice. From there, select your preferred display style (Matrix or Drag and Drop), determine whether to allow N/A abstentions, and optionally apply randomization or label overrides.
 
-### Using an item's rank as a condition trigger
+### Setting Up Conditional Logic
 
-In both matrix and drag-and-drop mode, each item exposes its own
-selector (e.g. "Ranking: Pizza (rank)") in the `#states`
-condition-builder UI on *other* elements, so you can show/hide a
-field based on whether a specific item was ranked 1st, 2nd, etc., or
-marked N/A. This reacts live in the browser as the respondent
-re-ranks items — no page reload needed.
+**To hide or reveal specific ranking choices:** Click the **Conditions** button next to any choice in your item configuration list. This opens a dialog box where you can supply conditional logic, either blank or pre-filled if one is already set.
 
-## Known limitations
+**To trigger other form fields based on a rank:** Use the standard Webform conditional wizard on _other_ form elements. The ranking element exposes unique, per-item selectors (such as `Ranking: Pizza`) directly in the condition-builder UI. You can easily construct rules like _Show [Field B] if [Ranking: Pizza] is [1]_. The visibility changes update live in the browser as the respondent interacts with the field.
 
-- Per-item conditional visibility is configured as raw YAML, not
-  Webform's visual conditions builder.
-- The matrix style's rank columns are static and don't renumber when
-  items are conditionally hidden (drag-and-drop's position indicator
-  does).
-- Submission views/exports support the `value` and `raw` item formats;
-  a dedicated `table` format is not implemented.
+## Key Design Considerations & Limitations
+
+- **Conditional Logic Format:** Setting up visibility rules for individual choices within the ranking element requires entering raw YAML syntax inside the configuration dialog, rather than using Webform's visual rule builder.
+- **Matrix Style Grid Columns:** If you hide items conditionally, the columns in the **Matrix** layout remain fixed to your total number of configured items rather than shrinking dynamically. The **Drag and Drop** layout will successfully renumber its position indicators dynamically.
+- **Strict Matrix Order:** The Matrix display style requires respondents to assign ranks sequentially starting from the top slot. Skipping a leading rank (e.g., selecting 2nd and 3rd but leaving 1st unassigned) triggers a validation error on submission.
 
 ## Development
 
-Architecture notes, design-decision rationale, and known gaps are
-tracked in [docs/CONTINUATION.md](docs/CONTINUATION.md).
-
-Run the test suite with:
-
-```
-ddev phpunit --group webform_ranking
-```
-
-The `FunctionalJavascript` tests need a real WebDriver browser, which
-isn't part of the base DDEV setup. Install it once with:
-
-```
-ddev add-on get ddev/ddev-selenium-standalone-chrome
-ddev restart
-```
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for local environment
+setup and project structure, [docs/TESTING.md](docs/TESTING.md) for
+running the test suite, and [docs/CONTINUATION.md](docs/CONTINUATION.md)
+for architecture notes, design-decision rationale, and known gaps.
 
 ## Maintainers
 
-- [Steven Straker](https://www.drupal.org/u/strakez)
+- [Steven Straker (strakez)](https://www.drupal.org/u/strakez)
 
 ## License
 
