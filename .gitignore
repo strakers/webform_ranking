@@ -6,7 +6,10 @@
 /web/
 /recipes/
 /sites/
+/archived/
 
 # Ignore local editor footprints
 .idea/
 .vscode/
+
+.DS_Store
