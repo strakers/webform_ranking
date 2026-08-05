@@ -56,6 +56,22 @@ approach silently broke something non-obvious.
 
 ## Coding conventions
 
+The codebase targets a clean run against Drupal's coding standards
+(`phpcs` with the `Drupal` standard from
+[drupal/coder](https://www.drupal.org/project/coder)), since this is
+part of what a drupal.org project application is reviewed against:
+
+```bash
+phpcs --standard=Drupal --extensions=php,module,inc,install,test,profile,theme,css,info,txt,md,yml src js css tests config *.info.yml *.libraries.yml *.services.yml README.md CHANGELOG.md
+```
+
+`phpcbf` (the companion auto-fixer) handles a meaningful chunk of
+violations automatically, but not doc comment content — Drupal's
+standard requires a genuine one-line summary as a docblock's first
+line, with any further explanation as a separate paragraph below a
+blank line; `phpcbf` can add an empty docblock stub but can't write
+that summary for you.
+
 - New JavaScript should use `const`/`let`, not `var`. The existing files
   under `js/` still use `var` as of this writing — bringing them in line
   is tracked as a separate cleanup, not something to mix into unrelated

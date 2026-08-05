@@ -9,10 +9,16 @@ use Drupal\webform_ranking\WebformRankingVisibilityResolver;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Group;
 
+/**
+ * Tests WebformRankingVisibilityResolver's item-visibility resolution.
+ */
 #[CoversClass(WebformRankingVisibilityResolver::class)]
 #[Group('webform_ranking')]
 class WebformRankingVisibilityResolverTest extends UnitTestCase {
 
+  /**
+   * Tests that items with no 'states' key are always visible.
+   */
   public function testUnconditionalItemsAreAlwaysVisible(): void {
     $conditionsValidator = $this->createMock(WebformSubmissionConditionsValidatorInterface::class);
     // Should never be consulted for an item with no 'states' key at all.
@@ -31,6 +37,9 @@ class WebformRankingVisibilityResolverTest extends UnitTestCase {
     $this->assertSame(['item_a', 'item_b'], $result);
   }
 
+  /**
+   * Tests that a conditional item is visible when its condition is true.
+   */
   public function testConditionalItemVisibleWhenConditionEvaluatesTrue(): void {
     $states = ['visible' => [':input[name="trigger"]' => ['value' => 'student']]];
 
@@ -53,6 +62,9 @@ class WebformRankingVisibilityResolverTest extends UnitTestCase {
     $this->assertSame(['item_a'], $result);
   }
 
+  /**
+   * Tests that a conditional item is hidden when its condition is false.
+   */
   public function testConditionalItemHiddenWhenConditionEvaluatesFalse(): void {
     $states = ['visible' => [':input[name="trigger"]' => ['value' => 'student']]];
 
@@ -72,8 +84,12 @@ class WebformRankingVisibilityResolverTest extends UnitTestCase {
     $this->assertSame([], $result);
   }
 
-  // Mixed set: unconditional items always pass; conditional items are
-  // evaluated independently and can land on either side.
+  /**
+   * Tests a mixed set of unconditional and conditional items.
+   *
+   * Unconditional items always pass; conditional items are evaluated
+   * independently and can land on either side.
+   */
   public function testMixedConditionalAndUnconditionalItems(): void {
     $visibleStates = ['visible' => [':input[name="trigger"]' => ['value' => 'a']]];
     $hiddenStates = ['visible' => [':input[name="trigger"]' => ['value' => 'b']]];
@@ -100,13 +116,17 @@ class WebformRankingVisibilityResolverTest extends UnitTestCase {
     $this->assertSame(['always', 'shown'], $result);
   }
 
-  // The fail-closed contract: with no submission context, any item
-  // carrying a 'states' condition is excluded (there's no submitted
-  // trigger data to evaluate it against), while unconditional items
-  // are unaffected. This is deliberately the stricter of the two
-  // possible fallbacks — see the class-level docblock for the
-  // reasoning — so this test exists specifically to guard against a
-  // future regression back toward the permissive default.
+  /**
+   * Tests the fail-closed contract when no submission context exists.
+   *
+   * With no submission context, any item carrying a 'states' condition
+   * is excluded (there's no submitted trigger data to evaluate it
+   * against), while unconditional items are unaffected. This is
+   * deliberately the stricter of the two possible fallbacks — see the
+   * class-level docblock for the reasoning — so this test exists
+   * specifically to guard against a future regression back toward the
+   * permissive default.
+   */
   public function testFailsClosedWhenNoSubmissionContextIsAvailable(): void {
     $states = ['visible' => [':input[name="trigger"]' => ['value' => 'student']]];
 
@@ -126,6 +146,9 @@ class WebformRankingVisibilityResolverTest extends UnitTestCase {
     $this->assertSame(['always'], $result);
   }
 
+  /**
+   * Tests that an empty item list returns an empty array.
+   */
   public function testEmptyItemsReturnsEmptyArray(): void {
     $conditionsValidator = $this->createMock(WebformSubmissionConditionsValidatorInterface::class);
     $resolver = new WebformRankingVisibilityResolver($conditionsValidator);

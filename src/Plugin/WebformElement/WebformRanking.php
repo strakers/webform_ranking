@@ -4,9 +4,12 @@ namespace Drupal\webform_ranking\Plugin\WebformElement;
 
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\webform\Plugin\WebformElementBase;
+use Drupal\webform\Utility\WebformYaml;
 use Drupal\webform\WebformInterface;
 use Drupal\webform\WebformSubmissionConditionsValidator;
 use Drupal\webform\WebformSubmissionInterface;
+use Drupal\webform_ranking\Element\WebformRanking as WebformRankingElement;
+use Drupal\webform_ranking\WebformRankingConverter;
 
 /**
  * Provides a 'webform_ranking' element.
@@ -297,7 +300,7 @@ class WebformRanking extends WebformElementBase {
     // every consumer reads '#items' from this same prepared $element.
     foreach ($element['#items'] as &$item) {
       if (isset($item['states']) && is_string($item['states'])) {
-        $item['states'] = \Drupal\webform\Utility\WebformYaml::decode($item['states']);
+        $item['states'] = WebformYaml::decode($item['states']);
       }
     }
     unset($item);
@@ -321,7 +324,7 @@ class WebformRanking extends WebformElementBase {
     // e.g. an item added to configuration after this submission was
     // saved — degrades to "not yet accounted for" rather than erroring.
     if (!empty($element['#default_value']) && is_array($element['#default_value'])) {
-      $element['#default_value'] = \Drupal\webform_ranking\WebformRankingConverter::matrixToCanonical($element['#default_value']);
+      $element['#default_value'] = WebformRankingConverter::matrixToCanonical($element['#default_value']);
     }
   }
 
@@ -531,7 +534,7 @@ class WebformRanking extends WebformElementBase {
   protected function formatHtmlItem(array $element, WebformSubmissionInterface $webform_submission, array $options = []) {
     $value = $this->getValue($element, $webform_submission, $options);
     $value = is_array($value) ? $value : [];
-    $items = \Drupal\webform_ranking\WebformRankingConverter::orderByRank($element['#items'] ?? [], $value);
+    $items = WebformRankingConverter::orderByRank($element['#items'] ?? [], $value);
 
     if ($this->getItemFormat($element) === 'raw') {
       $rows = [];
@@ -541,7 +544,7 @@ class WebformRanking extends WebformElementBase {
       return ['#theme' => 'item_list', '#items' => $rows];
     }
 
-    $rank_labels = \Drupal\webform_ranking\Element\WebformRanking::getRankLabels($element, count($items));
+    $rank_labels = WebformRankingElement::getRankLabels($element, count($items));
     $rows = [];
     foreach ($items as $item) {
       $rows[$item['value']] = [
@@ -562,7 +565,7 @@ class WebformRanking extends WebformElementBase {
   protected function formatTextItem(array $element, WebformSubmissionInterface $webform_submission, array $options = []) {
     $value = $this->getValue($element, $webform_submission, $options);
     $value = is_array($value) ? $value : [];
-    $items = \Drupal\webform_ranking\WebformRankingConverter::orderByRank($element['#items'] ?? [], $value);
+    $items = WebformRankingConverter::orderByRank($element['#items'] ?? [], $value);
 
     if ($this->getItemFormat($element) === 'raw') {
       $lines = [];
@@ -572,7 +575,7 @@ class WebformRanking extends WebformElementBase {
       return implode(PHP_EOL, $lines);
     }
 
-    $rank_labels = \Drupal\webform_ranking\Element\WebformRanking::getRankLabels($element, count($items));
+    $rank_labels = WebformRankingElement::getRankLabels($element, count($items));
     $lines = [];
     foreach ($items as $item) {
       $lines[] = $item['label'] . ': ' . $this->resolveRankDisplay($element, $rank_labels, $value[$item['value']] ?? NULL);

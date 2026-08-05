@@ -48,6 +48,10 @@ setup and project structure, [docs/TESTING.md](docs/TESTING.md) for
 running the test suite, and [docs/CONTINUATION.md](docs/CONTINUATION.md)
 for architecture notes, design-decision rationale, and known gaps.
 
+## AI Usage and Transparency
+
+This module was developed with the assistance of an [AI coding agent](https://claude.com/product/claude-code), which was utilized for documentation generation, automated test writing, and code reviews. All AI contributions were executed in a manual, guided mode under strict developer oversight. Every line of code, test case, and architectural change suggested by the AI was carefully reviewed, verified, and manually approved to ensure the module meets security, stability, and high-quality coding standards.
+
 ## Maintainers
 
 - [Steven Straker (strakez)](https://www.drupal.org/u/strakez)

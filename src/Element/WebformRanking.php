@@ -2,8 +2,11 @@
 
 namespace Drupal\webform_ranking\Element;
 
+use Drupal\Component\Utility\Html;
+use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Render\Element\FormElementBase;
-use Drupal\Core\Render\Element;
+use Drupal\webform\WebformSubmissionForm;
+use Drupal\webform_ranking\WebformRankingConverter;
 
 /**
  * Provides a form element for ranking a set of items.
@@ -73,12 +76,12 @@ class WebformRanking extends FormElementBase {
    * Left as a pass-through skeleton pending the shared converter service
    * covered in the next implementation pass.
    */
-  public static function valueCallback(&$element, $input, \Drupal\Core\Form\FormStateInterface $form_state) {
+  public static function valueCallback(&$element, $input, FormStateInterface $form_state) {
     $style = $element['#ranking_style'] ?? 'matrix';
 
     if ($input !== FALSE && is_array($input)) {
       if ($style === 'dragdrop') {
-        return \Drupal\webform_ranking\WebformRankingConverter::dragdropToCanonical($input['dragdrop'] ?? []);
+        return WebformRankingConverter::dragdropToCanonical($input['dragdrop'] ?? []);
       }
 
       $matrix_input = $input['matrix'] ?? [];
@@ -91,14 +94,14 @@ class WebformRanking extends FormElementBase {
       // #_title_display), not a real element/HTML property.
       $element['#_matrix_raw_input'] = $matrix_input;
 
-      return \Drupal\webform_ranking\WebformRankingConverter::matrixToCanonical($matrix_input);
+      return WebformRankingConverter::matrixToCanonical($matrix_input);
     }
 
     // No submitted input: fall back to #default_value (e.g. editing an
     // existing submission). Already in canonical shape at this point —
     // WebformRanking::prepare() is responsible for ensuring
     // #default_value is canonical before the form is built.
-    return isset($element['#default_value']) ? $element['#default_value'] : [
+    return $element['#default_value'] ?? [
       'values' => [],
       'na' => [],
     ];
@@ -107,7 +110,7 @@ class WebformRanking extends FormElementBase {
   /**
    * Process callback: builds the matrix or drag/drop sub-render array.
    */
-  public static function processWebformRanking(&$element, \Drupal\Core\Form\FormStateInterface $form_state, &$complete_form) {
+  public static function processWebformRanking(&$element, FormStateInterface $form_state, &$complete_form) {
     $element['#tree'] = TRUE;
 
     // Item visibility (for conditionally-included items) is resolved by
@@ -147,7 +150,7 @@ class WebformRanking extends FormElementBase {
   protected static function buildMatrix(array $element, array $items) {
     $rank_count = count($items);
     $rank_labels = static::getRankLabels($element, $rank_count);
-    $defaults = \Drupal\webform_ranking\WebformRankingConverter::canonicalToMatrix($element['#value'] ?? $element['#default_value'] ?? []);
+    $defaults = WebformRankingConverter::canonicalToMatrix($element['#value'] ?? $element['#default_value'] ?? []);
 
     $element['matrix'] = [
       '#type' => 'table',
@@ -214,7 +217,7 @@ class WebformRanking extends FormElementBase {
           '#return_value' => $return_value,
           '#default_value' => $current_value,
           '#parents' => $row_parents,
-          '#id' => \Drupal\Component\Utility\Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, [$return_value]))),
+          '#id' => Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, [$return_value]))),
         ];
       }
 
@@ -227,7 +230,7 @@ class WebformRanking extends FormElementBase {
           '#return_value' => 'na',
           '#default_value' => $current_value,
           '#parents' => $row_parents,
-          '#id' => \Drupal\Component\Utility\Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, ['na']))),
+          '#id' => Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, ['na']))),
         ];
       }
 
@@ -266,7 +269,7 @@ class WebformRanking extends FormElementBase {
    * #states without requiring a full AJAX round trip.
    */
   protected static function buildDragDrop(array $element, array $items) {
-    $defaults = \Drupal\webform_ranking\WebformRankingConverter::canonicalToDragdrop($element['#value'] ?? $element['#default_value'] ?? []);
+    $defaults = WebformRankingConverter::canonicalToDragdrop($element['#value'] ?? $element['#default_value'] ?? []);
 
     // Reorder the rendered items to match any existing default value
     // (editing an existing submission), so the JS's initial sync() call
@@ -530,7 +533,7 @@ class WebformRanking extends FormElementBase {
    * JS hadn't yet cleared the now-invalid row) is an expected,
    * harmless case — not tampering — and shouldn't block submission.
    */
-  public static function validateWebformRanking(&$element, \Drupal\Core\Form\FormStateInterface $form_state, &$complete_form) {
+  public static function validateWebformRanking(&$element, FormStateInterface $form_state, &$complete_form) {
     $value = $element['#value'] ?? ['values' => [], 'na' => []];
     $values = $value['values'] ?? [];
     $na = $value['na'] ?? [];
@@ -555,7 +558,7 @@ class WebformRanking extends FormElementBase {
     // trust client-reported visibility.
     $webform_submission = NULL;
     $form_object = $form_state->getFormObject();
-    if ($form_object instanceof \Drupal\webform\WebformSubmissionForm) {
+    if ($form_object instanceof WebformSubmissionForm) {
       $webform_submission = $form_object->getEntity();
     }
     /** @var \Drupal\webform_ranking\WebformRankingVisibilityResolver $resolver */
@@ -582,7 +585,7 @@ class WebformRanking extends FormElementBase {
       $element['#_matrix_raw_input'] ?? [],
       array_flip($visible_item_values)
     );
-    if (!\Drupal\webform_ranking\WebformRankingConverter::matrixRanksAreSequential($raw_matrix_input)) {
+    if (!WebformRankingConverter::matrixRanksAreSequential($raw_matrix_input)) {
       $form_state->setError($element, $translation->translate('@title: ranks must be assigned starting from the top, with no gaps — a lower rank cannot be used unless every rank above it is also used.', ['@title' => $title]));
       return;
     }
@@ -619,9 +622,8 @@ class WebformRanking extends FormElementBase {
     // risk worth guarding — WebformRankingConverter::canonicalToMatrix()
     // deriving each item's rank from array *position* — is exactly what
     // this reindexing step guarantees stays correct.
-
     if (!empty($element['#required_all'])) {
-      $accounted_for = \Drupal\webform_ranking\WebformRankingConverter::accountedFor(['values' => $values, 'na' => $na]);
+      $accounted_for = WebformRankingConverter::accountedFor(['values' => $values, 'na' => $na]);
       $missing = array_diff($visible_item_values, $accounted_for);
       if ($missing) {
         $message = !empty($element['#allow_na'])
@@ -641,7 +643,10 @@ class WebformRanking extends FormElementBase {
     // and WebformRankingConverter's docblocks for the full rationale.
     // WebformRanking::prepare() is the mirror-image conversion back to
     // canonical shape when editing an existing submission.
-    $form_state->setValueForElement($element, \Drupal\webform_ranking\WebformRankingConverter::canonicalToMatrix(['values' => $values, 'na' => $na]));
+    $form_state->setValueForElement($element, WebformRankingConverter::canonicalToMatrix([
+      'values' => $values,
+      'na' => $na,
+    ]));
   }
 
 }
