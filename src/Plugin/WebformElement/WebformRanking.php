@@ -39,7 +39,7 @@ class WebformRanking extends WebformElementBase {
    * this pattern in current Webform.
    */
   protected function defineDefaultProperties() {
-    return [
+    $properties = [
       // Standard properties inherited from WebformElementBase are merged
       // automatically (title, description, required, states, wrapper
       // attributes, access, etc.) — only ranking-specific defaults here.
@@ -51,6 +51,18 @@ class WebformRanking extends WebformElementBase {
       'randomize_item_order' => FALSE,
       'required_all' => TRUE,
     ] + parent::defineDefaultProperties();
+
+    // The canonical {values, na} ranking value has no scalar
+    // representation a "Default value" textfield could express — the
+    // base class's generic textfield only ever produces a string, which
+    // crashes WebformRankingConverter::canonicalToMatrix() (a typed
+    // array parameter) the first time the element renders. Removing the
+    // property entirely means Webform's element config form stops
+    // offering it at all, rather than offering a control that can only
+    // ever produce an invalid value.
+    unset($properties['default_value']);
+
+    return $properties;
   }
 
   /**
@@ -320,9 +332,20 @@ class WebformRanking extends WebformElementBase {
     // its own docblock) so a partially-populated stored value here —
     // e.g. an item added to configuration after this submission was
     // saved — degrades to "not yet accounted for" rather than erroring.
-    if (!empty($element['#default_value']) && is_array($element['#default_value'])) {
-      $element['#default_value'] = \Drupal\webform_ranking\WebformRankingConverter::matrixToCanonical($element['#default_value']);
-    }
+    //
+    // Defence in depth against a non-array #default_value reaching
+    // buildMatrix()/buildDragDrop()/valueCallback() (all three require
+    // canonical {values, na} array shape): defineDefaultProperties()
+    // above removes the admin-facing "Default value" textfield, but
+    // existing config saved before that fix, or a value set
+    // programmatically/by another module's alter hook, could still be a
+    // scalar here. Normalizing unconditionally (not gated on !empty())
+    // also fixes a bare [] default value being left un-normalized to
+    // canonical shape, which is inconsistent with what every other
+    // consumer expects.
+    $element['#default_value'] = is_array($element['#default_value'] ?? NULL)
+      ? \Drupal\webform_ranking\WebformRankingConverter::matrixToCanonical($element['#default_value'])
+      : ['values' => [], 'na' => []];
   }
 
   /**
