@@ -567,6 +567,18 @@ class WebformRanking extends FormElementBase {
     $values = array_values(array_intersect($values, $visible_item_values));
     $na = array_values(array_intersect($na, $visible_item_values));
 
+    // #required: core's own required check can't see an empty ranking —
+    // valueCallback() always returns a 2-key array (['values' => [],
+    // 'na' => []]) even when nothing was selected, so FormValidator's
+    // `count($value) == 0` test never trips. Checked here, after
+    // stale/invisible entries are dropped above, so a submission
+    // consisting only of hidden items still counts as empty.
+    if (!empty($element['#required']) && !$values && !$na) {
+      $form_state->setError($element, $element['#required_error']
+        ?? $translation->translate('@title field is required.', ['@title' => $title]));
+      return;
+    }
+
     // Ranks must be assigned starting from 1st place with no gaps —
     // e.g. 2nd/3rd can't be used unless 1st is also used. Matrix-only:
     // dragdrop's ordering is inherently gapless by construction (see
