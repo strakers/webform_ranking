@@ -1,4 +1,9 @@
 services:
+  logger.channel.webform_ranking:
+    class: Drupal\Core\Logger\LoggerChannel
+    factory: logger.factory:get
+    arguments: ['webform_ranking']
+
   webform_ranking.visibility_resolver:
     class: Drupal\webform_ranking\WebformRankingVisibilityResolver
-    arguments: ['@webform_submission.conditions_validator']
+    arguments: ['@webform_submission.conditions_validator', '@logger.channel.webform_ranking']
