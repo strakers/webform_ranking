@@ -87,6 +87,9 @@ class WebformRankingPluginTest extends KernelTestBase {
     return $reflection->invokeArgs($this->plugin, $args);
   }
 
+  /**
+   * Tests that getItemRankValue() returns the stored scalar rank.
+   */
   public function testGetItemRankValueReturnsStoredScalarRank(): void {
     $data = ['item_a' => '2', 'item_b' => 'na'];
 
@@ -94,28 +97,42 @@ class WebformRankingPluginTest extends KernelTestBase {
     $this->assertSame('na', $this->plugin->getItemRankValue($data, 'item_b'));
   }
 
+  /**
+   * Tests that getItemRankValue() returns NULL for an absent item.
+   */
   public function testGetItemRankValueReturnsNullWhenItemAbsent(): void {
     $this->assertNull($this->plugin->getItemRankValue([], 'item_a'));
   }
 
-  // Defensive per the method's own docblock: a submission that never
-  // touched this element, or malformed stored data, shouldn't produce
-  // a value a caller could mistake for a real rank.
+  /**
+   * Tests that a non-scalar stored value returns NULL, not itself.
+   *
+   * Defensive per the method's own docblock: a submission that never
+   * touched this element, or malformed stored data, shouldn't produce
+   * a value a caller could mistake for a real rank.
+   */
   public function testGetItemRankValueReturnsNullForNonScalarValue(): void {
     $data = ['item_a' => ['unexpectedly' => 'an array']];
 
     $this->assertNull($this->plugin->getItemRankValue($data, 'item_a'));
   }
 
+  /**
+   * Tests that getTestValues() returns NULL when no items are configured.
+   */
   public function testGetTestValuesReturnsNullWhenNoItemsConfigured(): void {
     $webform = $this->createMock(WebformInterface::class);
 
     $this->assertNull($this->plugin->getTestValues(['#items' => []], $webform));
   }
 
-  // Without 'random' => TRUE, order is deterministic (configured
-  // order), so the exact rank assignment can be asserted directly
-  // rather than just checking it's *a* valid permutation.
+  /**
+   * Tests that getTestValues() returns a full ranking in storage shape.
+   *
+   * Without 'random' => TRUE, order is deterministic (configured
+   * order), so the exact rank assignment can be asserted directly,
+   * rather than just checking it's *a* valid permutation.
+   */
   public function testGetTestValuesReturnsFullRankingInStorageShape(): void {
     $webform = $this->createMock(WebformInterface::class);
     $element = ['#items' => $this->items()];
@@ -133,11 +150,15 @@ class WebformRankingPluginTest extends KernelTestBase {
     );
   }
 
-  // Not a statistical test of randomness itself — just confirms that
-  // requesting a random order still produces a valid full ranking
-  // (every item accounted for, ranks 1..3 each used exactly once),
-  // since a broken shuffle could easily drop or duplicate a rank.
-  public function testGetTestValuesRandomOrderIsStillAValidFullRanking(): void {
+  /**
+   * Tests that a random order still produces a valid full ranking.
+   *
+   * Not a statistical test of randomness itself — just confirms that
+   * requesting a random order still produces a valid full ranking
+   * (every item accounted for, ranks 1..3 each used exactly once),
+   * since a broken shuffle could easily drop or duplicate a rank.
+   */
+  public function testGetTestValuesRandomOrderStillProducesValidFullRanking(): void {
     $webform = $this->createMock(WebformInterface::class);
     $element = ['#items' => $this->items()];
 
@@ -148,6 +169,9 @@ class WebformRankingPluginTest extends KernelTestBase {
     $this->assertEqualsCanonicalizing(['1', '2', '3'], array_values($value));
   }
 
+  /**
+   * Tests that N/A resolves to the configured N/A label.
+   */
   public function testResolveRankDisplayForNaUsesConfiguredNaLabel(): void {
     $element = ['#na_label' => 'Not Applicable'];
 
@@ -156,6 +180,9 @@ class WebformRankingPluginTest extends KernelTestBase {
     $this->assertSame('Not Applicable', (string) $result);
   }
 
+  /**
+   * Tests that a numeric rank resolves to its configured rank label.
+   */
   public function testResolveRankDisplayForNumericRankUsesRankLabel(): void {
     $rank_labels = ['1st', '2nd', '3rd'];
 
@@ -165,15 +192,22 @@ class WebformRankingPluginTest extends KernelTestBase {
     $this->assertSame('2nd', (string) $result);
   }
 
+  /**
+   * Tests that an unaccounted-for item resolves to "Not ranked".
+   */
   public function testResolveRankDisplayForUnaccountedItemReturnsNotRanked(): void {
     $result = $this->invokePrivate('resolveRankDisplay', [[], ['1st', '2nd'], NULL]);
 
     $this->assertSame('Not ranked', (string) $result);
   }
 
-  // An out-of-range rank (e.g. a rank_labels array shrunk after items
-  // were removed from configuration) must degrade to "not ranked"
-  // rather than an undefined-index warning or a crash.
+  /**
+   * Tests that an out-of-range rank degrades to "not ranked".
+   *
+   * An out-of-range rank (e.g. a rank_labels array shrunk after items
+   * were removed from configuration) must degrade to "not ranked"
+   * rather than an undefined-index warning or a crash.
+   */
   public function testResolveRankDisplayForOutOfRangeRankReturnsNotRanked(): void {
     $result = $this->invokePrivate('resolveRankDisplay', [[], ['1st'], '5']);
 
@@ -181,6 +215,8 @@ class WebformRankingPluginTest extends KernelTestBase {
   }
 
   /**
+   * Tests that a per-item selector resolves to that item's rank.
+   *
    * Real bug this override fixes: without it, the server-side
    * conditions validator (WebformSubmissionConditionsValidator) hands
    * the whole flat storage map to checkConditionTrigger(), which then
@@ -208,6 +244,9 @@ class WebformRankingPluginTest extends KernelTestBase {
     );
   }
 
+  /**
+   * Tests that a not-yet-ranked item's selector resolves to NULL.
+   */
   public function testGetElementSelectorInputValueReturnsNullForItemNotYetRanked(): void {
     $webform_submission = $this->createMock(WebformSubmissionInterface::class);
     $webform_submission->method('getElementData')->willReturn(['pizza' => '1']);
@@ -219,9 +258,13 @@ class WebformRankingPluginTest extends KernelTestBase {
     );
   }
 
-  // A dragdrop selector that isn't the "rank" echo input (e.g. the
-  // real 'order' field itself) must defer to the parent implementation
-  // rather than being misinterpreted as a per-item rank selector.
+  /**
+   * Tests that a non-rank dragdrop selector defers to parent element.
+   *
+   * A dragdrop selector that isn't the "rank" echo input (e.g. the
+   * real 'order' field itself) must defer to the parent implementation
+   * rather than being misinterpreted as a per-item rank selector.
+   */
   public function testGetElementSelectorInputValueDefersToParentForNonRankDragdropSelector(): void {
     $webform_submission = $this->createMock(WebformSubmissionInterface::class);
     $webform_submission->method('getElementData')
@@ -239,6 +282,8 @@ class WebformRankingPluginTest extends KernelTestBase {
   }
 
   /**
+   * Tests that a dragdrop per-item rank selector resolves correctly.
+   *
    * Drag/drop's per-item rank echo input (see
    * WebformRanking::buildDragDrop() and this plugin's
    * getElementSelectorOptions()) must resolve identically to a matrix
@@ -263,6 +308,9 @@ class WebformRankingPluginTest extends KernelTestBase {
     );
   }
 
+  /**
+   * Tests that per-item selectors are exposed for both display styles.
+   */
   public function testGetElementSelectorOptionsExposesPerItemSelectorsForBothStyles(): void {
     $element = [
       '#webform_key' => 'preference',
@@ -280,6 +328,8 @@ class WebformRankingPluginTest extends KernelTestBase {
   }
 
   /**
+   * Tests that prepare() decodes a string 'states' value into an array.
+   *
    * Real bug: config saved before 'states' had '#decode_value' => TRUE
    * on the admin form (see form()'s docblock for that field) left
    * per-item 'states' as a raw YAML *string*. Left un-decoded,
@@ -310,10 +360,14 @@ class WebformRankingPluginTest extends KernelTestBase {
     );
   }
 
-  // Config saved *after* the '#decode_value' fix already has 'states'
-  // as a real array — prepare() must leave it untouched rather than
-  // double-processing (WebformYaml::decode() called on an already-array
-  // value would be a type error).
+  /**
+   * Tests that prepare() leaves an already-array 'states' untouched.
+   *
+   * Config saved *after* the '#decode_value' fix already has 'states'
+   * as a real array — prepare() must leave it untouched rather than
+   * double-processing (WebformYaml::decode() called on an already-array
+   * value would be a type error).
+   */
   public function testPrepareLeavesArrayItemStatesUntouched(): void {
     $states = ['visible' => [':input[name="field"]' => ['value' => 'yes']]];
     $element = [
@@ -327,12 +381,16 @@ class WebformRankingPluginTest extends KernelTestBase {
     $this->assertSame($states, $element['#items'][0]['states']);
   }
 
-  // An item with no condition configured at all has 'states' as an
-  // empty string (the admin never checked "use conditional
-  // visibility") — must decode to an empty array, not an error, so
-  // downstream `!empty($item['states'])` checks (buildMatrix()/
-  // buildDragDrop(), WebformRankingVisibilityResolver) correctly treat
-  // it as "no condition".
+  /**
+   * Tests that an empty-string 'states' decodes to an empty array.
+   *
+   * An item with no condition configured at all has 'states' as an
+   * empty string (the admin never checked "use conditional
+   * visibility") — must decode to an empty array, not an error, so
+   * downstream `!empty($item['states'])` checks (buildMatrix()/
+   * buildDragDrop(), WebformRankingVisibilityResolver) correctly treat
+   * it as "no condition".
+   */
   public function testPrepareDecodesEmptyStringItemStatesToEmptyArray(): void {
     $element = [
       '#items' => [

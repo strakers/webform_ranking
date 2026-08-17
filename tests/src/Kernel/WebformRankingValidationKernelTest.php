@@ -4,6 +4,7 @@ namespace Drupal\Tests\webform_ranking\Kernel;
 
 use Drupal\Core\Form\FormInterface;
 use Drupal\Core\Form\FormState;
+use Drupal\Core\Form\FormStateInterface;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\webform_ranking\Element\WebformRanking as WebformRankingElement;
 use PHPUnit\Framework\Attributes\Group;
@@ -135,6 +136,9 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     return $form_state;
   }
 
+  /**
+   * Tests that a valid, full ranking produces no errors.
+   */
   public function testValidFullRankingProducesNoErrors(): void {
     $form_state = $this->validate([], [
       'values' => ['item_b', 'item_a', 'item_c'],
@@ -144,6 +148,9 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     $this->assertSame([], $form_state->getErrors());
   }
 
+  /**
+   * Tests that a valid ranking's value is preserved unfiltered.
+   */
   public function testValidFullRankingPreservesValueWhenNothingIsFiltered(): void {
     $form_state = $this->validate([], ['values' => ['item_b', 'item_a', 'item_c'], 'na' => []]);
 
@@ -157,6 +164,9 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     );
   }
 
+  /**
+   * Tests that an unknown item key is rejected as tamper defense.
+   */
   public function testUnknownItemKeyIsRejectedAsTamperDefense(): void {
     $form_state = $this->validate([], [
       // 'item_x' was never configured at all.
@@ -169,8 +179,12 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     $this->assertStringContainsString('invalid selection', (string) reset($errors));
   }
 
-  // Only reachable via a forged #value — see class docblock. The
-  // normal matrix/dragdrop -> converter path can never produce this.
+  /**
+   * Tests that a duplicate rank in a forged #value is rejected.
+   *
+   * Only reachable via a forged #value — see class docblock. The
+   * normal matrix/dragdrop -> converter path can never produce this.
+   */
   public function testDuplicateRankInForgedValueIsRejected(): void {
     $form_state = $this->validate([], [
       'values' => ['item_a', 'item_a', 'item_b'],
@@ -182,6 +196,9 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     $this->assertStringContainsString('ranked once', (string) reset($errors));
   }
 
+  /**
+   * Tests that an item both ranked and marked N/A is rejected.
+   */
   public function testItemBothRankedAndNaIsRejected(): void {
     $form_state = $this->validate(['#allow_na' => TRUE], [
       'values' => ['item_a'],
@@ -193,6 +210,9 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     $this->assertStringContainsString('cannot be both ranked', (string) reset($errors));
   }
 
+  /**
+   * Tests that N/A is rejected when the element doesn't allow it.
+   */
   public function testNaIsRejectedWhenNotAllowed(): void {
     $form_state = $this->validate(['#allow_na' => FALSE], [
       'values' => ['item_a'],
@@ -204,17 +224,21 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     $this->assertStringContainsString('does not allow', (string) reset($errors));
   }
 
-  // A non-sequential-keyed 'values' array (e.g. keys 1,3 instead of
-  // 0,1) can only arise from a forged #value bypassing the converter.
-  // Earlier versions of this test asserted that gets rejected; it
-  // doesn't, and shouldn't — see the docblock in
-  // validateWebformRanking() for why. The filtering step a few lines
-  // above the required_all check always reindexes 'values' via
-  // array_values(), so rank ends up correctly derived from iteration
-  // order regardless of the original (forged) keys. This test now
-  // documents that normalization explicitly, rather than asserting a
-  // rejection that the code no longer performs and, on reflection,
-  // never actually needed to.
+  /**
+   * Tests that non-sequential-keyed values are normalized, not rejected.
+   *
+   * A non-sequential-keyed 'values' array (e.g. keys 1,3 instead of
+   * 0,1) can only arise from a forged #value bypassing the converter.
+   * Earlier versions of this test asserted that gets rejected; it
+   * doesn't, and shouldn't — see the docblock in
+   * validateWebformRanking() for why. The filtering step a few lines
+   * above the required_all check always reindexes 'values' via
+   * array_values(), so rank ends up correctly derived from iteration
+   * order regardless of the original (forged) keys. This test now
+   * documents that normalization explicitly, rather than asserting a
+   * rejection that the code no longer performs and, on reflection,
+   * never actually needed to.
+   */
   public function testNonSequentialKeyedValuesAreNormalizedNotRejected(): void {
     $form_state = $this->validate(['#required_all' => FALSE], [
       'values' => [1 => 'item_a', 3 => 'item_b'],
@@ -224,6 +248,9 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     $this->assertSame([], $form_state->getErrors());
   }
 
+  /**
+   * Tests that #required_all rejects a ranking missing items.
+   */
   public function testRequiredAllRejectsMissingItems(): void {
     $form_state = $this->validate(['#required_all' => TRUE], [
       // item_b and item_c never accounted for.
@@ -236,6 +263,9 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     $this->assertStringContainsString('every item must be ranked', (string) reset($errors));
   }
 
+  /**
+   * Tests that #required_all isn't enforced when disabled.
+   */
   public function testRequiredAllNotEnforcedWhenDisabled(): void {
     $form_state = $this->validate(['#required_all' => FALSE], [
       'values' => ['item_a'],
@@ -289,9 +319,11 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
   }
 
   /**
-   * The fail-closed contract, exercised through the real callback and
-   * the real (container-resolved) WebformRankingVisibilityResolver
-   * service — not a mock, unlike the Unit test of the resolver alone.
+   * Tests the fail-closed contract via the real resolver service.
+   *
+   * Exercised through the real, container-resolved
+   * WebformRankingVisibilityResolver — not a mock, unlike the Unit
+   * test of the resolver alone.
    *
    * A conditional item with no Webform submission context in scope:
    * - Is excluded from the "visible" set, so its absence does NOT
@@ -337,25 +369,39 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
 }
 
 /**
- * Minimal FormInterface implementation used only to give FormState a
- * valid, non-WebformSubmissionForm form object — see newFormState().
- * Deliberately not the class under test; exists purely to avoid an
- * uninitialized-typed-property access on a bare FormState.
+ * Minimal, non-Webform FormInterface implementation for newFormState().
+ *
+ * Gives FormState a valid form object without being a
+ * WebformSubmissionForm. Deliberately not the class under test; exists
+ * purely to avoid an uninitialized-typed-property access on a bare
+ * FormState.
  */
 class WebformRankingDummyTestForm implements FormInterface {
 
+  /**
+   * {@inheritdoc}
+   */
   public function getFormId() {
     return 'webform_ranking_dummy_test_form';
   }
 
-  public function buildForm(array $form, \Drupal\Core\Form\FormStateInterface $form_state) {
+  /**
+   * {@inheritdoc}
+   */
+  public function buildForm(array $form, FormStateInterface $form_state) {
     return $form;
   }
 
-  public function validateForm(array &$form, \Drupal\Core\Form\FormStateInterface $form_state) {
+  /**
+   * {@inheritdoc}
+   */
+  public function validateForm(array &$form, FormStateInterface $form_state) {
   }
 
-  public function submitForm(array &$form, \Drupal\Core\Form\FormStateInterface $form_state) {
+  /**
+   * {@inheritdoc}
+   */
+  public function submitForm(array &$form, FormStateInterface $form_state) {
   }
 
 }

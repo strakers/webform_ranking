@@ -99,8 +99,9 @@ class WebformRankingMatrixJavaScriptTest extends WebDriverTestBase {
   }
 
   /**
-   * Tests that selecting a rank disables it for every other item, and
-   * re-enables it once freed up.
+   * Tests that selecting a rank disables it for every other item.
+   *
+   * Also tests that it re-enables once freed up.
    */
   public function testRankExclusivity(): void {
     $this->drupalGet('/webform/test_ranking_matrix');
@@ -148,8 +149,9 @@ class WebformRankingMatrixJavaScriptTest extends WebDriverTestBase {
   }
 
   /**
-   * Tests that a matrix item's rank can be used as a live #states
-   * trigger for another element — no page reload required.
+   * Tests that a matrix item's rank can be used as a live #states trigger.
+   *
+   * No page reload required.
    */
   public function testStatesReactToRankSelection(): void {
     $this->drupalGet('/webform/test_ranking_matrix');

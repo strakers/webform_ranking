@@ -638,6 +638,44 @@ no-input fallback only ever see canonical shape. The plugin's
     stripping in `validateConfigurationForm()` were removed from the
     plugin entirely, since the field no longer exists.
 
+18. **Full Drupal coding-standards cleanup (108 `phpcs` errors -> 0),
+    prep work for a drupal.org project application.** Mechanical for
+    the most part (missing/malformed docblocks — Drupal's standard
+    requires a genuine one-line summary before any elaborating
+    paragraph, which `phpcbf` can't write on its own; it can only stub
+    an empty docblock), but two real, non-obvious findings surfaced
+    along the way:
+    - **A `phpcs` false positive from an innocuous method name.**
+      `testGetTestValuesRandomOrderIsStillAValidFullRanking` was
+      flagged as "not in lowerCamel format" despite genuinely being
+      lowerCamel. Root cause: `...StillA` immediately followed by
+      `Valid...` produces the substring `AV` — two consecutive
+      uppercase letters — which trips a naive camelCase heuristic that
+      (reasonably, in the general case) treats consecutive capitals as
+      a sign of an acronym rather than two adjacent single/short words.
+      Fixed by rewording the method name
+      (`...RandomOrderStillProducesValidFullRanking`) to avoid the
+      accidental collision, not by suppressing the sniff.
+    - **`DrupalPractice`'s `GlobalDrupalSniff` crashes outright on this
+      PHP 8.4 environment**, not just warns: it parses `*.services.yml`
+      via `symfony/yaml`, and this environment's installed
+      `symfony/yaml` version calls a since-deprecated-nullable-param
+      pattern that PHP 8.4 raises as a catchable deprecation —
+      uncaught, it aborts the whole `phpcbf`/`phpcs` run partway
+      through (confirmed via a full stack trace pointing at
+      `Symfony\Component\Yaml\Parser`). Not a real code issue in this
+      module; worked around by running with `--standard=Drupal` only
+      (dropping `DrupalPractice`) for this cleanup pass. Anyone
+      re-running a full standards check against a different
+      `drupal/coder`/`symfony/yaml`/PHP combination should expect this
+      to behave differently — treat a sudden mid-run fatal error here
+      as an environment-version mismatch to investigate, not
+      necessarily a real problem in the YAML being parsed.
+    Also added `LICENSE.txt` (GPL-2.0-or-later) — drupal.org's own
+    packaging generates one automatically, but the GitHub-hosted repo
+    didn't have one, and GitHub's own UI (license badge, etc.) reads it
+    directly from the repo.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,

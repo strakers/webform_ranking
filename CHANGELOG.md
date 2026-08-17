@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `LICENSE.txt` (GPL-2.0-or-later).
+
+### Changed
+
+- Reorganized documentation: `README.md` now focuses on user-facing
+  usage; local development setup and testing instructions moved to
+  `docs/DEVELOPMENT.md` and `docs/TESTING.md`.
+- Brought the codebase into full compliance with Drupal's coding
+  standards, in preparation for a drupal.org project application.
+
 ## [0.1.0] - 2026-07-12
 
 ### Added

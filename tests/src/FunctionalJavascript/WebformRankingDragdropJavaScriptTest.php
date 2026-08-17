@@ -7,6 +7,7 @@ use Drupal\FunctionalJavascriptTests\WebDriverTestBase;
 use Drupal\webform\Entity\Webform;
 use Drupal\webform\WebformInterface;
 use PHPUnit\Framework\Attributes\Group;
+use WebDriver\Key;
 
 /**
  * Tests the drag/drop ranking style's pointer-based reorder behavior.
@@ -80,11 +81,12 @@ class WebformRankingDragdropJavaScriptTest extends WebDriverTestBase {
   }
 
   /**
+   * Tests dragging item A onto item C via real WebDriver mouse input.
+   *
    * Reported bug: pointer-dragging an item shows visual feedback (a
    * "dragging" class toggles, confirmed separately via classList
    * inspection during manual investigation) but the actual DOM order
-   * never changes. Drags item A onto item C via a real WebDriver mouse
-   * sequence and asserts the resulting order.
+   * never changes.
    *
    * Surprising result once actually run with a real WebDriver drag
    * (see below): the reorder DOES happen. Mink's NodeElement::dragTo()
@@ -125,13 +127,15 @@ class WebformRankingDragdropJavaScriptTest extends WebDriverTestBase {
   }
 
   /**
-   * Tests a *gradual*, multi-step pointer drag — as opposed to
-   * testPointerDragReordersItems()'s single-jump NodeElement::dragTo(),
-   * which issues exactly one pointerMove straight from source to
-   * destination (duration: 0, see Selenium2Driver::dragTo()). Real
-   * mouse/trackpad input instead fires many incremental pointermove
-   * events as the cursor physically travels, passing over every item
-   * in between rather than jumping straight to the final one.
+   * Tests a *gradual*, multi-step pointer drag.
+   *
+   * In contrast to testPointerDragReordersItems()'s single-jump
+   * NodeElement::dragTo(), which issues exactly one pointerMove
+   * straight from source to destination (duration: 0, see
+   * Selenium2Driver::dragTo()). Real mouse/trackpad input instead fires
+   * many incremental pointermove events as the cursor physically
+   * travels, passing over every item in between rather than jumping
+   * straight to the final one.
    *
    * docs/CONTINUATION.md (Key Design Decision #14) flagged this as the
    * next thing worth checking for GitHub issue #3, since the single-jump
@@ -197,8 +201,17 @@ JS
           'parameters' => ['pointerType' => 'mouse'],
           'actions' => array_merge(
             [
-              ['type' => 'pointerMove', 'duration' => 0, 'origin' => 'viewport', 'x' => $centers['a']['x'], 'y' => $centers['a']['y']],
-              ['type' => 'pointerDown', 'button' => 0],
+              [
+                'type' => 'pointerMove',
+                'duration' => 0,
+                'origin' => 'viewport',
+                'x' => $centers['a']['x'],
+                'y' => $centers['a']['y'],
+              ],
+              [
+                'type' => 'pointerDown',
+                'button' => 0,
+              ],
             ],
             $move_actions,
             [['type' => 'pointerUp', 'button' => 0]]
@@ -214,10 +227,11 @@ JS
   }
 
   /**
-   * Tests that the always-present move-up/move-down buttons — the
-   * primary, fully-equivalent interaction per this element's own
-   * accessibility model (see js/webform_ranking.dragdrop.js's file
-   * docblock) — correctly reorder items.
+   * Tests that the always-present move-up/move-down buttons reorder items.
+   *
+   * These are the primary, fully-equivalent interaction per this
+   * element's own accessibility model (see
+   * js/webform_ranking.dragdrop.js's file docblock).
    */
   public function testMoveButtonsReorderItems(): void {
     $this->drupalGet('/webform/test_ranking_dragdrop');
@@ -244,9 +258,10 @@ JS
   }
 
   /**
-   * Tests that ArrowUp/ArrowDown reorder the focused item — a keyboard
-   * shortcut layered on top of the buttons, per this element's own
-   * accessibility model.
+   * Tests that ArrowUp/ArrowDown reorder the focused item.
+   *
+   * A keyboard shortcut layered on top of the buttons, per this
+   * element's own accessibility model.
    */
   public function testArrowKeyReordersItems(): void {
     $this->drupalGet('/webform/test_ranking_dragdrop');
@@ -263,15 +278,16 @@ JS
     // event (correct .key included), unlike syn.js's approximation.
     $webdriver_session = $this->getSession()->getDriver()->getWebDriverSession();
     $element = $webdriver_session->element('css selector', '.webform-ranking-dragdrop__item[data-webform-ranking-value="a"]');
-    $element->postValue(['text' => \WebDriver\Key::DOWN_ARROW]);
+    $element->postValue(['text' => Key::DOWN_ARROW]);
 
     $this->assertOrder(['b', 'a', 'c']);
   }
 
   /**
-   * Tests that marking an item N/A removes it from the ranked order
-   * (grouped at the end, excluded from rank numbering), and that
-   * unmarking it re-enters it at the end of the ranked list.
+   * Tests that marking an item N/A removes it from the ranked order.
+   *
+   * It's grouped at the end, excluded from rank numbering. Unmarking it
+   * re-enters it at the end of the ranked list.
    */
   public function testNaToggleRemovesFromRanking(): void {
     $this->drupalGet('/webform/test_ranking_dragdrop');
@@ -295,9 +311,10 @@ JS
   }
 
   /**
-   * Tests that a dragdrop item's rank can be used as a live #states
-   * trigger for another element (Key Design Decision #13) — no page
-   * reload required.
+   * Tests that a dragdrop item's rank can be a live #states trigger.
+   *
+   * For another element (Key Design Decision #13) — no page reload
+   * required.
    */
   public function testStatesReactToRankSelection(): void {
     $this->drupalGet('/webform/test_ranking_dragdrop');
@@ -326,8 +343,9 @@ JS
   }
 
   /**
-   * Asserts the current top-to-bottom order of ranking items by their
-   * data-webform-ranking-value attribute.
+   * Asserts the top-to-bottom order of items by their value attribute.
+   *
+   * (Uses data-webform-ranking-value attribute.)
    *
    * @param string[] $expected
    *   The expected ordered list of item values.

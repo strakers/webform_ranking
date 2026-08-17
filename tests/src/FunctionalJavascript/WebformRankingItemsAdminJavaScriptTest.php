@@ -2,6 +2,7 @@
 
 namespace Drupal\Tests\webform_ranking\FunctionalJavascript;
 
+use Behat\Mink\Element\NodeElement;
 use Drupal\Component\Serialization\Yaml;
 use Drupal\FunctionalJavascriptTests\WebDriverTestBase;
 use Drupal\webform\Entity\Webform;
@@ -9,8 +10,7 @@ use Drupal\webform\WebformInterface;
 use PHPUnit\Framework\Attributes\Group;
 
 /**
- * Tests the per-item conditional-visibility YAML field's dialog-based UI
- * on the element's admin config form (GitHub issue #4).
+ * Tests the per-item conditional-visibility dialog (GitHub issue #4).
  *
  * An earlier version used a per-row checkbox for inline progressive
  * disclosure; that never actually worked (its row-scoping heuristic
@@ -75,14 +75,16 @@ class WebformRankingItemsAdminJavaScriptTest extends WebDriverTestBase {
   }
 
   /**
-   * Finds the "Conditions" trigger button for a given item, matched by
-   * the row's Value textfield content — #webform_multiple rows are
-   * 0-indexed and deltas can shift, so matching by content rather than
-   * a hardcoded index is more robust. The trigger button itself never
-   * moves in the DOM (only the YAML field's wrapper does, into the
-   * dialog), so this lookup stays valid before and after opening it.
+   * Finds the "Conditions" trigger button for a given item.
+   *
+   * Matched by the row's Value textfield content — #webform_multiple
+   * rows are 0-indexed and deltas can shift, so matching by content
+   * rather than a hardcoded index is more robust. The trigger button
+   * itself never moves in the DOM (only the YAML field's wrapper does,
+   * into the dialog), so this lookup stays valid before and after
+   * opening it.
    */
-  protected function triggerForItemValue(string $item_value): \Behat\Mink\Element\NodeElement {
+  protected function triggerForItemValue(string $item_value): NodeElement {
     $page = $this->getSession()->getPage();
     foreach ($page->findAll('css', '.webform-ranking-item-configure-states') as $trigger) {
       $row = $trigger->find('xpath', './ancestor::tr[1]');
@@ -94,8 +96,9 @@ class WebformRankingItemsAdminJavaScriptTest extends WebDriverTestBase {
   }
 
   /**
-   * Reads the value of whichever '.webform-ranking-item-states' YAML
-   * field is currently inside an open dialog.
+   * Reads the YAML field's value from whichever dialog is open.
+   *
+   * (Uses '.webform-ranking-item-states' YAML field.)
    *
    * Deliberately reads the underlying <textarea>'s value via JS rather
    * than a Mink NodeElement — Webform's CodeMirror JS
@@ -113,8 +116,7 @@ class WebformRankingItemsAdminJavaScriptTest extends WebDriverTestBase {
   }
 
   /**
-   * Sets the value of whichever YAML field is currently inside an open
-   * dialog.
+   * Sets the YAML field's value in whichever dialog is open.
    *
    * Prefers writing through CodeMirror's own API (setValue() + an
    * immediate save() to flush into the linked <textarea>) when
@@ -150,9 +152,10 @@ JS,
   }
 
   /**
-   * Tests that clicking the trigger opens exactly one dialog, showing
-   * the YAML field directly — no intermediary dialog/step — and that
-   * "Clear condition" empties it while "Done" closes it.
+   * Tests that the trigger opens exactly one dialog, no extra steps.
+   *
+   * Also tests that "Clear condition" empties the field while "Done"
+   * closes the dialog.
    *
    * A real duplicate-dialog bug was caught here during development:
    * #webform_multiple applies '#wrapper_attributes' to both its own
@@ -202,9 +205,9 @@ JS,
   }
 
   /**
-   * Tests that an item which already has YAML content on page load
-   * shows it pre-filled in the dialog, so editing an existing
-   * conditional item doesn't look broken.
+   * Tests that an item with existing YAML content shows it pre-filled.
+   *
+   * Goal: editing an existing conditional item shouldn't look broken.
    */
   public function testExistingConditionShownInDialog(): void {
     $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
@@ -223,12 +226,13 @@ JS,
   }
 
   /**
-   * Tests that a condition configured through the dialog actually
-   * persists to saved config — the key risk of moving the field into a
-   * dialog. jQuery UI's dialog widget can, by default, append its
-   * wrapper outside the <form>, which would silently drop the field
-   * from what's submitted; js/webform_ranking.items_admin.js explicitly
-   * sets 'appendTo' to the closest <form> to guard against this.
+   * Tests that a condition set through the dialog persists on submit.
+   *
+   * The key risk of moving the field into a dialog: jQuery UI's dialog
+   * widget can, by default, append its wrapper outside the <form>,
+   * which would silently drop the field from what's submitted;
+   * js/webform_ranking.items_admin.js explicitly sets 'appendTo' to the
+   * closest <form> to guard against this.
    */
   public function testConditionPersistsThroughSubmission(): void {
     $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
