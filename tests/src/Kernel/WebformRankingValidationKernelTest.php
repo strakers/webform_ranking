@@ -275,6 +275,49 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     $this->assertSame([], $form_state->getErrors());
   }
 
+  // #required, empty ranking: core's own required check can't see this
+  // (valueCallback() always returns a 2-key array), so this must be an
+  // explicit check in validateWebformRanking() — see B3.
+  public function testRequiredRejectsCompletelyEmptyRanking(): void {
+    $form_state = $this->validate(['#required' => TRUE, '#required_all' => FALSE], [
+      'values' => [],
+      'na' => [],
+    ]);
+
+    $errors = $form_state->getErrors();
+    $this->assertCount(1, $errors);
+    $this->assertStringContainsString('required', (string) reset($errors));
+  }
+
+  public function testRequiredPassesWithAtLeastOneItemRanked(): void {
+    $form_state = $this->validate(['#required' => TRUE, '#required_all' => FALSE], [
+      'values' => ['item_a'],
+      'na' => [],
+    ]);
+
+    $this->assertSame([], $form_state->getErrors());
+  }
+
+  public function testNotRequiredPassesWithEmptyRanking(): void {
+    $form_state = $this->validate(['#required' => FALSE, '#required_all' => FALSE], [
+      'values' => [],
+      'na' => [],
+    ]);
+
+    $this->assertSame([], $form_state->getErrors());
+  }
+
+  // An N/A-only ranking (nothing in 'values', but items opted out via
+  // 'na') must NOT be treated as empty for #required purposes.
+  public function testRequiredPassesWhenOnlyNaEntriesArePresent(): void {
+    $form_state = $this->validate(['#required' => TRUE, '#required_all' => FALSE, '#allow_na' => TRUE], [
+      'values' => [],
+      'na' => ['item_a'],
+    ]);
+
+    $this->assertSame([], $form_state->getErrors());
+  }
+
   /**
    * Tests the fail-closed contract via the real resolver service.
    *

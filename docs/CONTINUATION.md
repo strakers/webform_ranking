@@ -70,8 +70,6 @@ no-input fallback only ever see canonical shape. The plugin's
 - `webform_ranking.services.yml` — registers the resolver, wired to
   `@webform_submission.conditions_validator` (NOT `webform.conditions_validator`
   — that was a wrong guess, corrected against a real error).
-- `config/schema/webform_ranking.schema.yml` — per-item `states` is
-  `type: ignore` (irregular nested structure).
 - `js/webform_ranking.matrix.js` — rank-exclusivity (disable-on-select
   across rows, real `disabled`+`aria-disabled`), `aria-live` announcements.
   Recompute-from-scratch on every change. Structure-agnostic by
