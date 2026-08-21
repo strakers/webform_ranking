@@ -343,6 +343,30 @@ JS
   }
 
   /**
+   * Tests that the live region uses core's real '.visually-hidden'.
+   *
+   * This display style's own live region uses the same
+   * '.visually-hidden' class as the matrix style's, but
+   * element.dragdrop's library never loads webform_ranking.matrix.css
+   * — so it always depended on that class being defined somewhere
+   * else, which wasn't previously guaranteed by an explicit
+   * dependency. Both libraries now depend on 'system/base' instead
+   * (see webform_ranking.libraries.yml); this asserts the browser's
+   * *computed* clip value matches core's exact rule
+   * (`rect(1px, 1px, 1px, 1px)`), proving core's CSS is genuinely in
+   * effect here too.
+   */
+  public function testLiveRegionUsesCoreVisuallyHiddenStyle(): void {
+    $this->drupalGet('/webform/test_ranking_dragdrop');
+
+    $clip = $this->getSession()->evaluateScript(
+      "getComputedStyle(document.querySelector('.webform-ranking-dragdrop__live-region')).clip"
+    );
+
+    $this->assertSame('rect(1px, 1px, 1px, 1px)', $clip);
+  }
+
+  /**
    * Asserts the top-to-bottom order of items by their value attribute.
    *
    * (Uses data-webform-ranking-value attribute.)

@@ -77,6 +77,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `@FormElement("webform_ranking")` annotation replaced with the
   `#[FormElement('webform_ranking')]` attribute, matching Drupal core's
   own migration of this same base class (#27).
+- `element.dragdrop` library now declares its `core/drupal.states`
+  dependency (which itself provides jQuery), matching `element.matrix`.
+  Its live-region-renumbering code previously guessed at jQuery's
+  presence at runtime (`if (window.jQuery)`) with an unverified,
+  unreachable-in-practice native-`addEventListener` fallback, since
+  `states.js` only ever fires `state:visible` as a jQuery event (#23).
+- Neither display style redefines `.visually-hidden` itself anymore.
+  The matrix style's local copy (no `!important`, a zero-size clip
+  rect instead of the 1px rect assistive tech expects) shadowed core's
+  own, more complete version whenever both loaded — and the drag/drop
+  style's live region, which uses the same class, never guaranteed
+  *any* version was loaded at all. Both libraries now depend on
+  `system/base`, which provides the correct version, instead (#26).
 
 ## [0.1.0] - 2026-07-12
 
