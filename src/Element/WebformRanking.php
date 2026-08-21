@@ -61,6 +61,9 @@ class WebformRanking extends FormElementBase {
       '#element_validate' => [
         [$class, 'validateWebformRanking'],
       ],
+      '#pre_render' => [
+        [$class, 'preRenderWebformRanking'],
+      ],
       '#theme_wrappers' => ['form_element'],
     ];
   }
@@ -151,14 +154,37 @@ class WebformRanking extends FormElementBase {
     $rank_count = count($items);
     $rank_labels = static::getRankLabels($element, $rank_count);
     $defaults = WebformRankingConverter::canonicalToMatrix($element['#value'] ?? $element['#default_value'] ?? []);
+    $required_all = !empty($element['#required_all']);
+
+    // Header cells carry their own 'id'/'scope' (Table::preRenderTable()
+    // and ThemePreprocess::preprocessTable() pass any array key other
+    // than 'data' straight through as a <th> attribute) so each rank
+    // radio below can point its aria-describedby at its own column —
+    // see GitHub issue #46's matrix markup spec.
+    $header_id_base = 'edit-' . implode('-', $element['#parents']);
+    $rank_header_ids = [];
+    $header_cells = [''];
+    foreach ($rank_labels as $rank => $rank_label) {
+      $rank_header_ids[$rank] = Html::getUniqueId($header_id_base . '-rank-header-' . ($rank + 1));
+      $header_cells[] = [
+        'data' => $rank_label,
+        'id' => $rank_header_ids[$rank],
+        'scope' => 'col',
+      ];
+    }
+    $na_header_id = NULL;
+    if ($element['#allow_na']) {
+      $na_header_id = Html::getUniqueId($header_id_base . '-rank-header-na');
+      $header_cells[] = [
+        'data' => $element['#na_label'],
+        'id' => $na_header_id,
+        'scope' => 'col',
+      ];
+    }
 
     $element['matrix'] = [
       '#type' => 'table',
-      '#header' => array_merge(
-        [''],
-        $rank_labels,
-        $element['#allow_na'] ? [$element['#na_label']] : []
-      ),
+      '#header' => $header_cells,
       '#attributes' => ['class' => ['webform-ranking-matrix']],
     ];
 
@@ -195,9 +221,34 @@ class WebformRanking extends FormElementBase {
       // element. The radio cells below never had this problem since
       // '#type' => 'radio' is itself a themed form input, not a
       // #pre_render-baked one.
+      $row_parents = array_merge($element['#parents'], ['matrix', $row_key]);
+      $label_id = Html::getUniqueId('edit-' . implode('-', $row_parents) . '-label');
+      $label_classes = ['webform-ranking-matrix__label'];
+
+      // #required_all indication (GitHub issue #46): 'form-item__label'
+      // + 'form-required' (+ 'js-form-required', included purely for
+      // parity — see form-element-label.html.twig, which sets all
+      // three together on every core required field's own <label>) is
+      // the real convention a standard required field's label already
+      // uses — the asterisk itself is a CSS '::after' on
+      // '.form-item__label.form-required', not literal text content,
+      // so no nested marker element/glyph is needed here at all.
+      // Plus 'role="radiogroup"'/'aria-labelledby' on the row so a
+      // screen reader announces this row the same way a standalone
+      // required radio group already is. A <fieldset> can't substitute
+      // for a <tr> here (per the issue's researched markup spec), so
+      // the row-level ARIA role/label is the correct substitute.
+      if ($required_all) {
+        $label_classes = array_merge($label_classes, ['form-item__label', 'js-form-required', 'form-required']);
+        $element['matrix'][$row_key]['#attributes'] = [
+          'role' => 'radiogroup',
+          'aria-labelledby' => $label_id,
+        ];
+      }
+
       $element['matrix'][$row_key]['label'] = [
         '#type' => 'container',
-        '#attributes' => ['class' => ['webform-ranking-matrix__label']],
+        '#attributes' => ['class' => $label_classes, 'id' => $label_id],
         'text' => [
           '#markup' => $item['label'],
         ],
@@ -224,7 +275,6 @@ class WebformRanking extends FormElementBase {
       // JS, aria-live announcements) queries radios by `name` and by
       // DOM order, not by cell structure, so it needs no changes for
       // this.
-      $row_parents = array_merge($element['#parents'], ['matrix', $row_key]);
       $current_value = $defaults[$row_key] ?? NULL;
       $cell_keys = ['label'];
 
@@ -244,6 +294,17 @@ class WebformRanking extends FormElementBase {
           '#parents' => $row_parents,
           '#id' => Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, [$return_value]))),
         ];
+        if ($required_all) {
+          // Native 'required' (not Drupal's own '#required'): a plain
+          // HTML attribute gets the browser's own "at least one radio
+          // in this name group must be checked" constraint validation
+          // for free, without engaging FormValidator's per-element
+          // required check — which operates on a single radio, not the
+          // whole row, and would conflict with this element's own
+          // #required_all validation in validateWebformRanking().
+          $element['matrix'][$row_key][$cell_key]['#attributes']['required'] = 'required';
+          $element['matrix'][$row_key][$cell_key]['#attributes']['aria-describedby'] = $rank_header_ids[$rank];
+        }
       }
 
       if ($element['#allow_na']) {
@@ -257,6 +318,10 @@ class WebformRanking extends FormElementBase {
           '#parents' => $row_parents,
           '#id' => Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, ['na']))),
         ];
+        if ($required_all) {
+          $element['matrix'][$row_key]['rank_na']['#attributes']['required'] = 'required';
+          $element['matrix'][$row_key]['rank_na']['#attributes']['aria-describedby'] = $na_header_id;
+        }
       }
 
       // Conditional item inclusion: applying the item's own #states
@@ -401,6 +466,37 @@ class WebformRanking extends FormElementBase {
       ];
     }
 
+    // #required_all indication (GitHub issue #46), drag/drop side: per
+    // the issue's own follow-up clarification, a visual asterisk isn't
+    // appropriate here (an item's placement in the ordered list already
+    // denotes its rank — there's no "blank" visual state the way an
+    // un-clicked matrix radio has), but screen readers still need to
+    // know each item is required. Not aria-required — the item
+    // container's role="listitem" (below) doesn't support it per the
+    // WAI-ARIA role table, so 'aria-required="true"' there would be an
+    // invalid-attribute violation. A shared, visually-hidden
+    // description referenced via aria-describedby on every item
+    // container is the ARIA-valid equivalent the issue's discussion
+    // explicitly allowed for. One shared node (not one per item): the
+    // text is generic ("this item"), not item-specific, so duplicating
+    // it per item would be pure waste.
+    $required_all = !empty($element['#required_all']);
+    $required_description_id = NULL;
+    if ($required_all) {
+      $required_description_id = Html::getUniqueId('edit-' . implode('-', $element['#parents']) . '-dragdrop-required-description');
+      $element['dragdrop']['required_description'] = [
+        '#type' => 'html_tag',
+        '#tag' => 'span',
+        '#value' => $element['#allow_na']
+          ? t('This item is required: it must be placed in the order or marked @na_label.', ['@na_label' => $element['#na_label']])
+          : t('This item is required: it must be placed in the order.'),
+        '#attributes' => [
+          'id' => $required_description_id,
+          'class' => ['visually-hidden'],
+        ],
+      ];
+    }
+
     // aria-live region for reorder/N/A-toggle announcements, shared by
     // both interaction paths.
     $element['dragdrop']['live_region'] = [
@@ -444,7 +540,7 @@ class WebformRanking extends FormElementBase {
           'tabindex' => '0',
           'data-webform-ranking-value' => $item['value'],
           'data-webform-ranking-na' => in_array($item['value'], $na_list, TRUE) ? 'true' : 'false',
-        ],
+        ] + ($required_all ? ['aria-describedby' => $required_description_id] : []),
         'position' => [
           '#type' => 'html_tag',
           '#tag' => 'span',
@@ -568,6 +664,84 @@ class WebformRanking extends FormElementBase {
     $mod100 = $number % 100;
     $suffix = $suffixes[$mod100 >= 11 && $mod100 <= 13 ? 0 : ($number % 10 <= 3 ? $number % 10 : 0)];
     return $number . $suffix;
+  }
+
+  /**
+   * Pre-render callback: sets validation-failure attributes/inline text.
+   *
+   * FormElementBase (unlike every native form element, e.g.
+   * Radio::preRenderRadio(), and unlike Webform's own
+   * WebformCompositeBase::preRenderCompositeFormElement() — this class
+   * deliberately extends FormElementBase directly rather than
+   * WebformCompositeBase, per the class docblock's storage-boundary
+   * rationale) does neither of these on its own (GitHub issue #47).
+   *
+   * NOT RenderElementBase::setAttributes(): that method is hardcoded to
+   * write '#attributes', which for THIS element's
+   * '#theme_wrappers' => ['form_element'] is never actually rendered
+   * anywhere — '#attributes' normally becomes an actual `<input>` tag's
+   * own attributes (e.g. Textfield's), which this composite element
+   * doesn't have one of at the top level. The wrapping `<div>`
+   * form-element.html.twig renders instead reads '#wrapper_attributes'
+   * exclusively (see FormPreprocess::preprocessFormElement(), confirmed
+   * directly — `$variables['attributes'] = $element['#wrapper_attributes'];`,
+   * '#attributes' referenced nowhere else in that method except the
+   * unrelated 'disabled' variable). Webform's own composite elements
+   * sidestep this entirely by defaulting to '#theme_wrappers' =>
+   * ['fieldset'] instead (where '#attributes' DOES map onto the
+   * `<fieldset>` tag) — deliberately not adopted here, since issue #47
+   * itself flags that fieldset/legend semantic change as a separate,
+   * deferred decision, not something to bundle into this fix.
+   *
+   * Separately: core's own form-element.html.twig template DOES support
+   * rendering an 'errors' variable inline ('form-item--error-message',
+   * right after the field's own children) — but
+   * FormPreprocess::preprocessFormElement() unconditionally sets that
+   * variable to NULL ("Suppress error messages"), for every field on
+   * every form, regardless of the 'inline_form_errors' module's status
+   * (confirmed by reading that method directly — the assignment isn't
+   * gated on anything). Injecting the message as an ordinary descendant
+   * render item here, instead of relying on the 'errors' theme variable,
+   * bypasses that suppressed path entirely (GitHub issue #48). A high
+   * '#weight' keeps it last among this element's own children
+   * (matrix/dragdrop's build output, both #weight-less) regardless of
+   * #ranking_style, without needing to know which style built them.
+   */
+  public static function preRenderWebformRanking(array $element) {
+    $class_name = str_replace('_', '-', $element['#type']);
+    $element['#wrapper_attributes']['class'][] = 'js-' . $class_name;
+    $element['#wrapper_attributes']['class'][] = $class_name;
+    if (isset($element['#id'])) {
+      // Matches WebformCompositeBase::preRenderCompositeFormElement()'s
+      // own '--wrapper' id-suffix convention. Also gives the wrapper a
+      // real 'data-drupal-selector' — core's FormBuilder::doBuildForm()
+      // already computes one from '#id' onto '#attributes' for every
+      // '#input' element, but (per this method's own docblock above)
+      // that never reaches rendered markup here either.
+      $wrapper_id = $element['#id'] . '--wrapper';
+      $element['#wrapper_attributes']['id'] = $wrapper_id;
+      $element['#wrapper_attributes']['data-drupal-selector'] = $wrapper_id;
+    }
+
+    // Mirrors RenderElementBase::setAttributes()'s own error-state
+    // condition exactly (isset #parents, isset #errors, non-empty
+    // #validated) so this element is flagged invalid under precisely
+    // the same circumstances any native element would be.
+    if (isset($element['#parents']) && isset($element['#errors']) && !empty($element['#validated'])) {
+      $element['#wrapper_attributes']['class'][] = 'error';
+      $element['#wrapper_attributes']['aria-invalid'] = 'true';
+
+      $element['ranking_errors'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['webform-ranking__errors', 'form-item--error-message']],
+        '#weight' => 1000,
+        'message' => [
+          '#markup' => $element['#errors'],
+        ],
+      ];
+    }
+
+    return $element;
   }
 
   /**
