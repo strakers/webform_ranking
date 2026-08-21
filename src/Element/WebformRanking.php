@@ -61,6 +61,9 @@ class WebformRanking extends FormElementBase {
       '#element_validate' => [
         [$class, 'validateWebformRanking'],
       ],
+      '#pre_render' => [
+        [$class, 'preRenderWebformRanking'],
+      ],
       '#theme_wrappers' => ['form_element'],
     ];
   }
@@ -661,6 +664,84 @@ class WebformRanking extends FormElementBase {
     $mod100 = $number % 100;
     $suffix = $suffixes[$mod100 >= 11 && $mod100 <= 13 ? 0 : ($number % 10 <= 3 ? $number % 10 : 0)];
     return $number . $suffix;
+  }
+
+  /**
+   * Pre-render callback: sets validation-failure attributes/inline text.
+   *
+   * FormElementBase (unlike every native form element, e.g.
+   * Radio::preRenderRadio(), and unlike Webform's own
+   * WebformCompositeBase::preRenderCompositeFormElement() — this class
+   * deliberately extends FormElementBase directly rather than
+   * WebformCompositeBase, per the class docblock's storage-boundary
+   * rationale) does neither of these on its own (GitHub issue #47).
+   *
+   * NOT RenderElementBase::setAttributes(): that method is hardcoded to
+   * write '#attributes', which for THIS element's
+   * '#theme_wrappers' => ['form_element'] is never actually rendered
+   * anywhere — '#attributes' normally becomes an actual `<input>` tag's
+   * own attributes (e.g. Textfield's), which this composite element
+   * doesn't have one of at the top level. The wrapping `<div>`
+   * form-element.html.twig renders instead reads '#wrapper_attributes'
+   * exclusively (see FormPreprocess::preprocessFormElement(), confirmed
+   * directly — `$variables['attributes'] = $element['#wrapper_attributes'];`,
+   * '#attributes' referenced nowhere else in that method except the
+   * unrelated 'disabled' variable). Webform's own composite elements
+   * sidestep this entirely by defaulting to '#theme_wrappers' =>
+   * ['fieldset'] instead (where '#attributes' DOES map onto the
+   * `<fieldset>` tag) — deliberately not adopted here, since issue #47
+   * itself flags that fieldset/legend semantic change as a separate,
+   * deferred decision, not something to bundle into this fix.
+   *
+   * Separately: core's own form-element.html.twig template DOES support
+   * rendering an 'errors' variable inline ('form-item--error-message',
+   * right after the field's own children) — but
+   * FormPreprocess::preprocessFormElement() unconditionally sets that
+   * variable to NULL ("Suppress error messages"), for every field on
+   * every form, regardless of the 'inline_form_errors' module's status
+   * (confirmed by reading that method directly — the assignment isn't
+   * gated on anything). Injecting the message as an ordinary descendant
+   * render item here, instead of relying on the 'errors' theme variable,
+   * bypasses that suppressed path entirely (GitHub issue #48). A high
+   * '#weight' keeps it last among this element's own children
+   * (matrix/dragdrop's build output, both #weight-less) regardless of
+   * #ranking_style, without needing to know which style built them.
+   */
+  public static function preRenderWebformRanking(array $element) {
+    $class_name = str_replace('_', '-', $element['#type']);
+    $element['#wrapper_attributes']['class'][] = 'js-' . $class_name;
+    $element['#wrapper_attributes']['class'][] = $class_name;
+    if (isset($element['#id'])) {
+      // Matches WebformCompositeBase::preRenderCompositeFormElement()'s
+      // own '--wrapper' id-suffix convention. Also gives the wrapper a
+      // real 'data-drupal-selector' — core's FormBuilder::doBuildForm()
+      // already computes one from '#id' onto '#attributes' for every
+      // '#input' element, but (per this method's own docblock above)
+      // that never reaches rendered markup here either.
+      $wrapper_id = $element['#id'] . '--wrapper';
+      $element['#wrapper_attributes']['id'] = $wrapper_id;
+      $element['#wrapper_attributes']['data-drupal-selector'] = $wrapper_id;
+    }
+
+    // Mirrors RenderElementBase::setAttributes()'s own error-state
+    // condition exactly (isset #parents, isset #errors, non-empty
+    // #validated) so this element is flagged invalid under precisely
+    // the same circumstances any native element would be.
+    if (isset($element['#parents']) && isset($element['#errors']) && !empty($element['#validated'])) {
+      $element['#wrapper_attributes']['class'][] = 'error';
+      $element['#wrapper_attributes']['aria-invalid'] = 'true';
+
+      $element['ranking_errors'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['webform-ranking__errors', 'form-item--error-message']],
+        '#weight' => 1000,
+        'message' => [
+          '#markup' => $element['#errors'],
+        ],
+      ];
+    }
+
+    return $element;
   }
 
   /**
