@@ -18,6 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/DEVELOPMENT.md` and `docs/TESTING.md`.
 - Brought the codebase into full compliance with Drupal's coding
   standards, in preparation for a drupal.org project application.
+- Removed a no-op `$form_state->setValue('items', $items)` call in the
+  admin config form's validation handler — `$items` was never mutated
+  before being written back (#30).
+- Removed an unused `$delta` loop variable in the matrix display
+  style's item-rendering loop (#31).
+- Replaced a `formatPlural(1, '@position', '@position', ...)` wrapper
+  (singular/plural arguments identical — not actually pluralizable)
+  with plain `t()` in `getRankLabels()` (#32).
+- Renamed the pipeline-smoke-test kernel test file
+  (`WebformRankingValidationTest` → `WebformRankingPipelineTest`) to
+  stop it being confused with the comprehensive validation-rules suite,
+  `WebformRankingValidationKernelTest` — the near-identical names were
+  easy to trip over despite each file's own docblock explaining the
+  distinction (#33).
 
 ### Fixed
 
@@ -104,6 +118,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of doing exactly one move; the `▲`/`▼` button glyphs are now
   wrapped in an `aria-hidden` span instead of being announced
   alongside the button's `aria-label` (#25).
+- Randomized item order (`#randomize_item_order`) no longer reshuffles
+  on every form rebuild. `prepare()` runs on every build of this
+  element — including validation-error rebuilds, AJAX rebuilds, and
+  wizard-step navigation within the same form session — and an
+  unseeded `shuffle()` reordered the rows on every one of those,
+  jumping a respondent's already-made selections to new positions and
+  undermining the bias-reduction rationale for the feature. The order
+  is now seeded from the submission's own UUID, stable for the
+  lifetime of one in-progress submission but still varying between
+  different respondents (#28).
 
 ## [0.1.0] - 2026-07-12
 

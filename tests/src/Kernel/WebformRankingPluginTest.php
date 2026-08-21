@@ -536,4 +536,48 @@ class WebformRankingPluginTest extends KernelTestBase {
     $this->assertSame([], $element['#items'][0]['states']);
   }
 
+  /**
+   * Tests that randomized order is stable across repeated prepare() calls.
+   *
+   * Real bug: shuffle() ran unseeded on every prepare() call —
+   * including validation-error rebuilds and AJAX rebuilds within the
+   * same form session — reordering the rows on every rebuild even
+   * though the user's already-made selections stayed attached to
+   * their items. Fixed by seeding PHP's RNG before shuffling (from the
+   * submission's own UUID when one is available, so the order still
+   * varies between different respondents; a fixed fallback seed
+   * otherwise), so the order is stable across repeated calls.
+   *
+   * No WebformSubmissionInterface is constructed here deliberately:
+   * parent::prepare() (WebformElementBase) reaches deep into Webform's
+   * access-control machinery whenever a submission is present, which
+   * would need extensive, version-fragile mocking to satisfy for a
+   * test that isn't actually about access control. The NULL-submission
+   * path exercises the exact same seed/shuffle/reseed block this fix
+   * touches (see prepare()), just with the fallback seed source
+   * instead of a submission UUID — sufficient to prove the fix: calls
+   * are stable now, where they weren't before.
+   */
+  public function testPrepareRandomizedOrderIsStableAcrossRepeatedCalls(): void {
+    $items = [];
+    foreach (range('a', 'h') as $letter) {
+      $items[] = ['value' => "item_$letter", 'label' => 'Item ' . strtoupper($letter)];
+    }
+
+    $element_first = ['#items' => $items, '#randomize_item_order' => TRUE];
+    $this->plugin->prepare($element_first);
+    $order_first = array_column($element_first['#items'], 'value');
+
+    $element_second = ['#items' => $items, '#randomize_item_order' => TRUE];
+    $this->plugin->prepare($element_second);
+    $order_second = array_column($element_second['#items'], 'value');
+
+    $this->assertSame($order_first, $order_second);
+    // Confirms shuffling is actually happening (not a no-op that would
+    // trivially "pass" the stability assertion above) — with 8 items,
+    // the odds of a real shuffle coincidentally landing back on
+    // configured order are 1 in 8! (40320), negligible.
+    $this->assertNotSame(array_column($items, 'value'), $order_first);
+  }
+
 }

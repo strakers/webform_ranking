@@ -16,7 +16,7 @@ use Drupal\webform_ranking\Element\WebformRanking as WebformRankingElement;
  *
  * Unlike WebformRankingValidationKernelTest (which validates the fail-closed,
  * no-submission-context path with a dummy, non-Webform form object) and
- * WebformRankingValidationTest (which is a pipeline smoke test with no
+ * WebformRankingPipelineTest (which is a pipeline smoke test with no
  * submission context at all), tests on this base build a real Webform +
  * WebformSubmission entity and validate against a real WebformSubmissionForm
  * — the only way to exercise WebformRankingVisibilityResolver's true/false
