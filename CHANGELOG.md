@@ -65,6 +65,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   current request's field values, so a `#states` condition depending
   on another field changed in the same request could incorrectly
   evaluate as unsatisfied (#41).
+- Module version metadata now matches what the code actually requires
+  and what's actually tested: `core_version_requirement` (both
+  `webform_ranking.info.yml` and `composer.json`) bumped from
+  `^10.1 || ^11` to `^10.3 || ^11` — `Drupal\Core\Render\Element\FormElementBase`,
+  which this module's render element extends, was itself only added
+  in Drupal core 10.3.0; the module could never actually install on
+  10.1/10.2 despite claiming to. `composer.json`'s `drupal/webform`
+  constraint narrowed from `^6.2` to `^6.3`, the version this module
+  is actually developed and tested against. The deprecated
+  `@FormElement("webform_ranking")` annotation replaced with the
+  `#[FormElement('webform_ranking')]` attribute, matching Drupal core's
+  own migration of this same base class (#27).
 
 ## [0.1.0] - 2026-07-12
 
