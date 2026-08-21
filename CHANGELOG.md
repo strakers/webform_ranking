@@ -78,6 +78,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   style's live region, which uses the same class, never guaranteed
   *any* version was loaded at all. Both libraries now depend on
   `system/base`, which provides the correct version, instead (#26).
+- Drag/drop items now declare `touch-action: none`, without which a
+  touch press-and-move gesture was claimed by the browser for
+  scrolling instead of reaching the reorder engine's pointer-events
+  handler — the README advertised touch dragging as supported, but it
+  never actually worked (#24).
+- Drag/drop display style, three accessibility fixes: the hidden
+  order/na/rank inputs and the live-region `<div>` are no longer
+  direct children of the `role="list"` element (a list role's owned
+  children must all be `role="listitem"`); the move-up/move-down
+  buttons no longer lose keyboard focus to the item container after a
+  move, so repeatedly pressing Enter on a move button keeps working
+  instead of doing exactly one move; the `▲`/`▼` button glyphs are now
+  wrapped in an `aria-hidden` span instead of being announced
+  alongside the button's `aria-label` (#25).
 
 ## [0.1.0] - 2026-07-12
 

@@ -319,17 +319,18 @@ class WebformRanking extends FormElementBase {
     }
     $items = $ordered_items;
 
+    // Outer wrapper, no ARIA role of its own — purely structural, so
+    // the hidden order/na/rank inputs and the live-region <div> below
+    // can live outside the role="list" element without changing how
+    // webform_ranking.dragdrop.js locates them (container.parentElement).
+    // A `role="list"` element's owned children must all be
+    // `role="listitem"`; those hidden inputs and the live region used
+    // to be direct children of the list element itself, alongside the
+    // real listitems, which made the list semantics invalid.
     $element['dragdrop'] = [
       '#type' => 'container',
       '#attributes' => [
-        'class' => ['webform-ranking-dragdrop'],
-        'role' => 'list',
-        // Read by JS to decide whether to render the N/A toggle button
-        // per item.
-        'data-allow-na' => !empty($element['#allow_na']) ? '1' : '0',
-        // Read by JS so aria-live announcements use the admin's
-        // configured N/A label rather than a hardcoded fallback.
-        'data-na-label' => (string) $element['#na_label'],
+        'class' => ['webform-ranking-dragdrop-wrapper'],
       ],
     ];
 
@@ -412,8 +413,30 @@ class WebformRanking extends FormElementBase {
       ],
     ];
 
+    // The actual role="list" — a sibling of the hidden inputs/live
+    // region above, not their parent, so its only children are
+    // role="listitem" items. webform_ranking.dragdrop.js still
+    // attaches its behavior to '.webform-ranking-dragdrop' (this
+    // element, unchanged), so item lookups/DOM manipulation
+    // (allItems(), insertBefore(), etc.) are entirely unaffected —
+    // only the hidden-input/live-region lookups changed, to search
+    // this element's parent instead of itself.
+    $element['dragdrop']['list'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'class' => ['webform-ranking-dragdrop'],
+        'role' => 'list',
+        // Read by JS to decide whether to render the N/A toggle button
+        // per item.
+        'data-allow-na' => !empty($element['#allow_na']) ? '1' : '0',
+        // Read by JS so aria-live announcements use the admin's
+        // configured N/A label rather than a hardcoded fallback.
+        'data-na-label' => (string) $element['#na_label'],
+      ],
+    ];
+
     foreach ($items as $item) {
-      $element['dragdrop'][$item['value']] = [
+      $element['dragdrop']['list'][$item['value']] = [
         '#type' => 'container',
         '#attributes' => [
           'class' => ['webform-ranking-dragdrop__item'],
@@ -441,31 +464,49 @@ class WebformRanking extends FormElementBase {
           // type="button" (not "submit") so a click never triggers
           // form submission; the reorder logic itself is entirely
           // client-side (element.dragdrop library).
+          // The ▲/▼ glyphs are wrapped in an aria-hidden span rather
+          // than set as the button's own #value: exposed directly,
+          // assistive tech announced the raw glyph character
+          // alongside the aria-label (redundant/confusing symbol-name
+          // readout). No #value on the button itself — see the 'na'
+          // label below for the same established pattern (a
+          // childless-#value html_tag with nested html_tag children
+          // instead).
           'move_up' => [
             '#type' => 'html_tag',
             '#tag' => 'button',
-            '#value' => '▲',
             '#attributes' => [
               'type' => 'button',
               'class' => ['webform-ranking-dragdrop__move-up'],
               'aria-label' => (string) t('Move @item up', ['@item' => $item['label']]),
             ],
+            'glyph' => [
+              '#type' => 'html_tag',
+              '#tag' => 'span',
+              '#value' => '▲',
+              '#attributes' => ['aria-hidden' => 'true'],
+            ],
           ],
           'move_down' => [
             '#type' => 'html_tag',
             '#tag' => 'button',
-            '#value' => '▼',
             '#attributes' => [
               'type' => 'button',
               'class' => ['webform-ranking-dragdrop__move-down'],
               'aria-label' => (string) t('Move @item down', ['@item' => $item['label']]),
+            ],
+            'glyph' => [
+              '#type' => 'html_tag',
+              '#tag' => 'span',
+              '#value' => '▼',
+              '#attributes' => ['aria-hidden' => 'true'],
             ],
           ],
         ],
       ];
 
       if (!empty($element['#allow_na'])) {
-        $element['dragdrop'][$item['value']]['controls']['na'] = [
+        $element['dragdrop']['list'][$item['value']]['controls']['na'] = [
           '#type' => 'html_tag',
           '#tag' => 'label',
           '#attributes' => ['class' => ['webform-ranking-dragdrop__na-label']],
@@ -489,7 +530,7 @@ class WebformRanking extends FormElementBase {
       // See buildMatrix()'s equivalent block: display-layer only, the
       // resolver's server-side check is authoritative.
       if (!empty($item['states'])) {
-        $element['dragdrop'][$item['value']]['#states'] = $item['states'];
+        $element['dragdrop']['list'][$item['value']]['#states'] = $item['states'];
       }
     }
 

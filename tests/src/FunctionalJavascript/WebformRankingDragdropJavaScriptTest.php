@@ -367,6 +367,109 @@ JS
   }
 
   /**
+   * Tests that the role="list" container has only listitem children.
+   *
+   * Real bug: the hidden order/na/rank inputs and the live-region
+   * <div> used to be direct children of the role="list" element
+   * itself, alongside the real role="listitem" items — invalid list
+   * semantics, since a list role's owned children must all be
+   * listitem. Fixed by moving those elements to a wrapper one level
+   * up (see WebformRanking::buildDragDrop()).
+   */
+  public function testListRoleContainerHasOnlyListitemChildren(): void {
+    $this->drupalGet('/webform/test_ranking_dragdrop');
+    $this->assertSession()->waitForElement('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="a"]');
+
+    $childRoles = $this->getSession()->evaluateScript(<<<'JS'
+      Array.from(document.querySelector('[role="list"].webform-ranking-dragdrop').children)
+        .map(function (el) { return el.getAttribute('role'); })
+JS);
+
+    $this->assertNotEmpty($childRoles, 'Expected the list to have at least one child.');
+    foreach ($childRoles as $role) {
+      $this->assertSame('listitem', $role);
+    }
+  }
+
+  /**
+   * Tests that repeated move-up clicks keep moving the item.
+   *
+   * Real bug: moveItem() unconditionally called item.focus() after
+   * every move, stealing focus off the button the user just
+   * activated. A keyboard user pressing Enter on "Move up" repeatedly
+   * got exactly one move — the second press landed on the item
+   * container, which has no Enter handler. Simulated here by checking
+   * that document.activeElement is still the button (not the item)
+   * immediately after a click, which is what allows a second Enter
+   * press to keep working.
+   */
+  public function testMoveButtonRetainsFocusAfterMove(): void {
+    $this->drupalGet('/webform/test_ranking_dragdrop');
+    $page = $this->getSession()->getPage();
+
+    $this->assertSession()->waitForElement('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="c"]');
+    $item_c = $page->find('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="c"]');
+    $item_c->find('css', '.webform-ranking-dragdrop__move-up')->click();
+
+    $this->assertOrder(['a', 'c', 'b']);
+
+    $active_element_class = $this->getSession()->evaluateScript(
+      'document.activeElement.className'
+    );
+    $this->assertStringContainsString('webform-ranking-dragdrop__move-up', $active_element_class);
+
+    // With focus retained, a second click (standing in for a second
+    // Enter press on the still-focused button) keeps moving the item.
+    $item_c = $page->find('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="c"]');
+    $item_c->find('css', '.webform-ranking-dragdrop__move-up')->click();
+    $this->assertOrder(['c', 'a', 'b']);
+  }
+
+  /**
+   * Tests that the move-button glyphs are hidden from assistive tech.
+   *
+   * Real bug: the '▲'/'▼' glyphs were the button's own text content,
+   * exposed to assistive tech alongside the button's aria-label —
+   * redundant/confusing symbol-name readout. Fixed by wrapping each
+   * glyph in an aria-hidden span nested inside the button.
+   */
+  public function testMoveButtonGlyphsAreAriaHidden(): void {
+    $this->drupalGet('/webform/test_ranking_dragdrop');
+    $this->assertSession()->waitForElement('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="a"]');
+
+    $hidden = $this->getSession()->evaluateScript(<<<'JS'
+      (function () {
+        var button = document.querySelector('.webform-ranking-dragdrop__move-up');
+        var span = button.querySelector('span');
+        return !!span && span.getAttribute('aria-hidden') === 'true' && span.textContent === '▲';
+      })()
+JS);
+
+    $this->assertTrue($hidden, 'Expected the move-up glyph to be in an aria-hidden span.');
+  }
+
+  /**
+   * Tests that draggable items declare touch-action: none.
+   *
+   * Real bug: without this, a touch press-and-move gesture is claimed
+   * by the browser for scrolling instead of reaching this element's
+   * pointermove handler, which fires 'pointercancel' and aborts the
+   * drag before it starts. Not a behavioral test (WebDriver doesn't
+   * simulate real touch gesture semantics) — just confirms the CSS
+   * property that makes touch dragging possible at all is present.
+   */
+  public function testDraggableItemsDeclareTouchActionNone(): void {
+    $this->drupalGet('/webform/test_ranking_dragdrop');
+    $this->assertSession()->waitForElement('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="a"]');
+
+    $touchAction = $this->getSession()->evaluateScript(
+      "getComputedStyle(document.querySelector('.webform-ranking-dragdrop__item')).touchAction"
+    );
+
+    $this->assertSame('none', $touchAction);
+  }
+
+  /**
    * Asserts the top-to-bottom order of items by their value attribute.
    *
    * (Uses data-webform-ranking-value attribute.)

@@ -20,6 +20,12 @@
   -webkit-user-select: none;
   -ms-user-select: none;
   user-select: none;
+  /* Required for touch pointer-dragging to work at all: without it,
+     the browser claims a touch press-and-move gesture for its own
+     scrolling and fires 'pointercancel' on the item, aborting the
+     drag before webform_ranking.dragdrop.js's pointermove handler
+     ever sees it. */
+  touch-action: none;
 }
 
 .webform-ranking-dragdrop__item--dragging {
