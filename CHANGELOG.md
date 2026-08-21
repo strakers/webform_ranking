@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Drag/drop style: an ARIA-only screen-reader cue (no visual asterisk,
   since an item's placement in the ordered list already denotes its
   rank) (#46).
+- `aria-invalid`/`class="error"` on the ranking field's wrapper, and
+  visible inline error text beneath it, on a failed validation —
+  neither was previously rendered anywhere, unlike every other field
+  on the form (#47, #48).
 
 ## [0.2.0] - 2026-08-21
 
