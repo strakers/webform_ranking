@@ -25,7 +25,7 @@
  * isn't meaningfully achievable for this style; sites with a hard
  * no-JS requirement should use the matrix style instead.
  */
-(function (Drupal, once) {
+(function (Drupal, once, $) {
   'use strict';
 
   Drupal.behaviors.webformRankingDragdrop = {
@@ -356,26 +356,21 @@
     // stays correct as conditional items show/hide, without requiring
     // a reorder to trigger the recompute.
     //
-    // Verification note: Drupal core's states.js triggers 'state:visible'
-    // as a jQuery event, not a native DOM CustomEvent — whether it's
-    // observable via plain addEventListener depends on the jQuery
-    // version's event-bridging behavior and isn't confirmed here.
-    // Falls back to jQuery's own event binding when jQuery is present,
-    // which is the more reliable path against current Drupal core.
-    if (window.jQuery) {
-      window.jQuery(document).on('state:visible', function () {
-        renumber();
-      });
-    }
-    else {
-      document.addEventListener('state:visible', function () {
-        renumber();
-      });
-    }
+    // Drupal core's states.js (web/core/misc/states.js) triggers
+    // 'state:visible' as a jQuery event via $(element).trigger(...),
+    // not a native DOM CustomEvent — plain addEventListener can't
+    // observe it. core/drupal.states is now a declared dependency of
+    // this library specifically so jQuery is guaranteed present here
+    // (see webform_ranking.libraries.yml), matching the same
+    // confirmed-safe pattern webform_ranking.matrix.js already uses
+    // for the same event.
+    $(document).on('state:visible', function () {
+      renumber();
+    });
 
     // Initial sync: makes hidden inputs match server-rendered default
     // order/N/A state, and populates position indicators on load.
     sync();
   }
 
-})(Drupal, once);
+})(Drupal, once, jQuery);

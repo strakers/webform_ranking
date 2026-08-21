@@ -230,6 +230,30 @@ class WebformRankingMatrixJavaScriptTest extends WebDriverTestBase {
   }
 
   /**
+   * Tests that the live region uses core's real '.visually-hidden'.
+   *
+   * Real bug: webform_ranking.matrix.css used to redefine
+   * '.visually-hidden' itself, with a weaker rule (no '!important', a
+   * zero-size clip rect instead of the 1px rect assistive tech
+   * expects) that shadowed core's own, more complete version whenever
+   * both happened to load — and this element's library never
+   * guaranteed core's version was loaded at all otherwise. Fixed by
+   * depending on 'system/base' instead of redefining the class. This
+   * asserts the browser's *computed* clip value matches core's exact
+   * rule (`rect(1px, 1px, 1px, 1px)`), proving core's CSS — not a
+   * local shadow of it — is what's actually in effect.
+   */
+  public function testLiveRegionUsesCoreVisuallyHiddenStyle(): void {
+    $this->drupalGet('/webform/test_ranking_matrix');
+
+    $clip = $this->getSession()->evaluateScript(
+      "getComputedStyle(document.querySelector('.webform-ranking-matrix__live-region')).clip"
+    );
+
+    $this->assertSame('rect(1px, 1px, 1px, 1px)', $clip);
+  }
+
+  /**
    * Tests that a matrix item's rank can be used as a live #states trigger.
    *
    * No page reload required.
