@@ -35,9 +35,19 @@
   };
 
   function initDragdrop(container) {
-    var orderInput = container.querySelector('.webform-ranking-dragdrop__order');
-    var naInput = container.querySelector('.webform-ranking-dragdrop__na');
-    var liveRegion = container.querySelector('.webform-ranking-dragdrop__live-region');
+    // 'container' (matched by '.webform-ranking-dragdrop', role="list")
+    // holds only the listitem elements as direct children — a
+    // role="list" element's owned children must all be
+    // role="listitem". The hidden order/na/rank inputs and the
+    // live-region live in the wrapper one level up instead (see
+    // WebformRanking::buildDragDrop()), so they're looked up from
+    // there rather than from 'container' itself. Every item-focused
+    // lookup/DOM manipulation below (allItems(), insertBefore(), etc.)
+    // still operates on 'container' directly, unaffected.
+    var wrapper = container.parentElement;
+    var orderInput = wrapper.querySelector('.webform-ranking-dragdrop__order');
+    var naInput = wrapper.querySelector('.webform-ranking-dragdrop__na');
+    var liveRegion = wrapper.querySelector('.webform-ranking-dragdrop__live-region');
 
     // Per-item rank echo inputs (see WebformRanking::buildDragDrop()) —
     // the only reason these exist is to give #states a real per-item
@@ -52,7 +62,7 @@
     // write path is exactly how this channel would end up stale
     // relative to the actually-submitted order/na.
     var rankInputsByValue = {};
-    Array.prototype.slice.call(container.querySelectorAll('.webform-ranking-dragdrop__rank')).forEach(function (input) {
+    Array.prototype.slice.call(wrapper.querySelectorAll('.webform-ranking-dragdrop__rank')).forEach(function (input) {
       rankInputsByValue[input.getAttribute('data-webform-ranking-rank-for')] = input;
     });
 
@@ -192,7 +202,18 @@
       input.dispatchEvent(new Event('change', {bubbles: true}));
     }
 
-    function moveItem(item, delta) {
+    /**
+     * @param {HTMLElement} [focusTarget]
+     *   What to focus after the move. Defaults to the item itself
+     *   (correct for arrow-key reordering, where the item already has
+     *   focus — a no-op refocus). Move-up/move-down button clicks pass
+     *   the button explicitly: unconditionally focusing the item here
+     *   used to steal focus off the button the user just activated, so
+     *   a keyboard user pressing Enter on "Move up" repeatedly got
+     *   exactly one move — the second press landed on the item
+     *   container, which has no Enter handler.
+     */
+    function moveItem(item, delta, focusTarget) {
       var ranked = rankedItems().filter(isCurrentlyVisible);
       var index = ranked.indexOf(item);
       if (index === -1) {
@@ -209,7 +230,7 @@
       else {
         container.insertBefore(sibling, item);
       }
-      item.focus();
+      (focusTarget || item).focus();
       sync();
       announce(Drupal.t('@item moved to position @position of @total', {
         '@item': itemLabel(item),
@@ -255,12 +276,12 @@
 
       if (upBtn) {
         upBtn.addEventListener('click', function () {
-          moveItem(item, -1);
+          moveItem(item, -1, upBtn);
         });
       }
       if (downBtn) {
         downBtn.addEventListener('click', function () {
-          moveItem(item, 1);
+          moveItem(item, 1, downBtn);
         });
       }
       if (naCheckbox) {
