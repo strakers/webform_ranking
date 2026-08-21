@@ -275,6 +275,38 @@ class WebformRankingMatrixJavaScriptTest extends WebDriverTestBase {
   }
 
   /**
+   * Tests that stealing a rank live-updates #states watching the loser.
+   *
+   * Real bug: the "success scenario" above (moving item A itself off
+   * rank 1) worked because that's a real user click on item A's own
+   * radio, which fires a native 'change' event states.js observes.
+   * But when item B *steals* rank 1 from item A instead (see
+   * testSelectingTakenRankStealsItFromPreviousHolder() in this file),
+   * the matrix.js reassignment logic only unchecked item A's radio via
+   * a plain property assignment — no event, so states.js's cached
+   * evaluation of "is item A ranked 1st" never re-ran, and any #states
+   * condition watching specifically for that (like this test's
+   * dependent message) stayed stuck visible even though item A no
+   * longer holds rank 1 at all.
+   */
+  public function testStatesReactWhenRankIsStolenByAnotherItem(): void {
+    $this->drupalGet('/webform/test_ranking_matrix');
+
+    $message = $this->assertSession()->elementExists('css', '#edit-first-choice-message');
+    $this->assertFalse($message->isVisible());
+
+    $this->selectRank('a', '1');
+    $this->assertNotNull($this->assertSession()->waitForElementVisible('css', '#edit-first-choice-message'));
+
+    // Item B steals rank 1 from item A — a different row's click, not
+    // item A's own.
+    $this->selectRank('b', '1');
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () use ($message) {
+      return !$message->isVisible();
+    }), 'Dependent message stayed visible after item A lost rank 1 to item B.');
+  }
+
+  /**
    * Tests that a conditionally-hidden item's label hides with its radios.
    *
    * Real bug: the label cell used to be a bare '#markup' array, which
