@@ -49,6 +49,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   skipped this, which was invisible on a real failed submission but
   could leave a `webform_computed_twig` element's live AJAX recompute
   reading the element's internal, pre-conversion shape instead (#37).
+- Matrix display style: a fully-ranked matrix can now be rearranged.
+  Rank-exclusivity previously *disabled* every already-taken cell,
+  which meant swapping two items' positions needed two simultaneous
+  changes that permanently, mutually blocked each other — a
+  fully-ranked matrix without `#allow_na` could never be rearranged
+  again. Selecting an already-taken rank now reassigns it away from
+  whichever item currently holds it instead of refusing the click
+  (#40).
+- A conditional ranking item's rank could be silently dropped from a
+  `webform_computed_twig` element's live `#ajax`-recomputed value,
+  even while genuinely visible and correctly ranked. The item
+  visibility resolver was consulted with the form's stale,
+  not-yet-synced submission entity instead of one reflecting the
+  current request's field values, so a `#states` condition depending
+  on another field changed in the same request could incorrectly
+  evaluate as unsatisfied (#41).
 
 ## [0.1.0] - 2026-07-12
 
