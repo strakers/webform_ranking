@@ -19,6 +19,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Brought the codebase into full compliance with Drupal's coding
   standards, in preparation for a drupal.org project application.
 
+### Fixed
+
+- Ranking item values are now validated at config-save time (letters,
+  numbers, underscores, hyphens, periods only; 128 characters max) —
+  previously an unconstrained value could produce a malformed `#states`
+  selector string that silently never matched. **Note:** if an
+  already-configured Ranking element has an item value outside these
+  rules, its settings form will fail to save until the value is
+  corrected, even for an unrelated change (#21).
+- Matrix display style: a conditionally-visible item's name label no
+  longer stays on screen after its own rank radios have been hidden by
+  `#states`. The label cell was a bare, attribute-less render array
+  that `states.js` had nothing to bind to; it's now a proper
+  `container` element that hides in lockstep with its row (#35).
+- `#states` condition-builder selector options for this element no
+  longer include a bogus whole-element selector that matched no real
+  DOM input; per-item rank selectors are now correctly grouped under
+  the element's title, like every other composite element (#22).
+- Matrix display style: hiding a conditionally-visible item that
+  currently holds a rank now correctly frees that rank back up for
+  every other item. Previously the client-side "each rank used at
+  most once" check never recomputed on a visibility change, only on a
+  rank selection — leaving a rank needlessly disabled after the item
+  holding it disappeared (#36).
+- The ranking element's value is now always written back in its
+  storage (flat item => rank) shape after validation, even when
+  validation fails — several checks previously returned early and
+  skipped this, which was invisible on a real failed submission but
+  could leave a `webform_computed_twig` element's live AJAX recompute
+  reading the element's internal, pre-conversion shape instead (#37).
+
 ## [0.1.0] - 2026-07-12
 
 ### Added

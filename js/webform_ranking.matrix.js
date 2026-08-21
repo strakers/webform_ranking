@@ -9,7 +9,7 @@
  * rule server-side regardless, since disabled inputs are trivially
  * bypassable (devtools, JS-off, direct POST).
  */
-(function (Drupal, once) {
+(function (Drupal, once, $) {
   'use strict';
 
   Drupal.behaviors.webformRankingMatrix = {
@@ -23,6 +23,10 @@
     var groupNames = Object.keys(groups);
     // name -> currently selected value ('1', '2', ..., 'na', or absent).
     var selected = {};
+    // name -> whether that row's own #states condition currently
+    // shows it. Absent (never set) means "no condition, always
+    // visible" — only an explicit `false` excludes a row.
+    var visible = {};
 
     groupNames.forEach(function (name) {
       groups[name].forEach(function (input) {
@@ -32,7 +36,7 @@
       });
     });
 
-    applyExclusivity(groups, groupNames, selected);
+    applyExclusivity(groups, groupNames, selected, visible);
 
     groupNames.forEach(function (name) {
       groups[name].forEach(function (input) {
@@ -41,8 +45,23 @@
             return;
           }
           selected[name] = input.value;
-          applyExclusivity(groups, groupNames, selected);
+          applyExclusivity(groups, groupNames, selected, visible);
           announce(table, buildAnnouncement(table, input));
+        });
+
+        // buildMatrix() applies each conditionally-visible item's own
+        // #states to every radio in its row, so states.js fires this
+        // event on every one of them when the condition's live value
+        // changes (see web/core/misc/states.js, Dependent#reevaluate()
+        // and #defaultTrigger()). Without this, a rank "used" by a
+        // now-hidden item stayed disabled everywhere else even after
+        // the item hiding it — a stale client-side block the server
+        // itself doesn't enforce, since validateWebformRanking()
+        // already drops a hidden item's selection before checking
+        // rank uniqueness (see WebformRankingVisibilityResolver).
+        $(input).on('state:visible', function (e) {
+          visible[name] = e.value;
+          applyExclusivity(groups, groupNames, selected, visible);
         });
       });
     });
@@ -71,8 +90,13 @@
    * N/A is deliberately excluded from exclusivity — multiple items can
    * be marked N/A at once, only numeric ranks are a shared, exhaustible
    * resource.
+   *
+   * A currently-hidden row (visible[name] === false) is also excluded
+   * from "used" ranks — its own rank is unreachable/unsubmittable
+   * while hidden (see WebformRankingVisibilityResolver), so it must
+   * not keep blocking that rank for every other, visible item.
    */
-  function applyExclusivity(groups, groupNames, selected) {
+  function applyExclusivity(groups, groupNames, selected, visible) {
     groupNames.forEach(function (name) {
       groups[name].forEach(function (input) {
         input.disabled = false;
@@ -82,6 +106,9 @@
 
     var usedRanks = {};
     groupNames.forEach(function (name) {
+      if (visible[name] === false) {
+        return;
+      }
       var value = selected[name];
       if (value && value !== 'na') {
         usedRanks[value] = name;
@@ -139,4 +166,4 @@
     }, 50);
   }
 
-})(Drupal, once);
+})(Drupal, once, jQuery);
