@@ -584,10 +584,29 @@ class WebformRanking extends FormElementBase {
     // Recompute which configured items are actually visible/applicable
     // given the submitted value of any trigger element(s) — never
     // trust client-reported visibility.
+    //
+    // buildEntity(), not getEntity(): getEntity() returns whatever
+    // entity object is currently attached to the form state, which at
+    // validation time has NOT yet been synced with this request's
+    // submitted field values (that copy happens later, in submit/
+    // build-entity handling) — its data can be entirely stale/empty
+    // for fields the resolver needs to evaluate a #states condition
+    // against (e.g. a text field this item's visibility depends on).
+    // buildEntity($complete_form, $form_state) builds a fresh entity
+    // from the CURRENT $form_state values instead, exactly matching
+    // the pattern Webform's own generic element validator uses for
+    // this same purpose (see
+    // WebformSubmissionConditionsValidator::elementValidate()).
+    // Without this, a conditional item's #states condition could
+    // evaluate against a submission that doesn't yet reflect a
+    // same-request trigger field change, incorrectly treating a truly
+    // visible item as invisible and silently dropping its rank —
+    // most visible during a webform_computed_twig #ajax recompute,
+    // which validates the whole form on every change elsewhere.
     $webform_submission = NULL;
     $form_object = $form_state->getFormObject();
     if ($form_object instanceof WebformSubmissionForm) {
-      $webform_submission = $form_object->getEntity();
+      $webform_submission = $form_object->buildEntity($complete_form, $form_state);
     }
     /** @var \Drupal\webform_ranking\WebformRankingVisibilityResolver $resolver */
     $resolver = \Drupal::service('webform_ranking.visibility_resolver');
