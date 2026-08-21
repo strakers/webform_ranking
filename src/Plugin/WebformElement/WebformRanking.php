@@ -284,7 +284,6 @@ class WebformRanking extends WebformElementBase {
       }
       $values_seen[$value] = TRUE;
     }
-    $form_state->setValue('items', $items);
 
     if (count($items) < 2) {
       $form_state->setErrorByName('items', $this->t('Provide at least two items to rank.'));
@@ -309,8 +308,24 @@ class WebformRanking extends WebformElementBase {
     $element['#rank_labels'] = $element['#rank_labels'] ?? [];
     $element['#required_all'] = $element['#required_all'] ?? TRUE;
 
+    // Seeded, not shuffle()'s own unseeded randomness: prepare() runs on
+    // every build of this element, including validation-error rebuilds,
+    // AJAX rebuilds, and wizard-step navigation within the *same* form
+    // session — an unseeded shuffle() would reorder the rows on every
+    // one of those, jumping the user's already-made selections to new
+    // positions and undermining the bias-reduction rationale for this
+    // feature in the first place. Seeding from the submission's own
+    // UUID (stable for the lifetime of one in-progress submission,
+    // Drupal assigns it at entity creation before the form is even
+    // built) keeps the order stable within a session while still
+    // varying between different respondents. mt_srand() with no
+    // argument at the end reseeds from system entropy afterward, so
+    // this doesn't leave PHP's global RNG state deterministic for any
+    // unrelated code running later in the same request.
     if (!empty($element['#randomize_item_order'])) {
+      mt_srand(crc32($webform_submission ? $webform_submission->uuid() : ''));
       shuffle($element['#items']);
+      mt_srand();
     }
 
     // Self-healing normalization for config saved before 'states'

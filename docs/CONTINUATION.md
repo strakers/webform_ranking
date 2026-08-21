@@ -93,7 +93,7 @@ no-input fallback only ever see canonical shape. The plugin's
   test). Both pass, 0 warnings.
 - `tests/src/Kernel/` — `WebformRankingValidationKernelTest` (calls
   `validateWebformRanking()` directly w/ hand-built `#value`, comprehensive
-  rule coverage incl. forged-input cases), `WebformRankingValidationTest`
+  rule coverage incl. forged-input cases), `WebformRankingPipelineTest`
   (calls real `valueCallback()` then `validateWebformRanking()` — NOT via
   `FormBuilder::submitForm()`, see Known Gaps), and
   `WebformRankingPluginTest` (the plugin itself, instantiated via

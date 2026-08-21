@@ -172,7 +172,7 @@ class WebformRanking extends FormElementBase {
       ],
     ];
 
-    foreach ($items as $delta => $item) {
+    foreach ($items as $item) {
       $row_key = $item['value'];
       // '#type' => 'container' (not a bare '#markup' array, and not
       // 'html_tag' either): a plain '#markup' element has no
@@ -550,12 +550,7 @@ class WebformRanking extends FormElementBase {
     $overrides = $element['#rank_labels'] ?? [];
     $labels = [];
     for ($i = 0; $i < $rank_count; $i++) {
-      $labels[$i] = $overrides[$i] ?? \Drupal::translation()->formatPlural(
-        1,
-        '@position',
-        '@position',
-        ['@position' => static::ordinal($i + 1)]
-      );
+      $labels[$i] = $overrides[$i] ?? t('@position', ['@position' => static::ordinal($i + 1)]);
     }
     return $labels;
   }
