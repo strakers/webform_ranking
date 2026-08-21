@@ -75,6 +75,21 @@
               })[0];
               if (otherInput) {
                 otherInput.checked = false;
+                // A plain property assignment fires no DOM event of
+                // its own, but states.js only re-evaluates a 'value'
+                // trigger condition on 'change'/'keyup' (see
+                // web/core/misc/states.js, Trigger.states.value) — the
+                // row that *wins* the rank gets this for free from the
+                // user's real click, but the row that *loses* it is
+                // only ever mutated programmatically. Without this,
+                // any #states condition elsewhere on the form watching
+                // specifically for this item's rank (e.g. "show X when
+                // Pizza is ranked 1st") never re-evaluates once Pizza
+                // is bumped, and stays stuck showing/hiding whatever
+                // was last true. Mirrors the same dispatch
+                // webform_ranking.dragdrop.js's sync() already does
+                // for its own hidden inputs, for the same reason.
+                otherInput.dispatchEvent(new Event('change', {bubbles: true}));
                 bumpedLabel = rowLabel(otherInput);
               }
               delete selected[otherName];

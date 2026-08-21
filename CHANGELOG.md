@@ -128,6 +128,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is now seeded from the submission's own UUID, stable for the
   lifetime of one in-progress submission but still varying between
   different respondents (#28).
+- Matrix display style: stealing a rank from another item now
+  correctly updates any `#states` condition elsewhere on the form that
+  was watching the item that lost it. Reassignment unchecked the
+  loser's radio via a plain property assignment with no accompanying
+  `change` event, so `states.js` — which only re-evaluates a `value`
+  trigger condition on `change`/`keyup` — never noticed and left any
+  dependent element stuck showing/hiding whatever was last true (#51).
 
 ## [0.1.0] - 2026-07-12
 
