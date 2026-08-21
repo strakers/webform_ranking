@@ -1,0 +1,38 @@
+{
+  "defaults": {
+    "chromeLaunchConfig": {
+      "args": ["--no-sandbox", "--ignore-certificate-errors"]
+    },
+    "ignoreHTTPSErrors": true,
+    "hideElements": ".skip-pa11y",
+    "standard": "WCAG2AA",
+    "ignore": []
+  },
+  "threshold": 0,
+  "urls": [
+    {
+      "url": "https://web/webform/pa11y_test_matrix",
+      "comment": "Matrix style, clean/page-load state."
+    },
+    {
+      "url": "https://web/webform/pa11y_test_matrix",
+      "comment": "Matrix style, after ranking item A 1st — rank-exclusivity 'taken' state, live-region announcement.",
+      "actions": [
+        "click element input[name=\"ranking[matrix][a]\"][value=\"1\"]"
+      ],
+      "wait": 200
+    },
+    {
+      "url": "https://web/webform/pa11y_test_dragdrop",
+      "comment": "Drag/drop style, clean/page-load state."
+    },
+    {
+      "url": "https://web/webform/pa11y_test_dragdrop",
+      "comment": "Drag/drop style, after moving item A down — reorder, position-indicator update, move-button disabled state.",
+      "actions": [
+        "click element .webform-ranking-dragdrop__move-down"
+      ],
+      "wait": 200
+    }
+  ]
+}

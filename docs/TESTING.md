@@ -115,6 +115,66 @@ CodeMirror JS (`webform.element.codemirror.js`) replaces the real
   (`.CodeMirror.setValue()` + an immediate `.save()`) when it's
   attached.
 
+## Accessibility auditing (pa11y)
+
+Real WCAG2AA rule coverage (contrast, focus order, ARIA correctness)
+against actual rendered markup, via
+[pa11y](https://github.com/pa11y/pa11y)/[pa11y-ci](https://github.com/pa11y/pa11y-ci) —
+covering what the FunctionalJavascript suite's own assertions can't
+(those check specific known mechanisms; this runs a real, general rule
+set against the live DOM).
+
+Deliberately **not** wired into `ddev phpunit --group webform_ranking`,
+unlike everything else on this page: pa11y's CLI only exists inside its
+own dedicated container (the `pa11y` DDEV service), not the `web`
+container PHPUnit runs in, so there's no practical way to shell out to
+it from a PHP test process today. It runs as its own separate step
+instead, ready to slot in as a parallel CI job once #29 (GitHub
+Actions) lands.
+
+**One-time local setup**:
+
+```bash
+ddev add-on get Metadrop/ddev-pa11y
+ddev restart
+```
+
+**Fixture webforms**: pa11y-ci needs stable, real routes to point at —
+unlike the FunctionalJavascript suite's own fixtures, which are created
+fresh and torn down within each isolated test run. Create (or update)
+them once per local environment:
+
+```bash
+ddev drush php:script tests/pa11y/fixtures/create-webforms.php
+```
+
+This creates two persistent webforms, `pa11y_test_matrix` and
+`pa11y_test_dragdrop`, deliberately **not** shipped as the module's own
+`config/install` — a real site installing this module shouldn't get two
+demo webforms for free.
+
+**Running it**:
+
+```bash
+ddev pa11y-ci local          # audits all configured states, threshold 0 — exits non-zero on any WCAG2AA violation
+ddev pa11y-ci-report local   # same, plus an HTML report at reports/pa11y/<timestamp>/index.html
+ddev pa11y local <url>       # one-off, on-demand check against any single URL
+```
+
+`tests/pa11y/local/pa11yci.json` configures four audited states — each
+display style, once on page load and once after a real interaction
+(ranking item A 1st for matrix; moving item A down for drag/drop, via
+pa11y's [actions API](https://github.com/pa11y/pa11y#actions)). A
+static page-load-only check would miss exactly the live
+`aria-live`/`aria-disabled` behavior this module's own accessibility
+work is built around — see the issue this was scoped from (#9) for the
+full rationale.
+
+Note: `tests/pa11y/local/*.json` intentionally has its `#ddev-generated`
+marker removed, for the same reason described in the nginx caveat
+below — leaving it in risks DDEV silently overwriting these
+project-specific configs back to the add-on's bare defaults.
+
 ## Troubleshooting
 
 **FunctionalJavascript tests all fail with a 502 ("upstream sent too big

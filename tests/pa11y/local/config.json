@@ -1,0 +1,9 @@
+{
+  "chromeLaunchConfig": {
+    "args": ["--no-sandbox", "--ignore-certificate-errors"]
+  },
+  "ignoreHTTPSErrors": true,
+  "hideElements": ".skip-pa11y",
+  "standard": "WCAG2AA",
+  "ignore": []
+}
