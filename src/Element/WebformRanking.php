@@ -4,6 +4,7 @@ namespace Drupal\webform_ranking\Element;
 
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Render\Attribute\FormElement;
 use Drupal\Core\Render\Element\FormElementBase;
 use Drupal\webform\WebformSubmissionForm;
 use Drupal\webform_ranking\WebformRankingConverter;
@@ -32,9 +33,8 @@ use Drupal\webform_ranking\WebformRankingConverter;
  * element's final #value; see that method and
  * WebformRankingConverter's class docblock for the full storage-
  * boundary rationale.
- *
- * @FormElement("webform_ranking")
  */
+#[FormElement('webform_ranking')]
 class WebformRanking extends FormElementBase {
 
   /**
