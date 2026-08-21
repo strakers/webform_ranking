@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Visual and ARIA indication that `#required_all` requires every visible
+  item to be ranked or marked N/A. Matrix style: a red asterisk on each
+  item's label plus `role="radiogroup"`/`aria-labelledby` on the row, a
+  native `required` attribute and `aria-describedby` on each radio.
+  Drag/drop style: an ARIA-only screen-reader cue (no visual asterisk,
+  since an item's placement in the ordered list already denotes its
+  rank) (#46).
+
 ## [0.2.0] - 2026-08-21
 
 ### Added
