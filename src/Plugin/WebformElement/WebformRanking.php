@@ -263,6 +263,21 @@ class WebformRanking extends WebformElementBase {
       if ($value === '') {
         continue;
       }
+      // Item values become the webform_submission_data.property column
+      // (varchar(128), part of the primary key) and are interpolated
+      // directly into #states selector strings elsewhere in this class
+      // (see getElementSelectorInputsOptions()); an unconstrained value
+      // containing e.g. '"' or ']' can produce a broken/unparseable
+      // selector. Webform's own Likert element applies the same 128
+      // limit via #options_value_maxlength.
+      if (!preg_match('/^[A-Za-z0-9_.\-]+$/', $value)) {
+        $form_state->setErrorByName('items', $this->t('Item values may only contain letters, numbers, underscores, hyphens and periods. "@value" is not valid.', ['@value' => $value]));
+        break;
+      }
+      if (mb_strlen($value) > 128) {
+        $form_state->setErrorByName('items', $this->t('Item values must be 128 characters or fewer. "@value" is too long.', ['@value' => $value]));
+        break;
+      }
       if (isset($values_seen[$value])) {
         $form_state->setErrorByName('items', $this->t('Item values must be unique. "@value" is used more than once.', ['@value' => $value]));
         break;
@@ -354,12 +369,28 @@ class WebformRanking extends WebformElementBase {
   /**
    * {@inheritdoc}
    *
-   * Exposes one selector per item ("Ranking > Item A: rank") instead of
-   * the whole element as a single scalar comparison target. This is the
-   * actual fix for the Array-to-string crash seen on Likert: an admin
-   * building a condition is only ever offered sub-selectors that
-   * resolve to a real DOM input with a scalar value, never the
-   * composite array as a whole.
+   * Exposes one selector per item ("Ranking [Ranking] > Item A (rank)")
+   * instead of the whole element as a single scalar comparison target.
+   * This is the actual fix for the Array-to-string crash seen on
+   * Likert: an admin building a condition is only ever offered
+   * sub-selectors that resolve to a real DOM input with a scalar
+   * value, never the composite array as a whole.
+   *
+   * This overrides getElementSelectorInputsOptions() (protected).
+   * That, not getElementSelectorOptions(), is the extension point
+   * WebformElementBase actually builds around: its own
+   * getElementSelectorOptions() calls this method, and if it returns a
+   * non-empty array, wraps each entry as
+   * `:input[name="{$name}[{$input_name}]"]` and nests the whole set
+   * under the element's title. Left un-overridden (as this class
+   * previously did, instead overriding getElementSelectorOptions()
+   * itself and appending to parent::getElementSelectorOptions()'s
+   * result), the base class falls into its other branch and returns a
+   * single bogus selector matching no real DOM input
+   * (`:input[name="{$name}"]`) — that bogus entry then sat alongside
+   * this class's real per-item selectors as unrelated flat top-level
+   * entries, ungrouped, unlike every other composite element in
+   * Webform.
    *
    * Both display styles are covered, but via different real DOM
    * inputs:
@@ -379,47 +410,27 @@ class WebformRanking extends WebformElementBase {
    *   the staleness risk this duplication carries and why it's
    *   confined to one write path.
    *
-   * The name of the base class method used for selector suffix
-   * construction (getElementSelectorOptions() vs. an equivalent) may
-   * differ slightly across Webform 6.2.x vs 6.3.x — worth confirming
-   * against the exact Webform version this module targets before
-   * relying on this signature.
-   *
-   * Selector bug fixed (matrix): this previously built
+   * Selector bug fixed previously (matrix): this used to build
    * "{key}[matrix][{item}][rank]", a trailing `[rank]` suffix that
    * never matched any real DOM input — each matrix row's radios share
    * the row's own `#parents` directly (`{key}[matrix][{item}]`, no
-   * `[rank]` segment; see buildMatrix()). A real, reported symptom of
-   * this: an admin-configured #states condition on another element,
-   * targeting "Ranking > Item (rank)" as its trigger, never reacted to
-   * rank selection at all — states.js (client-side) queries the live
-   * DOM by this exact selector string, so a selector matching nothing
-   * silently never binds a listener. Confirmed live in a browser after
-   * the fix: toggling a rank now correctly shows/hides a dependent
-   * element with no page reload.
+   * `[rank]` segment; see buildMatrix()).
    */
-  public function getElementSelectorOptions(array $element) {
-    $selectors = parent::getElementSelectorOptions($element);
-
+  protected function getElementSelectorInputsOptions(array $element) {
     $style = $element['#ranking_style'] ?? 'matrix';
     if ($style !== 'matrix' && $style !== 'dragdrop') {
-      return $selectors;
+      return [];
     }
 
-    $title = $element['#admin_title'] ?? $element['#title'] ?? $element['#webform_key'];
-    $items = $element['#items'] ?? [];
-
-    foreach ($items as $item) {
-      $item_selector = $style === 'matrix'
-        ? ":input[name=\"{$element['#webform_key']}[matrix][{$item['value']}]\"]"
-        : ":input[name=\"{$element['#webform_key']}[dragdrop][rank][{$item['value']}]\"]";
-      $selectors[$item_selector] = $this->t('@title: @item (rank)', [
-        '@title' => $title,
-        '@item' => $item['label'],
-      ]);
+    $inputs = [];
+    foreach ($element['#items'] ?? [] as $item) {
+      $input_name = $style === 'dragdrop'
+        ? "dragdrop][rank][{$item['value']}"
+        : "matrix][{$item['value']}";
+      $inputs[$input_name] = $this->t('@item (rank)', ['@item' => $item['label']]);
     }
 
-    return $selectors;
+    return $inputs;
   }
 
   /**
@@ -457,8 +468,8 @@ class WebformRanking extends WebformElementBase {
    * which assumes a composite's sub-properties are known, fixed keys
    * (e.g. WebformName's 'first'/'last') and reduces stored data via
    * `$value[$composite_key]`. Our per-item selectors (see
-   * getElementSelectorOptions()) use the item's *value* as the third
-   * selector segment (e.g. "preference[matrix][pizza]"), which isn't
+   * getElementSelectorInputsOptions()) use the item's *value* as the
+   * third selector segment (e.g. "preference[matrix][pizza]"), which isn't
    * a real key in that sense — it doesn't match anything in the flat
    * item-value => rank storage map, and the generic extraction can't
    * reduce it. Confirmed via watchdog: the whole flat map reached
@@ -471,7 +482,7 @@ class WebformRanking extends WebformElementBase {
    * Handles both matrix per-item selectors
    * ("{key}[matrix][{item}]") and drag/drop per-item rank-echo
    * selectors ("{key}[dragdrop][rank][{item}]", see
-   * getElementSelectorOptions()'s docblock and
+   * getElementSelectorInputsOptions()'s docblock and
    * WebformRanking::buildDragDrop() for what that echo input is and
    * why it exists). Either way the item value is the resolved via
    * getItemRankValue() against the submission's stored data — storage

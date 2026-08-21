@@ -174,8 +174,33 @@ class WebformRanking extends FormElementBase {
 
     foreach ($items as $delta => $item) {
       $row_key = $item['value'];
+      // '#type' => 'container' (not a bare '#markup' array, and not
+      // 'html_tag' either): a plain '#markup' element has no
+      // #attributes-bearing wrapper, so when this row later gets
+      // '#states' applied below (for a conditionally-visible item),
+      // Renderer::doRender()'s 'data-drupal-states' attribute has
+      // nothing to attach to and states.js has nothing to hide —
+      // leaving the label visibly orphaned above an otherwise-hidden
+      // row of radios. 'html_tag' doesn't fix this either: its
+      // #pre_render (HtmlTag::preRenderHtmlTag()) bakes #attributes
+      // into a fixed markup string, and #pre_render callbacks run
+      // BEFORE Renderer::doRender() processes #states
+      // (Renderer.php: #pre_render at ~line 445, #states at ~line
+      // 472) — by the time 'data-drupal-states' is added, the tag
+      // markup is already finalized without it. 'container' instead
+      // uses '#theme_wrappers' (container.html.twig), which reads
+      // #attributes at theme-render time, *after* #states processing
+      // — the same pattern Container's own class docblock shows as
+      // the canonical way to combine '#states' with a wrapper
+      // element. The radio cells below never had this problem since
+      // '#type' => 'radio' is itself a themed form input, not a
+      // #pre_render-baked one.
       $element['matrix'][$row_key]['label'] = [
-        '#markup' => $item['label'],
+        '#type' => 'container',
+        '#attributes' => ['class' => ['webform-ranking-matrix__label']],
+        'text' => [
+          '#markup' => $item['label'],
+        ],
       ];
 
       // One real 'radio' input per rank column, each its own cell — NOT
@@ -546,11 +571,14 @@ class WebformRanking extends FormElementBase {
     // Tamper defense: every submitted item key must be one this element
     // actually configured — catches forged POST data referencing item
     // keys that were never offered at all, regardless of conditional
-    // visibility.
+    // visibility. Sanitized in place (not just errored-and-returned)
+    // so every check below, and the unconditional write-back at the
+    // end, keep operating on legitimate data only.
     $unknown = array_diff(array_merge($values, $na), $valid_item_values);
     if ($unknown) {
       $form_state->setError($element, $translation->translate('@title contains an invalid selection.', ['@title' => $title]));
-      return;
+      $values = array_values(array_intersect($values, $valid_item_values));
+      $na = array_values(array_intersect($na, $valid_item_values));
     }
 
     // Recompute which configured items are actually visible/applicable
@@ -579,7 +607,6 @@ class WebformRanking extends FormElementBase {
     if (!empty($element['#required']) && !$values && !$na) {
       $form_state->setError($element, $element['#required_error']
         ?? $translation->translate('@title field is required.', ['@title' => $title]));
-      return;
     }
 
     // Ranks must be assigned starting from 1st place with no gaps —
@@ -599,25 +626,21 @@ class WebformRanking extends FormElementBase {
     );
     if (!WebformRankingConverter::matrixRanksAreSequential($raw_matrix_input)) {
       $form_state->setError($element, $translation->translate('@title: ranks must be assigned starting from the top, with no gaps — a lower rank cannot be used unless every rank above it is also used.', ['@title' => $title]));
-      return;
     }
 
     // Ranks must be a set: no item ranked more than once.
     if (count($values) !== count(array_unique($values))) {
       $form_state->setError($element, $translation->translate('@title: each item can only be ranked once.', ['@title' => $title]));
-      return;
     }
 
     // No item both ranked and marked N/A.
     if (array_intersect($values, $na)) {
       $form_state->setError($element, $translation->translate('@title: an item cannot be both ranked and marked N/A.', ['@title' => $title]));
-      return;
     }
 
     // N/A submitted despite not being enabled for this element.
     if ($na && empty($element['#allow_na'])) {
       $form_state->setError($element, $translation->translate('@title does not allow leaving items unranked.', ['@title' => $title]));
-      return;
     }
 
     // Note on array structure: $values was already reindexed via
@@ -655,6 +678,25 @@ class WebformRanking extends FormElementBase {
     // and WebformRankingConverter's docblocks for the full rationale.
     // WebformRanking::prepare() is the mirror-image conversion back to
     // canonical shape when editing an existing submission.
+    //
+    // Unconditional — every check above sets an error (if any) without
+    // returning, specifically so this line is always reached, even on
+    // a failed validation pass. This matters beyond the failing
+    // submission itself: a webform_computed_twig element configured
+    // for live AJAX recompute triggers a full (non-#limit_validation_errors)
+    // validation pass on every keystroke/change elsewhere on the form,
+    // then reads $form_state->getValues() directly via
+    // WebformSubmissionForm::copyFormValuesToEntity() to build a
+    // throwaway WebformSubmission for its Twig template —
+    // bypassing this element's plugin entirely, with no shape
+    // conversion of its own. If a `return` here had skipped this
+    // write-back (the previous behaviour on most checks above), that
+    // temporary submission — and therefore the Twig template — would
+    // see this element still in canonical {values, na} shape instead
+    // of the flat map every consumer (including a Twig token like
+    // `data.ranking.pizza`) expects, for as long as the ranking
+    // element was in any invalid, not-yet-fully-resolved interim
+    // state (e.g. mid-click, 2nd place picked before 1st).
     $form_state->setValueForElement($element, WebformRankingConverter::canonicalToMatrix([
       'values' => $values,
       'na' => $na,

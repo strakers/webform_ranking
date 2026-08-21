@@ -40,6 +40,10 @@ class WebformRankingMatrixJavaScriptTest extends WebDriverTestBase {
       'id' => 'test_ranking_matrix',
       'title' => 'Test ranking matrix',
       'elements' => Yaml::encode([
+        'trigger' => [
+          '#type' => 'textfield',
+          '#title' => 'Trigger',
+        ],
         'ranking' => [
           '#type' => 'webform_ranking',
           '#title' => 'Ranking',
@@ -48,7 +52,19 @@ class WebformRankingMatrixJavaScriptTest extends WebDriverTestBase {
           '#items' => [
             ['value' => 'a', 'label' => 'Item A'],
             ['value' => 'b', 'label' => 'Item B'],
-            ['value' => 'c', 'label' => 'Item C'],
+            [
+              'value' => 'c',
+              'label' => 'Item C',
+              // Conditionally-visible item, empty by default so it
+              // doesn't affect the other tests in this class (all of
+              // which use item 'c' freely, assuming it starts
+              // visible).
+              'states' => [
+                'invisible' => [
+                  ':input[name="trigger"]' => ['filled' => TRUE],
+                ],
+              ],
+            ],
           ],
         ],
         // Dependent element used to confirm live #states reaction to a
@@ -167,6 +183,79 @@ class WebformRankingMatrixJavaScriptTest extends WebDriverTestBase {
     $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () use ($message) {
       return !$message->isVisible();
     }));
+  }
+
+  /**
+   * Tests that a conditionally-hidden item's label hides with its radios.
+   *
+   * Real bug: the label cell used to be a bare '#markup' array, which
+   * has no #attributes-bearing wrapper for Renderer::doRender() to
+   * attach 'data-drupal-states' to — so states.js had nothing to bind
+   * to for the label, and it stayed visible even once its own row's
+   * radios (a real '#type' => 'radio' input, unaffected by this)
+   * correctly hid. A user would see an orphaned item name floating
+   * above a row with no rank options. Fixed by wrapping the label in
+   * '#type' => 'container', which (unlike '#type' => 'html_tag')
+   * reads #attributes at theme-render time, after #states processing.
+   */
+  public function testConditionalItemLabelHidesTogetherWithRadios(): void {
+    $this->drupalGet('/webform/test_ranking_matrix');
+
+    // Item C is always the third (and only conditional) row.
+    $labels = $this->getSession()->getPage()->findAll('css', '.webform-ranking-matrix__label');
+    $this->assertCount(3, $labels);
+    $label = end($labels);
+    $this->assertSame('Item C', trim($label->getText()));
+    $this->assertTrue($label->isVisible());
+
+    $radio = $this->getSession()->getPage()->find('css', 'input[name="ranking[matrix][c]"][value="1"]');
+    $this->assertTrue($radio->isVisible());
+
+    $this->getSession()->getPage()->fillField('trigger', 'anything');
+
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () use ($label) {
+      return !$label->isVisible();
+    }));
+    $this->assertFalse($radio->isVisible());
+  }
+
+  /**
+   * Tests that hiding an item frees the rank it held for other items.
+   *
+   * Real bug: applyExclusivity() in webform_ranking.matrix.js only
+   * recomputed on a radio 'change' event. If the item currently
+   * holding a rank became conditionally hidden (its own #states
+   * condition, independent of rank selection), nothing ever told the
+   * JS to recompute — the rank stayed disabled for every other item
+   * indefinitely, even though validateWebformRanking() server-side
+   * already drops a hidden item's selection before checking rank
+   * uniqueness, so the block was purely a stale client-side artifact
+   * with no server-side basis. Fixed by also listening for the
+   * 'state:visible' event states.js fires on each row's radios.
+   */
+  public function testHidingRankedItemFreesItsRankForOtherItems(): void {
+    $this->drupalGet('/webform/test_ranking_matrix');
+
+    $this->selectRank('c', '1');
+    $this->assertTrue($this->isDisabled('a', '1'));
+    $this->assertTrue($this->isDisabled('b', '1'));
+
+    // Hiding item C (which holds rank 1) must free rank 1 back up for
+    // the still-visible items.
+    $this->getSession()->getPage()->fillField('trigger', 'anything');
+
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () {
+      return !$this->isDisabled('a', '1');
+    }));
+    $this->assertFalse($this->isDisabled('b', '1'));
+
+    // Revealing item C again re-imposes the block, since its
+    // selection was never cleared, only excluded while hidden.
+    $this->getSession()->getPage()->fillField('trigger', '');
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () {
+      return $this->isDisabled('a', '1');
+    }));
+    $this->assertTrue($this->isDisabled('b', '1'));
   }
 
 }

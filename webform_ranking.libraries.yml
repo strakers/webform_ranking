@@ -12,6 +12,7 @@ element.matrix:
   dependencies:
     - core/drupal
     - core/once
+    - core/drupal.states
 
 element.dragdrop:
   js:
