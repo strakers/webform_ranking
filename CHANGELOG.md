@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   visible inline error text beneath it, on a failed validation —
   neither was previously rendered anywhere, unlike every other field
   on the form (#47, #48).
+- Automated accessibility auditing via the `Metadrop/ddev-pa11y` DDEV
+  add-on (pa11y/pa11y-ci), covering both display styles in a clean and
+  an interactive (post-selection/post-reorder) state. On-demand and
+  suite entry points, plus fixture webforms and setup docs — see
+  `docs/TESTING.md`'s "Accessibility auditing (pa11y)" section (#9).
 
 ## [0.2.0] - 2026-08-21
 
