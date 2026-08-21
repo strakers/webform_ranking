@@ -2,6 +2,7 @@
 
 namespace Drupal\Tests\webform_ranking\Kernel;
 
+use Drupal\Core\Form\FormState;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\webform\WebformInterface;
 use Drupal\webform\WebformSubmissionInterface;
@@ -73,6 +74,25 @@ class WebformRankingPluginTest extends KernelTestBase {
       ['value' => 'item_b', 'label' => 'Item B'],
       ['value' => 'item_c', 'label' => 'Item C'],
     ];
+  }
+
+  /**
+   * Runs validateConfigurationForm() against a hand-built 'items' value.
+   *
+   * 'default_properties' must be set on FormState before calling — the
+   * parent implementation's getConfigurationFormProperties() calls
+   * array_key_exists() against it, which fatals on a NULL second
+   * argument if it's left unset.
+   */
+  protected function validateItemsConfiguration(array $items): FormState {
+    $form_state = new FormState();
+    $form_state->set('default_properties', $this->plugin->getDefaultProperties());
+    $form_state->setValue('items', $items);
+
+    $form = [];
+    $this->plugin->validateConfigurationForm($form, $form_state);
+
+    return $form_state;
   }
 
   /**
@@ -286,8 +306,8 @@ class WebformRankingPluginTest extends KernelTestBase {
    *
    * Drag/drop's per-item rank echo input (see
    * WebformRanking::buildDragDrop() and this plugin's
-   * getElementSelectorOptions()) must resolve identically to a matrix
-   * per-item selector — same underlying flat storage, just a
+   * getElementSelectorInputsOptions()) must resolve identically to a
+   * matrix per-item selector — same underlying flat storage, just a
    * differently-shaped selector pointing at it.
    */
   public function testGetElementSelectorInputValueResolvesDragdropItemRank(): void {
@@ -310,6 +330,14 @@ class WebformRankingPluginTest extends KernelTestBase {
 
   /**
    * Tests that per-item selectors are exposed for both display styles.
+   *
+   * Selectors now nest under a grouped title (the base class's own
+   * getElementSelectorOptions() does this whenever
+   * getElementSelectorInputsOptions() returns a non-empty array — see
+   * that method's docblock), rather than sitting as flat top-level
+   * entries. The title is computed via the same plugin methods the
+   * base class itself uses, rather than hardcoded, so this test
+   * doesn't go brittle against label/translation wording changes.
    */
   public function testGetElementSelectorOptionsExposesPerItemSelectorsForBothStyles(): void {
     $element = [
@@ -317,14 +345,119 @@ class WebformRankingPluginTest extends KernelTestBase {
       '#title' => 'Preference',
       '#items' => $this->items(),
     ];
+    $expected_title = $this->plugin->getAdminLabel($element) . ' [' . $this->plugin->getPluginLabel() . ']';
 
     $matrix_selectors = $this->plugin->getElementSelectorOptions($element + ['#ranking_style' => 'matrix']);
-    $this->assertArrayHasKey(':input[name="preference[matrix][item_a]"]', $matrix_selectors);
-    $this->assertArrayNotHasKey(':input[name="preference[dragdrop][rank][item_a]"]', $matrix_selectors);
+    $this->assertArrayHasKey($expected_title, $matrix_selectors);
+    $this->assertArrayHasKey(':input[name="preference[matrix][item_a]"]', $matrix_selectors[$expected_title]);
+    $this->assertArrayNotHasKey(':input[name="preference[dragdrop][rank][item_a]"]', $matrix_selectors[$expected_title]);
 
     $dragdrop_selectors = $this->plugin->getElementSelectorOptions($element + ['#ranking_style' => 'dragdrop']);
-    $this->assertArrayHasKey(':input[name="preference[dragdrop][rank][item_a]"]', $dragdrop_selectors);
-    $this->assertArrayNotHasKey(':input[name="preference[matrix][item_a]"]', $dragdrop_selectors);
+    $this->assertArrayHasKey(':input[name="preference[dragdrop][rank][item_a]"]', $dragdrop_selectors[$expected_title]);
+    $this->assertArrayNotHasKey(':input[name="preference[matrix][item_a]"]', $dragdrop_selectors[$expected_title]);
+  }
+
+  /**
+   * Tests that no bogus whole-element selector is offered.
+   *
+   * Regression guard for H2: before overriding
+   * getElementSelectorInputsOptions(), this element fell into
+   * WebformElementBase::getElementSelectorOptions()'s other branch and
+   * returned a scalar `:input[name="preference"]` selector alongside
+   * the real per-item ones — a selector matching no real DOM input,
+   * since the element only ever renders as per-item radios/hidden
+   * inputs, never a single scalar field. Kept as its own test (rather
+   * than folded into the coverage above) so the exact bug this closes
+   * stays unambiguous even if that test's assertions are later
+   * reworked.
+   */
+  public function testGetElementSelectorOptionsDoesNotIncludeBogusWholeElementSelector(): void {
+    $element = [
+      '#webform_key' => 'preference',
+      '#title' => 'Preference',
+      '#items' => $this->items(),
+      '#ranking_style' => 'matrix',
+    ];
+
+    $selectors = $this->plugin->getElementSelectorOptions($element);
+
+    $this->assertArrayNotHasKey(':input[name="preference"]', $selectors);
+    foreach ($selectors as $title => $value) {
+      $this->assertIsArray($value, "Entry '$title' must be a grouped array of selectors, not a flat scalar title.");
+    }
+  }
+
+  /**
+   * Tests that a syntactically valid items configuration passes.
+   */
+  public function testValidateConfigurationFormAcceptsValidItemValues(): void {
+    $form_state = $this->validateItemsConfiguration($this->items());
+
+    $this->assertSame([], $form_state->getErrors());
+  }
+
+  /**
+   * Tests that an item value with disallowed characters is rejected.
+   *
+   * H1: item values are interpolated directly into #states selector
+   * strings (see getElementSelectorInputsOptions()) and stored in the
+   * webform_submission_data.property column. An unconstrained value
+   * like 'pizza"' can produce a broken/unparseable selector.
+   */
+  public function testValidateConfigurationFormRejectsItemValueWithInvalidCharacters(): void {
+    $form_state = $this->validateItemsConfiguration([
+      ['value' => 'pizza"', 'label' => 'Pizza'],
+      ['value' => 'burgers', 'label' => 'Burgers'],
+    ]);
+
+    $this->assertArrayHasKey('items', $form_state->getErrors());
+  }
+
+  /**
+   * Tests that an item value over 128 characters is rejected.
+   *
+   * 128 is not arbitrary: item values become the
+   * webform_submission_data.property column, a varchar(128) that is
+   * also part of the primary key. Webform's own Likert element applies
+   * the same limit via #options_value_maxlength.
+   */
+  public function testValidateConfigurationFormRejectsItemValueExceedingMaxLength(): void {
+    $form_state = $this->validateItemsConfiguration([
+      ['value' => str_repeat('a', 129), 'label' => 'Too long'],
+      ['value' => 'burgers', 'label' => 'Burgers'],
+    ]);
+
+    $this->assertArrayHasKey('items', $form_state->getErrors());
+  }
+
+  /**
+   * Tests that duplicate item values are rejected.
+   *
+   * Baseline coverage for a pre-existing check that had no test of its
+   * own before this — added alongside the new H1 checks since this
+   * method was already being touched.
+   */
+  public function testValidateConfigurationFormRejectsDuplicateItemValues(): void {
+    $form_state = $this->validateItemsConfiguration([
+      ['value' => 'item_a', 'label' => 'Item A'],
+      ['value' => 'item_a', 'label' => 'Item A again'],
+    ]);
+
+    $this->assertArrayHasKey('items', $form_state->getErrors());
+  }
+
+  /**
+   * Tests that fewer than two items is rejected.
+   *
+   * Baseline coverage for a pre-existing check that had no test of its
+   * own before this.
+   */
+  public function testValidateConfigurationFormRejectsFewerThanTwoItems(): void {
+    $form_state = $this->validateItemsConfiguration([
+      ['value' => 'item_a', 'label' => 'Item A'],
+    ]);
+
+    $this->assertArrayHasKey('items', $form_state->getErrors());
   }
 
   /**
@@ -401,6 +534,50 @@ class WebformRankingPluginTest extends KernelTestBase {
     $this->plugin->prepare($element);
 
     $this->assertSame([], $element['#items'][0]['states']);
+  }
+
+  /**
+   * Tests that randomized order is stable across repeated prepare() calls.
+   *
+   * Real bug: shuffle() ran unseeded on every prepare() call —
+   * including validation-error rebuilds and AJAX rebuilds within the
+   * same form session — reordering the rows on every rebuild even
+   * though the user's already-made selections stayed attached to
+   * their items. Fixed by seeding PHP's RNG before shuffling (from the
+   * submission's own UUID when one is available, so the order still
+   * varies between different respondents; a fixed fallback seed
+   * otherwise), so the order is stable across repeated calls.
+   *
+   * No WebformSubmissionInterface is constructed here deliberately:
+   * parent::prepare() (WebformElementBase) reaches deep into Webform's
+   * access-control machinery whenever a submission is present, which
+   * would need extensive, version-fragile mocking to satisfy for a
+   * test that isn't actually about access control. The NULL-submission
+   * path exercises the exact same seed/shuffle/reseed block this fix
+   * touches (see prepare()), just with the fallback seed source
+   * instead of a submission UUID — sufficient to prove the fix: calls
+   * are stable now, where they weren't before.
+   */
+  public function testPrepareRandomizedOrderIsStableAcrossRepeatedCalls(): void {
+    $items = [];
+    foreach (range('a', 'h') as $letter) {
+      $items[] = ['value' => "item_$letter", 'label' => 'Item ' . strtoupper($letter)];
+    }
+
+    $element_first = ['#items' => $items, '#randomize_item_order' => TRUE];
+    $this->plugin->prepare($element_first);
+    $order_first = array_column($element_first['#items'], 'value');
+
+    $element_second = ['#items' => $items, '#randomize_item_order' => TRUE];
+    $this->plugin->prepare($element_second);
+    $order_second = array_column($element_second['#items'], 'value');
+
+    $this->assertSame($order_first, $order_second);
+    // Confirms shuffling is actually happening (not a no-op that would
+    // trivially "pass" the stability assertion above) — with 8 items,
+    // the odds of a real shuffle coincidentally landing back on
+    // configured order are 1 in 8! (40320), negligible.
+    $this->assertNotSame(array_column($items, 'value'), $order_first);
   }
 
 }

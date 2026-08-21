@@ -166,17 +166,56 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
 
   /**
    * Tests that an unknown item key is rejected as tamper defense.
+   *
+   * Also asserts the value is still written back afterward, sanitized
+   * to the legitimate portion only (the forged 'item_x' dropped, the
+   * real 'item_a' kept) — see
+   * testValueIsWrittenBackInFlatShapeEvenWhenValidationFails() for why
+   * this write-back must never be skipped, on this or any other
+   * failure branch.
    */
   public function testUnknownItemKeyIsRejectedAsTamperDefense(): void {
-    $form_state = $this->validate([], [
+    $form_state = $this->validate(['#required_all' => FALSE], [
       // 'item_x' was never configured at all.
-      'values' => ['item_x'],
+      'values' => ['item_x', 'item_a'],
       'na' => [],
     ]);
 
     $errors = $form_state->getErrors();
     $this->assertCount(1, $errors);
     $this->assertStringContainsString('invalid selection', (string) reset($errors));
+    $this->assertSame(['item_a' => '1'], $form_state->getValue('ranking'));
+  }
+
+  /**
+   * Tests that the flat-shape value is written back even on failure.
+   *
+   * Real bug: several checks in validateWebformRanking() used to
+   * `return` immediately after setError(), skipping the final
+   * canonical-to-flat write-back entirely — leaving
+   * $form_state->getValue('ranking') in canonical {values, na} shape.
+   * On a genuine failed submission this was invisible (the form is
+   * rejected and nothing is saved either way), but it broke live
+   * webform_computed_twig AJAX recomputation: that path reads
+   * $form_state->getValues() directly
+   * (WebformSubmissionForm::copyFormValuesToEntity()), bypassing this
+   * element's plugin entirely, and expects storage (flat) shape
+   * regardless of whether this element's own validation currently
+   * passes — e.g. mid-interaction, before the user has finished
+   * ranking every item.
+   */
+  public function testValueIsWrittenBackInFlatShapeEvenWhenValidationFails(): void {
+    $form_state = $this->validate(['#required_all' => TRUE], [
+      // Missing item_b/item_c triggers the #required_all error below.
+      'values' => ['item_a'],
+      'na' => [],
+    ]);
+
+    $errors = $form_state->getErrors();
+    $this->assertCount(1, $errors);
+    $this->assertStringContainsString('every item must be ranked', (string) reset($errors));
+    // Flat shape, not canonical {values, na} — the exact regression.
+    $this->assertSame(['item_a' => '1'], $form_state->getValue('ranking'));
   }
 
   /**
@@ -270,6 +309,49 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     $form_state = $this->validate(['#required_all' => FALSE], [
       'values' => ['item_a'],
       'na' => [],
+    ]);
+
+    $this->assertSame([], $form_state->getErrors());
+  }
+
+  // #required, empty ranking: core's own required check can't see this
+  // (valueCallback() always returns a 2-key array), so this must be an
+  // explicit check in validateWebformRanking() — see B3.
+  public function testRequiredRejectsCompletelyEmptyRanking(): void {
+    $form_state = $this->validate(['#required' => TRUE, '#required_all' => FALSE], [
+      'values' => [],
+      'na' => [],
+    ]);
+
+    $errors = $form_state->getErrors();
+    $this->assertCount(1, $errors);
+    $this->assertStringContainsString('required', (string) reset($errors));
+  }
+
+  public function testRequiredPassesWithAtLeastOneItemRanked(): void {
+    $form_state = $this->validate(['#required' => TRUE, '#required_all' => FALSE], [
+      'values' => ['item_a'],
+      'na' => [],
+    ]);
+
+    $this->assertSame([], $form_state->getErrors());
+  }
+
+  public function testNotRequiredPassesWithEmptyRanking(): void {
+    $form_state = $this->validate(['#required' => FALSE, '#required_all' => FALSE], [
+      'values' => [],
+      'na' => [],
+    ]);
+
+    $this->assertSame([], $form_state->getErrors());
+  }
+
+  // An N/A-only ranking (nothing in 'values', but items opted out via
+  // 'na') must NOT be treated as empty for #required purposes.
+  public function testRequiredPassesWhenOnlyNaEntriesArePresent(): void {
+    $form_state = $this->validate(['#required' => TRUE, '#required_all' => FALSE, '#allow_na' => TRUE], [
+      'values' => [],
+      'na' => ['item_a'],
     ]);
 
     $this->assertSame([], $form_state->getErrors());

@@ -19,11 +19,24 @@
   text-align: left;
 }
 
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
+/**
+ * Informational only — this radio is still enabled and clickable;
+ * clicking it reassigns the rank away from whichever item currently
+ * holds it (see webform_ranking.matrix.js). Not a `:disabled` style:
+ * the input genuinely isn't disabled.
+ */
+.webform-ranking-matrix__radio--taken {
+  opacity: 0.5;
 }
+
+/**
+ * '.visually-hidden' (used by this style's live region, see
+ * WebformRanking::buildMatrix()) is intentionally NOT redefined here.
+ * It used to be, with a weaker definition (no `!important`, a
+ * zero-size clip rect instead of the 1px rect assistive tech actually
+ * expects) that shadowed core's own, more complete version
+ * (web/core/modules/system/css/components/hidden.module.css) whenever
+ * both loaded — this library now depends on `system/base` instead
+ * (see webform_ranking.libraries.yml) to guarantee the correct
+ * version is present without redefining it.
+ */

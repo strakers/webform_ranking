@@ -12,6 +12,12 @@ element.matrix:
   dependencies:
     - core/drupal
     - core/once
+    - core/drupal.states
+    # Provides the real, complete '.visually-hidden' class (with
+    # '!important' and a proper clip-rect) that this element's live
+    # region relies on for its own class of the same name — see
+    # css/webform_ranking.matrix.css's docblock.
+    - system/base
 
 element.dragdrop:
   js:
@@ -22,6 +28,11 @@ element.dragdrop:
   dependencies:
     - core/drupal
     - core/once
+    - core/drupal.states
+    # Same '.visually-hidden' dependency as element.matrix — this
+    # style's own live region uses the same class, and this library
+    # never loads webform_ranking.matrix.css.
+    - system/base
 
 # Attached only to the element's config/admin form (see form() in the
 # WebformElement plugin), not to rendered form output. Purely a UI

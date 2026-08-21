@@ -25,7 +25,7 @@
  * isn't meaningfully achievable for this style; sites with a hard
  * no-JS requirement should use the matrix style instead.
  */
-(function (Drupal, once) {
+(function (Drupal, once, $) {
   'use strict';
 
   Drupal.behaviors.webformRankingDragdrop = {
@@ -35,9 +35,19 @@
   };
 
   function initDragdrop(container) {
-    var orderInput = container.querySelector('.webform-ranking-dragdrop__order');
-    var naInput = container.querySelector('.webform-ranking-dragdrop__na');
-    var liveRegion = container.querySelector('.webform-ranking-dragdrop__live-region');
+    // 'container' (matched by '.webform-ranking-dragdrop', role="list")
+    // holds only the listitem elements as direct children — a
+    // role="list" element's owned children must all be
+    // role="listitem". The hidden order/na/rank inputs and the
+    // live-region live in the wrapper one level up instead (see
+    // WebformRanking::buildDragDrop()), so they're looked up from
+    // there rather than from 'container' itself. Every item-focused
+    // lookup/DOM manipulation below (allItems(), insertBefore(), etc.)
+    // still operates on 'container' directly, unaffected.
+    var wrapper = container.parentElement;
+    var orderInput = wrapper.querySelector('.webform-ranking-dragdrop__order');
+    var naInput = wrapper.querySelector('.webform-ranking-dragdrop__na');
+    var liveRegion = wrapper.querySelector('.webform-ranking-dragdrop__live-region');
 
     // Per-item rank echo inputs (see WebformRanking::buildDragDrop()) —
     // the only reason these exist is to give #states a real per-item
@@ -52,7 +62,7 @@
     // write path is exactly how this channel would end up stale
     // relative to the actually-submitted order/na.
     var rankInputsByValue = {};
-    Array.prototype.slice.call(container.querySelectorAll('.webform-ranking-dragdrop__rank')).forEach(function (input) {
+    Array.prototype.slice.call(wrapper.querySelectorAll('.webform-ranking-dragdrop__rank')).forEach(function (input) {
       rankInputsByValue[input.getAttribute('data-webform-ranking-rank-for')] = input;
     });
 
@@ -192,7 +202,18 @@
       input.dispatchEvent(new Event('change', {bubbles: true}));
     }
 
-    function moveItem(item, delta) {
+    /**
+     * @param {HTMLElement} [focusTarget]
+     *   What to focus after the move. Defaults to the item itself
+     *   (correct for arrow-key reordering, where the item already has
+     *   focus — a no-op refocus). Move-up/move-down button clicks pass
+     *   the button explicitly: unconditionally focusing the item here
+     *   used to steal focus off the button the user just activated, so
+     *   a keyboard user pressing Enter on "Move up" repeatedly got
+     *   exactly one move — the second press landed on the item
+     *   container, which has no Enter handler.
+     */
+    function moveItem(item, delta, focusTarget) {
       var ranked = rankedItems().filter(isCurrentlyVisible);
       var index = ranked.indexOf(item);
       if (index === -1) {
@@ -209,7 +230,7 @@
       else {
         container.insertBefore(sibling, item);
       }
-      item.focus();
+      (focusTarget || item).focus();
       sync();
       announce(Drupal.t('@item moved to position @position of @total', {
         '@item': itemLabel(item),
@@ -255,12 +276,12 @@
 
       if (upBtn) {
         upBtn.addEventListener('click', function () {
-          moveItem(item, -1);
+          moveItem(item, -1, upBtn);
         });
       }
       if (downBtn) {
         downBtn.addEventListener('click', function () {
-          moveItem(item, 1);
+          moveItem(item, 1, downBtn);
         });
       }
       if (naCheckbox) {
@@ -356,26 +377,21 @@
     // stays correct as conditional items show/hide, without requiring
     // a reorder to trigger the recompute.
     //
-    // Verification note: Drupal core's states.js triggers 'state:visible'
-    // as a jQuery event, not a native DOM CustomEvent — whether it's
-    // observable via plain addEventListener depends on the jQuery
-    // version's event-bridging behavior and isn't confirmed here.
-    // Falls back to jQuery's own event binding when jQuery is present,
-    // which is the more reliable path against current Drupal core.
-    if (window.jQuery) {
-      window.jQuery(document).on('state:visible', function () {
-        renumber();
-      });
-    }
-    else {
-      document.addEventListener('state:visible', function () {
-        renumber();
-      });
-    }
+    // Drupal core's states.js (web/core/misc/states.js) triggers
+    // 'state:visible' as a jQuery event via $(element).trigger(...),
+    // not a native DOM CustomEvent — plain addEventListener can't
+    // observe it. core/drupal.states is now a declared dependency of
+    // this library specifically so jQuery is guaranteed present here
+    // (see webform_ranking.libraries.yml), matching the same
+    // confirmed-safe pattern webform_ranking.matrix.js already uses
+    // for the same event.
+    $(document).on('state:visible', function () {
+      renumber();
+    });
 
     // Initial sync: makes hidden inputs match server-rendered default
     // order/N/A state, and populates position indicators on load.
     sync();
   }
 
-})(Drupal, once);
+})(Drupal, once, jQuery);

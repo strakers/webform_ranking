@@ -45,7 +45,7 @@ use PHPUnit\Framework\Attributes\Group;
  * place for that, not a Kernel test.
  */
 #[Group('webform_ranking')]
-class WebformRankingValidationTest extends KernelTestBase {
+class WebformRankingPipelineTest extends KernelTestBase {
 
   /**
    * {@inheritdoc}

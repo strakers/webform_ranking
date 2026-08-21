@@ -16,8 +16,8 @@
         "source": "https://git.drupalcode.org/project/webform_ranking"
     },
     "require": {
-        "drupal/core": "^10.1 || ^11",
-        "drupal/webform": "^6.2"
+        "drupal/core": "^10.3 || ^11",
+        "drupal/webform": "^6.3"
     },
     "require-dev": {
         "drupal/admin_toolbar": "*",
