@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-21
+
 ### Added
 
 - `LICENSE.txt` (GPL-2.0-or-later).
@@ -188,6 +190,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Results/CSV export formatting, ordered by resolved rank.
 - Unit and Kernel test coverage.
 
-[Unreleased]: https://github.com/strakers/webform_ranking/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/strakers/webform_ranking/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/strakers/webform_ranking/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/strakers/webform_ranking/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/strakers/webform_ranking/releases/tag/v0.0.1
