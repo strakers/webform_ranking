@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`#attributes`) this element's `form_element` theme wrapper never
   outputs. Per-item conditional visibility, and other elements reacting
   to a ranking item's value, were unaffected and continue to work (#57).
+- Matrix display style: an item's own conditional visibility never
+  worked when its trigger element lived on an earlier wizard page —
+  Webform's cross-page condition handling never saw the condition in
+  the first place, since it isn't a real, independently-discoverable
+  render element at the point that resolution runs. Now resolved
+  statically, server-side, for cross-page triggers specifically;
+  same-page conditions are unaffected (#61).
 
 ## [0.2.1] - 2026-08-21
 
