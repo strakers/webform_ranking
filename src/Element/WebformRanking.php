@@ -7,6 +7,8 @@ use Drupal\Core\Form\FormHelper;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Render\Attribute\FormElement;
 use Drupal\Core\Render\Element\FormElementBase;
+use Drupal\webform\Utility\WebformArrayHelper;
+use Drupal\webform\WebformSubmissionConditionsValidator;
 use Drupal\webform\WebformSubmissionForm;
 use Drupal\webform_ranking\WebformRankingConverter;
 
@@ -130,6 +132,8 @@ class WebformRanking extends FormElementBase {
       return $element;
     }
 
+    $items = static::resolveCrossPageItemStates($items, $form_state, $complete_form);
+
     switch ($element['#ranking_style']) {
       case 'dragdrop':
         $element = static::buildDragDrop($element, $items);
@@ -142,6 +146,183 @@ class WebformRanking extends FormElementBase {
     }
 
     return $element;
+  }
+
+  /**
+   * Resolves cross-page item conditions statically, server-side.
+   *
+   * GitHub issue #61: an item's own '#states' condition (distinct from
+   * this element's own top-level '#states' — see #57) never worked when
+   * its trigger lives on an earlier wizard page. Root cause: Webform's
+   * own cross-page condition handling
+   * (`WebformSubmissionConditionsValidator::buildForm()`, which rewrites
+   * a cross-page trigger's selector so states.js has something live to
+   * bind to, or pre-resolves it statically when it can't) walks the
+   * *configured* element tree before `\Drupal::formBuilder()` even starts
+   * processing `#process` callbacks — before this method's own caller
+   * (`processWebformRanking()`) has expanded `#items` into real,
+   * independently-discoverable sub-elements at all. An item's condition
+   * is invisible to that walk no matter what, so it never gets the same
+   * cross-page treatment this element's own top-level '#states' does.
+   *
+   * Fix: replicate that treatment ourselves, narrowly, for items whose
+   * condition is cross-page. Confirmed empirically that `$complete_form`
+   * already has each non-current wizard page's '#access' correctly set
+   * to FALSE by the time this `#process` callback runs (verified via a
+   * live reproduction, not just inferred) — so a cross-page trigger can
+   * be detected by walking `$complete_form` for the referenced
+   * element's accessibility. Once detected, the condition is resolved
+   * *once*, using the same `WebformRankingVisibilityResolver` server-side
+   * validation already trusts (never the client), and applied
+   * statically — there is nothing on the current page that could ever
+   * change the trigger's value anyway, so live '#states'/JS reactivity
+   * for that item would be meaningless.
+   *
+   * Same-page conditions (or no condition at all) are left completely
+   * untouched — this only ever narrows behavior for the specific
+   * cross-page case, matching the issue's own request not to regress
+   * anything already working.
+   *
+   * @param array $items
+   *   The element's configured items (value/label/states each).
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The current form state.
+   * @param array $complete_form
+   *   The complete form structure, per this method's own '#process'
+   *   caller.
+   *
+   * @return array
+   *   $items, with each cross-page item's 'states' cleared (nothing left
+   *   to attach live) and, if resolved not-visible, an internal
+   *   '_cross_page_hidden' marker `buildMatrix()`/`buildDragDrop()` use
+   *   to exclude it via '#access' instead.
+   */
+  protected static function resolveCrossPageItemStates(array $items, FormStateInterface $form_state, array $complete_form): array {
+    $cross_page_deltas = [];
+    foreach ($items as $delta => $item) {
+      if (!empty($item['states']) && static::itemConditionIsCrossPage($item['states'], $complete_form)) {
+        $cross_page_deltas[] = $delta;
+      }
+    }
+    if (!$cross_page_deltas) {
+      return $items;
+    }
+
+    // Same buildEntity()-not-getEntity() rationale as
+    // validateWebformRanking(): the current request's own field changes
+    // (e.g. a same-page trigger submitted moments ago on a *previous*
+    // page) must be reflected, not a stale cached entity.
+    $webform_submission = NULL;
+    $form_object = $form_state->getFormObject();
+    if ($form_object instanceof WebformSubmissionForm) {
+      $webform_submission = $form_object->buildEntity($complete_form, $form_state);
+    }
+
+    /** @var \Drupal\webform_ranking\WebformRankingVisibilityResolver $resolver */
+    $resolver = \Drupal::service('webform_ranking.visibility_resolver');
+    $visible_values = $resolver->resolveVisibleItemValues($items, $webform_submission);
+
+    foreach ($cross_page_deltas as $delta) {
+      $items[$delta]['states'] = [];
+      if (!in_array($items[$delta]['value'], $visible_values, TRUE)) {
+        $items[$delta]['_cross_page_hidden'] = TRUE;
+      }
+    }
+
+    return $items;
+  }
+
+  /**
+   * Whether an item's condition references an element on another page.
+   *
+   * Only ever returns TRUE on a *confirmed* cross-page trigger — a
+   * selector this method can't resolve at all (e.g. a typo, or some
+   * selector shape it doesn't recognize) falls through to FALSE,
+   * preserving today's existing (live, same-page-style) '#states'
+   * attachment rather than guessing. An unresolvable selector already
+   * has its own, separate handling at validation time (see
+   * WebformRankingVisibilityResolver's fail-open behavior); this method
+   * only ever narrows behavior, never changes what already works.
+   */
+  protected static function itemConditionIsCrossPage(array $states, array $complete_form): bool {
+    foreach (static::extractConditionSelectors($states) as $selector) {
+      $input_name = WebformSubmissionConditionsValidator::getSelectorInputName($selector);
+      if (!$input_name) {
+        continue;
+      }
+      $webform_key = WebformSubmissionConditionsValidator::getInputNameAsArray($input_name, 0);
+      if (static::isWebformKeyAccessible($webform_key, $complete_form['elements'] ?? []) === FALSE) {
+        return TRUE;
+      }
+    }
+    return FALSE;
+  }
+
+  /**
+   * Extracts every selector referenced by a conditions array.
+   *
+   * Mirrors `WebformSubmissionConditionsValidator::
+   * getConditionTargetsVisibilityRecursive()` (protected, not reusable
+   * directly) — same and/or/xor-aware traversal, since a condition can
+   * be either a plain selector-keyed map or a sequential array mixing
+   * selector conditions with 'and'/'or'/'xor' operator strings.
+   */
+  protected static function extractConditionSelectors(array $states): array {
+    $selectors = [];
+    foreach ($states as $conditions) {
+      if (is_array($conditions)) {
+        static::extractSelectorsRecursive($conditions, $selectors);
+      }
+    }
+    return $selectors;
+  }
+
+  /**
+   * Recursion helper for extractConditionSelectors().
+   */
+  protected static function extractSelectorsRecursive(array $conditions, array &$selectors): void {
+    foreach ($conditions as $index => $value) {
+      if (is_int($index) && is_array($value) && WebformArrayHelper::isSequential($value)) {
+        static::extractSelectorsRecursive($value, $selectors);
+      }
+      elseif (is_string($value) && in_array($value, ['and', 'or', 'xor'], TRUE)) {
+        continue;
+      }
+      elseif (is_int($index)) {
+        $selectors[] = array_key_first($value);
+      }
+      else {
+        $selectors[] = $index;
+      }
+    }
+  }
+
+  /**
+   * Finds a webform element key anywhere in the tree and checks access.
+   *
+   * Walks the complete, all-pages form tree recursively. NULL (not
+   * FALSE) if the key isn't found anywhere in the tree at all,
+   * so callers can distinguish "confirmed cross-page" from "couldn't
+   * determine" and default to the latter's safer, existing behavior.
+   *
+   * @return bool|null
+   *   TRUE/FALSE if resolved, NULL if the key wasn't found anywhere.
+   */
+  protected static function isWebformKeyAccessible(string $webform_key, array $elements, bool $parent_accessible = TRUE): ?bool {
+    foreach ($elements as $key => $element) {
+      if (!is_array($element) || !isset($element['#type'])) {
+        continue;
+      }
+      $accessible = $parent_accessible && (($element['#access'] ?? TRUE) !== FALSE);
+      if ($key === $webform_key) {
+        return $accessible;
+      }
+      $found = static::isWebformKeyAccessible($webform_key, $element, $accessible);
+      if ($found !== NULL) {
+        return $found;
+      }
+    }
+    return NULL;
   }
 
   /**
@@ -333,11 +514,24 @@ class WebformRanking extends FormElementBase {
       // validateWebformRanking(), which is what a user can't bypass by
       // disabling JS or editing the DOM.
       //
+      // '_cross_page_hidden' (set by resolveCrossPageItemStates(), GitHub
+      // issue #61) takes precedence: a cross-page condition has already
+      // been resolved statically by this point, and 'states' cleared to
+      // empty — there is nothing left on this page that could ever
+      // change the trigger's value, so '#access' (excluding the cell
+      // from rendering/submission entirely) is used instead of a live
+      // '#states' attachment that would never react to anything anyway.
+      //
       // Not yet handled here: dynamic rank relabeling (recomputing
       // "1st/2nd/3rd" to match the currently-visible item count) is a
       // client-side JS concern, still open — see element.matrix
       // library.
-      if (!empty($item['states'])) {
+      if (!empty($item['_cross_page_hidden'])) {
+        foreach ($cell_keys as $cell_key) {
+          $element['matrix'][$row_key][$cell_key]['#access'] = FALSE;
+        }
+      }
+      elseif (!empty($item['states'])) {
         foreach ($cell_keys as $cell_key) {
           $element['matrix'][$row_key][$cell_key]['#states'] = $item['states'];
         }
@@ -624,9 +818,13 @@ class WebformRanking extends FormElementBase {
         ];
       }
 
-      // See buildMatrix()'s equivalent block: display-layer only, the
-      // resolver's server-side check is authoritative.
-      if (!empty($item['states'])) {
+      // See buildMatrix()'s equivalent block (including the
+      // '_cross_page_hidden' handling, GitHub issue #61): display-layer
+      // only, the resolver's server-side check is authoritative.
+      if (!empty($item['_cross_page_hidden'])) {
+        $element['dragdrop']['list'][$item['value']]['#access'] = FALSE;
+      }
+      elseif (!empty($item['states'])) {
         $element['dragdrop']['list'][$item['value']]['#states'] = $item['states'];
       }
     }

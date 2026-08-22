@@ -676,6 +676,52 @@ no-input fallback only ever see canonical shape. The plugin's
     didn't have one, and GitHub's own UI (license badge, etc.) reads it
     directly from the repo.
 
+19. **GitHub issue #61: per-item `#states` never worked when the trigger
+    lived on an earlier wizard page — root-caused and fixed.** Reported
+    from a real production form (a multi-page application with a
+    `constituency` select on an earlier page and a matrix item
+    conditioned on it several pages later). Distinct from Key Design
+    Decision #15's fix (that was same-page conditions never decoding
+    from YAML at all) and from the separate element-level `#states` gap
+    fixed for GitHub issue #57 — this is specifically the *per-item*
+    condition, on a *cross-page* trigger.
+    Root cause: `WebformSubmissionConditionsValidator::buildForm()`
+    walks the webform's *configured* element tree to detect and rewrite
+    cross-page conditions, before `\Drupal::formBuilder()` even starts
+    running `#process` callbacks — i.e. before `processWebformRanking()`
+    has expanded `#items` into real, independently-discoverable
+    sub-elements at all. An item's condition, nested inside `#items`, is
+    structurally invisible to that walk no matter what, so it never gets
+    the same cross-page treatment the element's own top-level `#states`
+    correctly receives.
+    Fixed by replicating that treatment narrowly, in
+    `resolveCrossPageItemStates()`: for each item whose condition
+    references a selector resolving to an element outside the
+    currently-accessible wizard page (confirmed, via a live
+    reproduction, that `$complete_form` already has non-current pages'
+    `#access` correctly set to `FALSE` by the time `processWebformRanking()`
+    runs — verified empirically, not just inferred), the condition is
+    resolved *once* via the same `WebformRankingVisibilityResolver`
+    server-side validation already trusts, then applied statically:
+    resolved-visible items render unconditionally (no live `#states`,
+    since nothing on the current page could ever change the trigger's
+    value anyway), resolved-hidden items get `'#access' => FALSE` on
+    every cell instead of a `'#states'` attachment pointing at a
+    selector with nothing on the page to bind to. Same-page conditions
+    (or no condition) are left completely untouched.
+    A design question was settled alongside this fix, before
+    implementation started: whether to rename the per-item `states` key
+    to `#states` (matching the element-level property). Decided against
+    — see the GitHub issue #61 discussion for the full reasoning
+    (`#`-prefixing is a Render API convention that doesn't apply to
+    `#items`' plain config data, and the rename isn't functionally
+    connected to this fix at all; it would only be a stored-config
+    migration cost for a cosmetic change).
+    Verified live in a browser (both directions): the reported `uab`
+    item is now fully excluded from rendering (no label, no radios —
+    not just hidden via CSS) when its cross-page condition resolves
+    true, and renders completely normally when it resolves false.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,
