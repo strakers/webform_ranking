@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Element-level `#states` (hiding/showing the *entire* ranking field
+  based on another element's value, configured via this element's own
+  "Conditional logic" tab) did not work at all — the `data-drupal-states`
+  attribute states.js needs was being written to a render array property
+  (`#attributes`) this element's `form_element` theme wrapper never
+  outputs. Per-item conditional visibility, and other elements reacting
+  to a ranking item's value, were unaffected and continue to work (#57).
+
 ## [0.2.1] - 2026-08-21
 
 ### Added

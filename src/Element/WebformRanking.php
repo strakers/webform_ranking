@@ -3,6 +3,7 @@
 namespace Drupal\webform_ranking\Element;
 
 use Drupal\Component\Utility\Html;
+use Drupal\Core\Form\FormHelper;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Render\Attribute\FormElement;
 use Drupal\Core\Render\Element\FormElementBase;
@@ -669,7 +670,9 @@ class WebformRanking extends FormElementBase {
   /**
    * Pre-render callback: sets validation-failure attributes/inline text.
    *
-   * FormElementBase (unlike every native form element, e.g.
+   * Also relocates element-level '#states' the same way — see the
+   * '#states' block below for why. FormElementBase (unlike every native
+   * form element, e.g.
    * Radio::preRenderRadio(), and unlike Webform's own
    * WebformCompositeBase::preRenderCompositeFormElement() — this class
    * deliberately extends FormElementBase directly rather than
@@ -708,6 +711,38 @@ class WebformRanking extends FormElementBase {
    * #ranking_style, without needing to know which style built them.
    */
   public static function preRenderWebformRanking(array $element) {
+    // Element-level '#states' (e.g. "show/hide this whole ranking field
+    // when some other element has a certain value", configured via this
+    // element's own admin "Conditional logic" tab — NOT the per-item
+    // '#states' buildMatrix()/buildDragDrop() already handle correctly)
+    // silently never worked: Renderer::doRender() calls
+    // FormHelper::processStates() for any element with '#states' set,
+    // which writes the 'data-drupal-states' attribute states.js actually
+    // reads to '#attributes' for this element (its own targeting
+    // condition — #markup === '' && #input === TRUE — doesn't match
+    // ours), and per this method's own docblock, '#attributes' is never
+    // rendered anywhere for a '#theme_wrappers' => ['form_element']
+    // element like this one. The result: states.js has no
+    // 'data-drupal-states' attribute anywhere in the DOM to bind to, so
+    // the field never reacts to the trigger changing — confirmed live
+    // (the only visible trace was Webform's own no-JS-fallback
+    // 'js-webform-states-hidden' class, computed server-side from the
+    // condition's current value, but frozen there forever with nothing
+    // to update it client-side). Fixed the same way as the
+    // aria-invalid/error-class gap above: call processStates() to get
+    // its canonical JSON-encoded output (not reimplemented here, so this
+    // can't drift from core's own encoding), then copy the result onto
+    // '#wrapper_attributes' ourselves, where it's actually rendered.
+    // processStates() still runs again later, in Renderer::doRender()
+    // itself — redundant but harmless, since '#states' is still set and
+    // JSON-encoding it twice produces the same string both times.
+    if (!empty($element['#states'])) {
+      FormHelper::processStates($element);
+      if (isset($element['#attributes']['data-drupal-states'])) {
+        $element['#wrapper_attributes']['data-drupal-states'] = $element['#attributes']['data-drupal-states'];
+      }
+    }
+
     $class_name = str_replace('_', '-', $element['#type']);
     $element['#wrapper_attributes']['class'][] = 'js-' . $class_name;
     $element['#wrapper_attributes']['class'][] = $class_name;
