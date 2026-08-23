@@ -1037,6 +1037,32 @@ no-input fallback only ever see canonical shape. The plugin's
     other four are accepted/stored like any other `#states` value,
     matching the real widget's own flexibility, with a warning note
     shown when selected rather than hidden outright.
+    **Markup classes matched exactly, not approximately**, per further
+    review feedback — Drupal's admin theme styles form elements and
+    fieldsets via specific classes, not the bare tags, so getting these
+    exactly right (confirmed each time by inspecting this same admin
+    form's real, server-rendered markup, not guessed) is what actually
+    produces matching visual treatment rather than unstyled native
+    controls: every hand-built `<select>`/`<input>` carries the same
+    classes Drupal's own form rendering adds (`form-element` on both;
+    `form-select`/`form-element--type-select` on selects;
+    `form-text`/`form-element--type-text` on text inputs — via two new
+    small helpers, `createSelectElement()`/`createTextInputElement()`,
+    rather than repeating the class strings at each of the 5 call
+    sites). The `<fieldset>`/`<legend>` similarly copy the real
+    `#type => fieldset` element's own classes verbatim
+    (`js-webform-type-fieldset webform-type-fieldset fieldset
+    js-form-item form-item js-form-wrapper form-wrapper` on the
+    fieldset; `fieldset__legend fieldset__legend--visible` on the
+    legend, with its text wrapped in a `<span class="fieldset__label">`
+    — all three confirmed against the element-level "Conditional
+    logic" tab's own rendered fieldset, `#edit-conditional-logic`),
+    including the `<div class="fieldset__wrapper">` real fieldsets use
+    to wrap their content (everything but the legend) — not explicitly
+    requested, but added once found: it's what the admin theme's
+    fieldset CSS actually targets for padding/spacing, not the
+    `<fieldset>` element directly, so omitting it would have left the
+    class-matching incomplete.
     **Two real bugs found via live browser testing, not guessed:**
     - *jQuery UI autocomplete double-init crash.* The real widget's own
       server-rendered markup puts the class `webform-states-table--condition`

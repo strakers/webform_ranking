@@ -312,6 +312,15 @@ JS,
   }
 
   /**
+   * Tests whether an element inside the visible dialog has a CSS class.
+   */
+  protected function hasClassInDialog(string $selector, string $class): bool {
+    return (bool) $this->getSession()->evaluateScript(
+      sprintf("jQuery('.ui-dialog:visible %s').hasClass(%s)", $selector, json_encode($class))
+    );
+  }
+
+  /**
    * Tests that the trigger opens exactly one dialog, no extra steps.
    *
    * Also tests that "Clear condition" empties the field while "Done"
@@ -436,6 +445,54 @@ JS,
     $this->assertSame(1, $this->conditionRowCount());
     $this->assertSame(':input[name="trigger_field"]', $this->conditionRowField(0, 'selector'));
     $this->assertSame('checked', $this->conditionRowField(0, 'trigger'));
+  }
+
+  /**
+   * Tests the builder's fields carry Drupal's own form element classes.
+   *
+   * Confirmed against this same admin form's real, server-rendered
+   * fields (e.g. the "Title" textfield, "Title display" select):
+   * every form element gets 'form-element'; a <select> additionally
+   * gets 'form-select'/'form-element--type-select'; a text <input>
+   * additionally gets 'form-text'/'form-element--type-text'. Without
+   * these, the builder's fields would render as bare, unstyled native
+   * controls instead of matching the admin theme.
+   */
+  public function testConditionBuilderFieldsHaveDrupalFormElementClasses(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue('b')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $select_classes = ['form-element', 'form-select', 'form-element--type-select'];
+    $text_classes = ['form-element', 'form-text', 'form-element--type-text'];
+
+    foreach ($select_classes as $class) {
+      $this->assertTrue(
+        $this->hasClassInDialog('.webform-states-table--state select', $class),
+        "State select missing '{$class}'."
+      );
+      $this->assertTrue(
+        $this->hasClassInDialog('.webform-states-table--operator select', $class),
+        "Operator select missing '{$class}'."
+      );
+      $this->assertTrue(
+        $this->hasClassInDialog('.webform-states-table--selector select', $class),
+        "Selector select missing '{$class}'."
+      );
+      $this->assertTrue(
+        $this->hasClassInDialog('.webform-states-table--trigger select', $class),
+        "Trigger select missing '{$class}'."
+      );
+    }
+    foreach ($text_classes as $class) {
+      $this->assertTrue(
+        $this->hasClassInDialog('.webform-states-table--value input', $class),
+        "Value input missing '{$class}'."
+      );
+    }
   }
 
   /**

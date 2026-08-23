@@ -214,17 +214,37 @@
     // "Conditional logic" tab's own builder uses, so this inherits the
     // admin theme's existing table/fieldset styling for free rather
     // than looking like a bespoke, different-looking widget.
+    //
+    // The fieldset/legend/label class list and the legend's own
+    // <span class="fieldset__label"> wrapper are copied verbatim from
+    // that same tab's real, server-rendered markup (confirmed by
+    // inspecting a live admin form: #edit-conditional-logic) — Drupal's
+    // admin theme styles fieldsets via these specific classes, not the
+    // bare <fieldset>/<legend> tags, so matching them exactly (not just
+    // approximately) is what actually gets the same visual treatment.
     const fieldset = document.createElement('fieldset');
-    fieldset.className = 'webform-ranking-item-condition-builder';
+    fieldset.className = 'webform-ranking-item-condition-builder js-webform-type-fieldset webform-type-fieldset fieldset js-form-item form-item js-form-wrapper form-wrapper';
     const legend = document.createElement('legend');
-    legend.textContent = Drupal.t('Condition');
+    legend.className = 'fieldset__legend fieldset__legend--visible';
+    const legendLabel = document.createElement('span');
+    legendLabel.className = 'fieldset__label';
+    legendLabel.textContent = Drupal.t('Condition');
+    legend.appendChild(legendLabel);
     fieldset.appendChild(legend);
+
+    // Real fieldsets wrap their content (everything but the legend) in
+    // this div — also confirmed against the same live markup — which
+    // is what the admin theme's fieldset CSS actually targets for
+    // padding/spacing, not the fieldset element directly.
+    const fieldsetWrapper = document.createElement('div');
+    fieldsetWrapper.className = 'fieldset__wrapper';
+    fieldset.appendChild(fieldsetWrapper);
 
     const stateWarning = document.createElement('div');
     stateWarning.className = 'webform-ranking-item-condition-state-warning messages messages--warning';
     stateWarning.style.display = 'none';
     stateWarning.textContent = Drupal.t('This state does not affect whether the item is ranked or hidden — only Visible/Hidden (and their Slide variants) do.');
-    fieldset.appendChild(stateWarning);
+    fieldsetWrapper.appendChild(stateWarning);
 
     const table = document.createElement('table');
     table.className = 'webform-states-table';
@@ -239,7 +259,7 @@
     table.appendChild(thead);
     const tbody = document.createElement('tbody');
     table.appendChild(tbody);
-    fieldset.appendChild(table);
+    fieldsetWrapper.appendChild(table);
 
     // State row: one per item (not repeatable — see VISIBILITY_STATES
     // above on why only a single state is offered here, unlike the real
@@ -248,7 +268,7 @@
     stateRow.className = 'webform-states-table--state';
     const stateCell = document.createElement('td');
     stateCell.className = 'webform-states-table--state';
-    const modeSelect = document.createElement('select');
+    const modeSelect = createSelectElement();
     Object.keys(stateOptions).forEach(function (key) {
       addOption(modeSelect, key, stateOptions[key]);
     });
@@ -260,7 +280,7 @@
     operatorCell.colSpan = 2;
     const operatorPrefix = document.createElement('span');
     operatorPrefix.textContent = Drupal.t('if') + ' ';
-    const operatorSelect = document.createElement('select');
+    const operatorSelect = createSelectElement();
     addOption(operatorSelect, 'and', Drupal.t('All'));
     addOption(operatorSelect, 'or', Drupal.t('Any'));
     addOption(operatorSelect, 'xor', Drupal.t('One'));
@@ -288,7 +308,7 @@
     // (WebformElementStates::processWebformStates()'s 'source' action).
     editSourceToggle.textContent = Drupal.t('Edit source');
     actions.appendChild(editSourceToggle);
-    fieldset.appendChild(actions);
+    fieldsetWrapper.appendChild(actions);
 
     // The YAML field's own server-rendered markup (label, textarea,
     // description — everything Drupal's form_element theme wrapper put
@@ -322,6 +342,33 @@
       option.value = value;
       option.textContent = label;
       parent.appendChild(option);
+    }
+
+    /**
+     * A <select> carrying the same classes Drupal's own form rendering
+     * puts on every server-rendered one ('form-select form-element
+     * form-element--type-select' — confirmed against this admin form's
+     * own rendered markup), so these hand-built fields pick up the
+     * admin theme's existing select styling instead of looking like
+     * bare, unstyled native controls.
+     */
+    function createSelectElement() {
+      const select = document.createElement('select');
+      select.className = 'form-select form-element form-element--type-select';
+      return select;
+    }
+
+    /**
+     * A text <input> carrying the same classes Drupal's own form
+     * rendering puts on every server-rendered one ('form-text
+     * form-element form-element--type-text') — see
+     * createSelectElement()'s docblock for why.
+     */
+    function createTextInputElement() {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'form-text form-element form-element--type-text';
+      return input;
     }
 
     /**
@@ -398,7 +445,7 @@
 
       const selectorTd = document.createElement('td');
       selectorTd.className = 'webform-states-table--selector';
-      const selectorSelect = document.createElement('select');
+      const selectorSelect = createSelectElement();
       populateSelectorOptions(selectorSelect);
       if (data.selector) {
         selectorSelect.value = data.selector;
@@ -424,7 +471,7 @@
       const conditionTd = document.createElement('td');
       const triggerWrapper = document.createElement('div');
       triggerWrapper.className = 'webform-states-table--trigger';
-      const triggerSelect = document.createElement('select');
+      const triggerSelect = createSelectElement();
       populateTriggerOptions(triggerSelect);
       triggerSelect.value = data.trigger || 'value';
       triggerWrapper.appendChild(triggerSelect);
@@ -432,8 +479,7 @@
 
       const valueWrapper = document.createElement('div');
       valueWrapper.className = 'webform-states-table--value';
-      const valueInputEl = document.createElement('input');
-      valueInputEl.type = 'text';
+      const valueInputEl = createTextInputElement();
       valueInputEl.placeholder = Drupal.t('Enter value…');
       valueInputEl.value = data.value || '';
       valueWrapper.appendChild(valueInputEl);
