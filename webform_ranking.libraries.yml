@@ -46,3 +46,10 @@ element.itemsAdmin:
     - core/once
     - core/jquery
     - core/drupal.dialog
+    # The per-item condition picker (GitHub issue #13) reuses this
+    # library's CSS/JS (value autocomplete, trigger wiring) via matching
+    # 'webform-states-table--*' classes — see the 'condition_group' field
+    # definition in the WebformElement plugin's form(). Declared directly
+    # rather than relying on the element-level "Conditions" tab (which
+    # also loads it) always being present first.
+    - webform/webform.element.states

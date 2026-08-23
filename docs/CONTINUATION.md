@@ -722,6 +722,78 @@ no-input fallback only ever see canonical shape. The plugin's
     not just hidden via CSS) when its cross-page condition resolves
     true, and renders completely normally when it resolves false.
 
+20. **GitHub issue #13: per-item conditional-visibility picker,
+    replacing raw YAML as the primary UI (YAML kept as a fallback).**
+    The issue's own premise — that isolating the field in a dialog (Key
+    Design Decision #17) might sidestep the original nesting crash (Key
+    Design Decision #4) — was checked against the code before any
+    implementation started, and turned out to be false: the dialog is a
+    pure client-side DOM relocation (`js/webform_ranking.items_admin.js`),
+    the Form API tree underneath is unchanged, still nesting directly
+    inside `#webform_multiple`'s `#element` template exactly as before.
+    Re-nesting the real `webform_element_states` composite there would
+    very likely reproduce the original crash.
+    Redirected (per user decision) to a different approach: don't nest
+    `webform_element_states` at all. Instead, recreate its *visual*
+    picker — element selector, trigger (comparison operator), value —
+    with plain, non-composite `select`/`textfield` sub-elements (the
+    same kind of nesting 'value'/'label' already use safely), sharing
+    `webform_element_states`' own CSS classes
+    (`webform-states-table--selector`/`--trigger`/`--value`) and
+    `#options` sources (`$webform->getElementsSelectorOptions()`,
+    `WebformElementStates::getTriggerOptions()`). Because every element
+    edit form already includes the element-level "Conditions" tab (a
+    real `webform_element_states` element), that field's own
+    `#attached` library/drupalSettings are already on the page, so the
+    matching-class picker fields get real value-autocomplete and
+    trigger-wiring JS for free, with no extra library work.
+    Only a single state + single condition is offered (no multiple
+    conditions, no AND/OR/XOR) — the raw YAML field remains alongside it
+    as the escape hatch for anything more complex, mirroring
+    `webform_element_states`' own "Edit source" fallback.
+    `WebformRanking::decomposeSimpleItemStates()`/
+    `composeSimpleItemStates()` convert between the picker's fields and
+    the same `#states`-shaped array `WebformRankingVisibilityResolver`
+    and `buildMatrix()`/`buildDragDrop()` already expect — nothing
+    downstream of `validateConfigurationForm()` changed. Precedence when
+    both are filled in: the picker wins whenever its selector is
+    non-empty; the YAML field is only consulted when the picker's
+    selector is empty.
+    **A real bug caught by loading the actual admin form against a live
+    webform with a configured item condition, not guessed:**
+    `#webform_multiple` flattens every sub-element in `#element` to the
+    item's own top-level array key, regardless of how deeply it's
+    nested in `#type => 'container'` wrappers — confirmed by inspecting
+    the rendered field `name` attributes. An earlier version nested the
+    picker's value field as bare `'value'` (for layout, inside a
+    `'condition'` container), which collided under this flattening with
+    the item's own pre-existing `'value'` key (its storage-key field) —
+    both rendered to the exact same form field name, silently able to
+    overwrite one another. Fixed by giving every picker leaf a
+    `condition_`-prefixed name (`condition_mode`, `condition_selector`,
+    `condition_trigger`, `condition_value`), unique against the item's
+    real keys (`value`/`label`/`states`/`weight`); the `container`
+    wrappers stay, but only for CSS grouping, not value addressing.
+    Verified end-to-end: `decomposeSimpleItemStates()`/
+    `composeSimpleItemStates()` round-tripped for every trigger type
+    (`value`/`!value`/`pattern`/`!pattern`/`less`/`less_equal`/`greater`/
+    `greater_equal`/`between`/`!between`/`empty`/`filled`/`checked`/
+    `unchecked`) via a live Drupal instance, and a genuinely complex
+    (multi-condition) `#states` array correctly fails to decompose
+    (falls back to YAML, as intended) rather than corrupting or
+    silently dropping data. A new FunctionalJavascript test,
+    `WebformRankingItemsAdminJavaScriptTest::testPickerSetsCondition()`,
+    covers both directions live in a browser: an already-saved simple
+    condition shows pre-filled in the picker on load, and a condition
+    set purely through the picker (YAML field never touched) is what
+    actually gets saved. Writing that test surfaced a second real bug,
+    this time in test methodology rather than production code: Mink's
+    generic `pressButton()`/`find('css', ...)` matched a *closed* first
+    dialog's stale (but still-DOM-present, per Key Design Decision #17's
+    own close-handler note) fields/buttons instead of the second,
+    currently-open dialog's — fixed by scoping all dialog interactions
+    to `.ui-dialog:visible` via `evaluateScript()`.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,

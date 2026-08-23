@@ -46,6 +46,13 @@ class WebformRankingItemsAdminJavaScriptTest extends WebDriverTestBase {
       'id' => 'test_ranking_items_admin',
       'title' => 'Test ranking items admin',
       'elements' => Yaml::encode([
+        // A real trigger element, so the condition picker's "Element"
+        // dropdown (populated from $webform->getElementsSelectorOptions())
+        // has a genuine, selectable option — see testPickerSetsCondition().
+        'trigger_field' => [
+          '#type' => 'textfield',
+          '#title' => 'Trigger field',
+        ],
         'ranking' => [
           '#type' => 'webform_ranking',
           '#title' => 'Ranking',
@@ -54,15 +61,16 @@ class WebformRankingItemsAdminJavaScriptTest extends WebDriverTestBase {
             // No 'states' key at all: the common case for a brand new
             // item row.
             ['value' => 'a', 'label' => 'Item A'],
-            // Pre-existing YAML content: simulates editing an item that
-            // was already configured with a condition before this page
-            // loaded.
+            // Pre-existing, decomposable single-condition YAML: simulates
+            // editing an item already configured (via either this
+            // picker or hand-written YAML) before this page loaded — the
+            // picker should show it pre-filled, not just the YAML field.
             [
               'value' => 'b',
               'label' => 'Item B',
               'states' => [
                 'visible' => [
-                  ':input[name="properties[allow_na]"]' => ['checked' => TRUE],
+                  ':input[name="trigger_field"]' => ['value' => 'go'],
                 ],
               ],
             ],
@@ -222,7 +230,121 @@ JS,
 
     $trigger_b->click();
     $assert_session->waitForElementVisible('css', '.ui-dialog');
-    $this->assertStringContainsString('allow_na', $this->getOpenDialogYamlValue());
+    $this->assertStringContainsString('trigger_field', $this->getOpenDialogYamlValue());
+  }
+
+  /**
+   * Reads a field's value from whichever dialog is currently visible.
+   *
+   * Plain 'css' selectors (Mink's find(), or a bare document.querySelector)
+   * aren't enough here: once a second item's dialog has been opened in the
+   * same test, the *closed* dialog from the first item is still in the DOM
+   * (jQuery UI's close() hides it, it doesn't remove it — see this file's
+   * getOpenDialogYamlValue(), which has the same latent ambiguity but never
+   * hit it since every other test opens only one dialog per page load).
+   * jQuery's ':visible' filter, evaluated in-browser, is what actually
+   * disambiguates which dialog is the live one.
+   */
+  protected function getVisibleDialogFieldValue(string $selector): string {
+    return (string) $this->getSession()->evaluateScript(
+      sprintf("jQuery('.ui-dialog:visible %s').val()", $selector)
+    );
+  }
+
+  /**
+   * Sets a field's value in whichever dialog is currently visible.
+   *
+   * See getVisibleDialogFieldValue() for why this can't use Mink's find().
+   */
+  protected function setVisibleDialogFieldValue(string $selector, string $value): void {
+    $this->getSession()->evaluateScript(sprintf(
+      "jQuery('.ui-dialog:visible %s').val(%s).trigger('change')",
+      $selector,
+      json_encode($value)
+    ));
+  }
+
+  /**
+   * Clicks a jQuery UI dialog action button in whichever dialog is visible.
+   *
+   * Mink's generic pressButton('Done') has the same stale-DOM ambiguity as
+   * getVisibleDialogFieldValue() — after a first item's dialog has been
+   * closed, its "Done" button is still in the DOM (just hidden), and
+   * pressButton() would happily click that invisible, zero-size one
+   * instead of the currently open dialog's.
+   */
+  protected function clickVisibleDialogButton(string $label): void {
+    $this->getSession()->evaluateScript(sprintf(
+      <<<'JS'
+      jQuery('.ui-dialog:visible .ui-dialog-buttonpane button').filter(function () {
+        return jQuery(this).text().trim() === %s;
+      })[0].click();
+      JS,
+      json_encode($label)
+    ));
+  }
+
+  /**
+   * Tests the condition picker (GitHub issue #13) alongside the YAML field.
+   *
+   * Covers both directions: an already-saved single-condition YAML
+   * decomposes into the picker's dropdowns on load, and picking a new
+   * condition through the picker (not typing YAML) persists correctly on
+   * submit — see WebformRanking::decomposeSimpleItemStates()/
+   * composeSimpleItemStates().
+   */
+  public function testPickerSetsCondition(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    // Item 'b' was saved with a decomposable single condition — the
+    // picker should show it pre-filled, not just the YAML fallback.
+    $this->triggerForItemValue('b')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+    $page = $this->getSession()->getPage();
+    $this->assertSame('visible', $this->getVisibleDialogFieldValue('.webform-ranking-item-condition-mode select'));
+    $this->assertSame(':input[name="trigger_field"]', $this->getVisibleDialogFieldValue('.webform-states-table--selector select'));
+    $this->assertSame('value', $this->getVisibleDialogFieldValue('.webform-states-table--trigger select'));
+    $this->assertSame('go', $this->getVisibleDialogFieldValue('.webform-states-table--value input'));
+    $this->clickVisibleDialogButton('Done');
+    $this->assertTrue($page->waitFor(4, function () {
+      return !$this->getSession()->getPage()->find('css', '.ui-dialog')?->isVisible();
+    }));
+
+    // Item 'a' has no condition — set one entirely through the picker
+    // (never touching the YAML textarea) and confirm it's what actually
+    // gets saved, proving the picker takes precedence over the (empty)
+    // YAML field per validateConfigurationForm()'s documented precedence.
+    $this->triggerForItemValue('a')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+    $this->setVisibleDialogFieldValue('.webform-ranking-item-condition-mode select', 'invisible');
+    $this->setVisibleDialogFieldValue('.webform-states-table--selector select', ':input[name="trigger_field"]');
+    $this->setVisibleDialogFieldValue('.webform-states-table--trigger select', 'filled');
+    $this->clickVisibleDialogButton('Done');
+    $this->assertTrue($page->waitFor(4, function () {
+      return !$this->getSession()->getPage()->find('css', '.ui-dialog')?->isVisible();
+    }));
+
+    $page->pressButton('Save');
+    $assert_session->statusMessageContains('has been', 'status');
+
+    \Drupal::entityTypeManager()->getStorage('webform')->resetCache(['test_ranking_items_admin']);
+    $webform = Webform::load('test_ranking_items_admin');
+    $saved_items = $webform->getElementDecoded('ranking')['#items'];
+    $item_a = current(array_filter($saved_items, static fn (array $item) => $item['value'] === 'a'));
+    $this->assertSame(
+      ['invisible' => [':input[name="trigger_field"]' => ['filled' => TRUE]]],
+      $item_a['states'] ?? NULL
+    );
+    // Item 'b' round-tripped through the picker unchanged (just opened
+    // and closed via "Done", no edits) should still hold its original
+    // condition — proves decompose-then-recompose is lossless.
+    $item_b = current(array_filter($saved_items, static fn (array $item) => $item['value'] === 'b'));
+    $this->assertSame(
+      ['visible' => [':input[name="trigger_field"]' => ['value' => 'go']]],
+      $item_b['states'] ?? NULL
+    );
   }
 
   /**

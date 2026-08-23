@@ -3,6 +3,7 @@
 namespace Drupal\webform_ranking\Plugin\WebformElement;
 
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\webform\Element\WebformElementStates;
 use Drupal\webform\Plugin\WebformElementBase;
 use Drupal\webform\Utility\WebformYaml;
 use Drupal\webform\WebformInterface;
@@ -93,12 +94,48 @@ class WebformRanking extends WebformElementBase {
   public function form(array $form, FormStateInterface $form_state) {
     $form = parent::form($form, $form_state);
 
+    $webform = $form_state->getFormObject()->getWebform();
+
     $form['ranking'] = [
       '#type' => 'details',
       '#title' => $this->t('Ranking settings'),
       '#open' => TRUE,
       '#weight' => -10,
     ];
+
+    // Decompose each already-saved item's 'states' YAML into the
+    // quick-picker's flat 'condition_mode'/'condition_selector'/
+    // 'condition_trigger'/'condition_value' keys (see the 'condition_group'
+    // field below for why these are flat, not nested), so an admin
+    // editing an existing simple condition sees it in the picker rather
+    // than as raw YAML. Only single state + single condition shapes
+    // decompose cleanly (see decomposeSimpleItemStates()) — anything more
+    // complex (multiple states, multiple conditions, OR/XOR operators) is
+    // left alone and still shows correctly in the 'states' YAML fallback
+    // field further down, exactly as before this change. Mutating
+    // 'element_properties' here (rather than #default_value directly on
+    // the 'items' field below) is required because #webform_multiple
+    // populates each row's sub-element defaults from this same array via
+    // setConfigurationFormDefaultValueRecursive(), called by the base
+    // class's buildConfigurationForm() *after* this method returns.
+    $element_properties = $form_state->get('element_properties') ?? [];
+    if (!empty($element_properties['items'])) {
+      foreach ($element_properties['items'] as &$item) {
+        if (empty($item['states'])) {
+          continue;
+        }
+        $states = is_string($item['states']) ? WebformYaml::decode($item['states']) : $item['states'];
+        $simple = is_array($states) ? $this->decomposeSimpleItemStates($states) : NULL;
+        if ($simple) {
+          $item['condition_mode'] = $simple['mode'];
+          $item['condition_selector'] = $simple['selector'];
+          $item['condition_trigger'] = $simple['trigger'];
+          $item['condition_value'] = $simple['value'];
+        }
+      }
+      unset($item);
+      $form_state->set('element_properties', $element_properties);
+    }
 
     // Admin-managed list of items to rank. Reuses Webform's own
     // "table of rows" widget pattern (as used for Options element sets)
@@ -124,76 +161,141 @@ class WebformRanking extends WebformElementBase {
         ],
         // Per-item conditional inclusion. This was originally
         // 'webform_element_states' — Webform's own #states
-        // condition-builder widget — which would have given admins the
-        // exact same UI they already use for element-level conditions.
-        // Flagged at the time as unconfirmed: "Nested one level inside
-        // a #webform_multiple table row is not a configuration I've
-        // confirmed works cleanly out of the box." That risk
-        // materialized — adding a second item row crashed with a
-        // TypeError inside WebformCodeMirror::validateWebformCodeMirror(),
-        // an array reaching a YAML validator expecting a string,
-        // strongly suggesting webform_element_states (which appears to
-        // use a codemirror YAML view internally for advanced-mode
-        // editing) doesn't handle being embedded inside another
-        // #tree-based multiple-value widget correctly.
+        // condition-builder widget — nested directly inside this
+        // #webform_multiple row, which crashed in production (TypeError
+        // inside WebformCodeMirror::validateWebformCodeMirror(), an
+        // array reaching a YAML validator expecting a string): see
+        // GitHub issue #13's investigation. The crash traced specifically
+        // to nesting that *composite, #tree-based, AJAX-driven* element
+        // inside another #tree-based multiple-value widget — not to
+        // anything about plain, non-composite fields being nested there
+        // (which already works fine for 'value'/'label' above). So this
+        // still avoids nesting webform_element_states itself, but
+        // recreates its *visual* picker — element selector, trigger
+        // (comparison operator), value — using plain select/textfield
+        // sub-elements sharing its CSS classes
+        // ('webform-states-table--selector'/'--trigger'/'--value')
+        // and #options data sources ($webform->getElementsSelectorOptions(),
+        // WebformElementStates::getTriggerOptions()). Because every
+        // element edit form already unconditionally includes the
+        // element-level "Conditions" tab (a real, top-level
+        // webform_element_states element — see parent::form() above),
+        // that field's own #attached library ('webform/webform.element.states')
+        // and drupalSettings ('webformElementStates.selectors'/'.sources',
+        // keyed by the same selector strings) are already present on the
+        // page — so the matching-class fields below get real Webform
+        // condition-builder JS (value autocomplete, trigger wiring) for
+        // free, without this module attaching or reimplementing any of
+        // it itself.
         //
-        // Using the flagged fallback instead: a plain YAML-mode
-        // codemirror field. Real cost to admin UX (raw YAML instead of
-        // a visual conditions builder), but functional and confirmed
-        // by the same production error to at least avoid that specific
-        // nesting failure mode. WebformCodeMirror's YAML mode decodes
-        // the submitted string into an array for the element's value,
-        // which is the same #states-shaped array structure
-        // WebformRankingVisibilityResolver and the client-side #states
-        // attachment in buildMatrix()/buildDragDrop() already expect —
-        // no changes needed on that side.
-        // Most items won't need a condition at all, so this field is
-        // presented in a dialog (see element.itemsAdmin library, attached
-        // below) rather than inline in the row — a raw per-item YAML
-        // field left inline, even collapsed behind a checkbox, was still
-        // real visual clutter once more than a couple of items had a
-        // condition (GitHub issue #4). An earlier version used a
-        // 'use_states' checkbox for inline progressive disclosure, but
-        // that toggle never actually worked — its row-scoping heuristic
-        // matched the wrong row against webform_multiple's real markup —
-        // and was removed rather than debugged further in favor of this
-        // redesign, which has no equivalent row-matching step (the
-        // dialog's trigger button is inserted directly next to its own
-        // item's wrapper). The field's own content (empty or not) is the
-        // single source of truth on the backend either way; nothing
-        // about that changed.
-        // '#decode_value' => TRUE is load-bearing, not decorative: it's
-        // what makes WebformCodeMirror::validateWebformCodeMirror()
-        // (the element's own #element_validate, registered by
-        // processWebformCodeMirror()) decode the submitted YAML string
-        // into a real array via Yaml::decode() before it ever reaches
-        // $form_state->getValue('items'). Without it, that method's
-        // auto-decode branch only fires when '#default_value' already
-        // happens to be an array — which it never is here, since
-        // #webform_multiple populates each row's default straight from
-        // stored config. Confirmed via a real bug: omitting this meant
-        // $item['states'] stayed a raw YAML *string* all the way through
-        // validateConfigurationForm() into saved config, and then into
-        // buildMatrix()/buildDragDrop()'s '#states' assignment — Drupal's
-        // FormHelper::processStates() JSON-encodes a string exactly as
-        // happily as an array, so no error surfaced anywhere; the
-        // condition just silently never matched (states.js can't parse
-        // a JSON-encoded string as a conditions object). Same '#decode_value'
-        // pattern already used by core Webform for the same reason — see
-        // WebformTable.php's '#decode_value' => TRUE.
+        // Only a single state + single condition is offered here (no
+        // multiple conditions, no AND/OR/XOR combining) — the raw YAML
+        // field alongside it remains the escape hatch for anything more
+        // complex, same role 'Edit source' plays in the real builder.
+        // decomposeSimpleItemStates()/composeSimpleItemStates() convert
+        // between this picker's fields and the same #states-shaped array
+        // WebformRankingVisibilityResolver and buildMatrix()/
+        // buildDragDrop() already expect — nothing downstream changed.
         //
-        // NOT sufficient on its own for already-saved config from before
-        // this fix (that path only runs at submit time) — see prepare()'s
-        // read-side normalization below for the self-healing half of this
-        // fix.
-        'states' => [
-          '#type' => 'webform_codemirror',
-          '#mode' => 'yaml',
-          '#decode_value' => TRUE,
-          '#title' => $this->t('Include this item when (#states, YAML)'),
-          '#description' => $this->t('Optional, advanced. Enter a #states conditions array in YAML — e.g. <code>visible:</code> on one line, then <code>  \':input[name="other_element"]\': {value: student}</code> indented beneath it.'),
+        // Precedence when both are filled in (see
+        // validateConfigurationForm()): the picker wins whenever
+        // 'condition_selector' is set; the YAML field is only consulted
+        // when the picker's selector is empty. Documented in the YAML
+        // field's own #description below.
+        //
+        // All condition-related sub-fields (picker + YAML fallback) are
+        // nested inside 'condition_group'/'condition_row' containers for
+        // layout/CSS grouping only — confirmed live that #webform_multiple
+        // flattens every leaf sub-element to the item's own top-level
+        // array key regardless of container nesting depth (containers
+        // aren't a #tree branch here, just a rendering wrapper), so each
+        // leaf below is named to be unique at that flat level. An earlier
+        // version of this nested 'selector'/'trigger'/'value' as bare
+        // keys, which collided with the item's own pre-existing 'value'
+        // key (its storage-key field above) under this same flattening —
+        // caught by loading this exact form against a real webform with a
+        // configured item condition, not guessed. Hence the
+        // 'condition_'-prefixed leaf names throughout. A plain
+        // '#type' => 'container' has none of webform_element_states' own
+        // #tree/#process/AJAX machinery, so grouping fields inside one
+        // doesn't reintroduce the nesting failure mode described above;
+        // it's structurally the same kind of nesting as the
+        // 'value'/'label' textfields already sitting in this same
+        // '#element' template.
+        'condition_group' => [
+          '#type' => 'container',
           '#wrapper_attributes' => ['class' => ['webform-ranking-item-states-wrapper']],
-          '#attributes' => ['class' => ['webform-ranking-item-states']],
+          'condition_mode' => [
+            '#type' => 'select',
+            '#title' => $this->t('Condition'),
+            '#options' => [
+              'visible' => $this->t('Include this item when...'),
+              'invisible' => $this->t('Hide this item when...'),
+            ],
+            '#default_value' => 'visible',
+            '#wrapper_attributes' => ['class' => ['webform-ranking-item-condition-mode']],
+          ],
+          'condition_row' => [
+            '#type' => 'container',
+            '#attributes' => ['class' => ['webform-states-table--condition']],
+            'condition_selector' => [
+              '#type' => 'select',
+              '#title' => $this->t('Element'),
+              '#title_display' => 'invisible',
+              '#options' => $webform->getElementsSelectorOptions(),
+              '#empty_option' => $this->t('- No condition (always included) -'),
+              '#wrapper_attributes' => ['class' => ['webform-states-table--selector']],
+            ],
+            'condition_trigger' => [
+              '#type' => 'select',
+              '#title' => $this->t('Trigger'),
+              '#title_display' => 'invisible',
+              '#options' => WebformElementStates::getTriggerOptions(),
+              '#default_value' => 'value',
+              '#wrapper_attributes' => ['class' => ['webform-states-table--trigger']],
+            ],
+            'condition_value' => [
+              '#type' => 'textfield',
+              '#title' => $this->t('Value'),
+              '#title_display' => 'invisible',
+              '#size' => 20,
+              '#placeholder' => $this->t('Enter value…'),
+              '#description' => $this->t('Ignored for Empty/Filled/Checked/Unchecked. For Between/Not between, use the format 1:100.'),
+              '#wrapper_attributes' => ['class' => ['webform-states-table--value']],
+            ],
+          ],
+          // '#decode_value' => TRUE is load-bearing, not decorative: it's
+          // what makes WebformCodeMirror::validateWebformCodeMirror()
+          // (the element's own #element_validate, registered by
+          // processWebformCodeMirror()) decode the submitted YAML string
+          // into a real array via Yaml::decode() before it ever reaches
+          // $form_state->getValue('items'). Without it, that method's
+          // auto-decode branch only fires when '#default_value' already
+          // happens to be an array — which it never is here, since
+          // #webform_multiple populates each row's default straight from
+          // stored config. Confirmed via a real bug: omitting this meant
+          // $item['states'] stayed a raw YAML *string* all the way through
+          // validateConfigurationForm() into saved config, and then into
+          // buildMatrix()/buildDragDrop()'s '#states' assignment — Drupal's
+          // FormHelper::processStates() JSON-encodes a string exactly as
+          // happily as an array, so no error surfaced anywhere; the
+          // condition just silently never matched (states.js can't parse
+          // a JSON-encoded string as a conditions object). Same '#decode_value'
+          // pattern already used by core Webform for the same reason — see
+          // WebformTable.php's '#decode_value' => TRUE.
+          //
+          // NOT sufficient on its own for already-saved config from before
+          // this fix (that path only runs at submit time) — see prepare()'s
+          // read-side normalization below for the self-healing half of this
+          // fix.
+          'states' => [
+            '#type' => 'webform_codemirror',
+            '#mode' => 'yaml',
+            '#decode_value' => TRUE,
+            '#title' => $this->t('Advanced: Conditions (#states, YAML)'),
+            '#description' => $this->t('Optional. Only used when "Element" above is left blank. Enter a #states conditions array in YAML — e.g. <code>visible:</code> on one line, then <code>  \':input[name="other_element"]\': {value: student}</code> indented beneath it.'),
+            '#attributes' => ['class' => ['webform-ranking-item-states']],
+          ],
         ],
       ],
       // Uniqueness of 'value' across rows is enforced in
@@ -257,6 +359,33 @@ class WebformRanking extends WebformElementBase {
     parent::validateConfigurationForm($form, $form_state);
 
     $items = $form_state->getValue('items') ?: [];
+    // Resolve each item's 'condition_group' (the quick picker +
+    // YAML-fallback fields added for GitHub issue #13) down to a single
+    // flat 'states' key, matching the shape prepare()/buildMatrix()/
+    // buildDragDrop()/WebformRankingVisibilityResolver have always
+    // expected — nothing downstream of this method knows the picker
+    // exists. The picker wins whenever an element selector was chosen;
+    // otherwise the YAML fallback field (already decoded into an array
+    // by WebformCodeMirror's own '#decode_value' handling) is used
+    // as-is, exactly as before this change.
+    foreach ($items as &$item) {
+      $selector = trim($item['condition_selector'] ?? '');
+      if ($selector !== '') {
+        $item['states'] = $this->composeSimpleItemStates(
+          $item['condition_mode'] ?? 'visible',
+          $selector,
+          $item['condition_trigger'] ?? 'value',
+          $item['condition_value'] ?? ''
+        );
+      }
+      else {
+        $item['states'] = $item['states'] ?? [];
+      }
+      unset($item['condition_mode'], $item['condition_selector'], $item['condition_trigger'], $item['condition_value']);
+    }
+    unset($item);
+    $form_state->setValue('items', $items);
+
     $values_seen = [];
     foreach ($items as $item) {
       $value = trim($item['value'] ?? '');
@@ -288,6 +417,126 @@ class WebformRanking extends WebformElementBase {
     if (count($items) < 2) {
       $form_state->setErrorByName('items', $this->t('Provide at least two items to rank.'));
     }
+  }
+
+  /**
+   * Builds a #states array from the per-item condition picker's fields.
+   *
+   * Mirrors the conventions \Drupal\webform\Element\WebformElementStates
+   * ::getFormApiStatesCondition() uses to turn its own condition-row
+   * submission into Form API #states — kept in sync deliberately, not
+   * reused directly, since that method is protected and operates on a
+   * full multi-state/multi-condition submission this picker deliberately
+   * doesn't support (see form()'s docblock on 'condition_group').
+   *
+   * @param string $mode
+   *   Either 'visible' or 'invisible'.
+   * @param string $selector
+   *   A `:input[name="..."]`-style selector, as produced by
+   *   $webform->getElementsSelectorOptions().
+   * @param string $trigger
+   *   One of WebformElementStates::getTriggerOptions()'s keys.
+   * @param string $value
+   *   The comparison value; ignored for triggers that don't need one.
+   *
+   * @return array
+   *   A #states-shaped array, e.g. ['visible' => [$selector => [...]]].
+   */
+  protected function composeSimpleItemStates(string $mode, string $selector, string $trigger, string $value): array {
+    if (in_array($trigger, ['value', '!value'], TRUE)) {
+      $condition = [$trigger => $value];
+    }
+    elseif (in_array($trigger, [
+      'pattern', '!pattern', 'less', 'less_equal',
+      'greater', 'greater_equal', 'between', '!between',
+    ], TRUE)) {
+      $condition = ['value' => [$trigger => $value]];
+    }
+    else {
+      // 'empty', 'filled', 'checked', 'unchecked': no comparison value.
+      $condition = [$trigger => TRUE];
+    }
+    return [$mode => [$selector => $condition]];
+  }
+
+  /**
+   * Decomposes a #states array into the condition picker's fields, if possible.
+   *
+   * Only a #states array with exactly one state ('visible' or 'invisible')
+   * and exactly one selector/condition decomposes cleanly — anything more
+   * (multiple states, multiple selectors under one state, an explicit
+   * 'and'/'or'/'xor' operator entry, or a state this module's own
+   * WebformRankingVisibilityResolver doesn't act on) is left for the
+   * admin to edit as YAML, same as this method's counterpart in
+   * \Drupal\webform\Element\WebformElementStates
+   * ::isDefaultValueCustomizedFormApiStates() falls back to its own
+   * source-YAML mode for anything it can't represent visually.
+   *
+   * @param array $states
+   *   A decoded #states array, e.g. ['visible' => [$selector => $condition]].
+   *
+   * @return array|null
+   *   ['mode' => ..., 'selector' => ..., 'trigger' => ..., 'value' => ...],
+   *   or NULL if $states isn't a single state/single condition shape.
+   */
+  protected function decomposeSimpleItemStates(array $states): ?array {
+    if (count($states) !== 1) {
+      return NULL;
+    }
+    $mode = key($states);
+    if (!in_array($mode, ['visible', 'invisible'], TRUE)) {
+      return NULL;
+    }
+    $conditions = reset($states);
+    if (!is_array($conditions) || count($conditions) !== 1) {
+      return NULL;
+    }
+    $selector = key($conditions);
+    $condition = reset($conditions);
+    if (!is_string($selector) || !is_array($condition) || count($condition) !== 1) {
+      return NULL;
+    }
+    $trigger = key($condition);
+    $value = reset($condition);
+
+    // pattern/less/less_equal/greater/greater_equal/between/!between are
+    // nested one level deeper by Form API convention: $trigger is always
+    // literally 'value', with the real comparison type as the nested
+    // array's own key — see composeSimpleItemStates()'s matching branch.
+    // Checked before the plain 'value'/'!value' branch below, since both
+    // share the literal outer key 'value' and are only distinguished by
+    // whether $value is itself an array.
+    if ($trigger === 'value' && is_array($value) && count($value) === 1) {
+      $nested_trigger = key($value);
+      $nested_value = reset($value);
+      $nested_triggers = [
+        'pattern', '!pattern', 'less', 'less_equal',
+        'greater', 'greater_equal', 'between', '!between',
+      ];
+      if (in_array($nested_trigger, $nested_triggers, TRUE)
+        && (is_string($nested_value) || is_numeric($nested_value))) {
+        return [
+          'mode' => $mode,
+          'selector' => $selector,
+          'trigger' => $nested_trigger,
+          'value' => (string) $nested_value,
+        ];
+      }
+      return NULL;
+    }
+
+    if (in_array($trigger, ['value', '!value'], TRUE)) {
+      if (!is_string($value) && !is_numeric($value)) {
+        return NULL;
+      }
+      return ['mode' => $mode, 'selector' => $selector, 'trigger' => $trigger, 'value' => (string) $value];
+    }
+
+    if (in_array($trigger, ['empty', 'filled', 'checked', 'unchecked'], TRUE) && $value === TRUE) {
+      return ['mode' => $mode, 'selector' => $selector, 'trigger' => $trigger, 'value' => ''];
+    }
+
+    return NULL;
   }
 
   /**

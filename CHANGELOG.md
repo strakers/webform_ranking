@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Per-item conditional visibility now offers a friendly picker (element,
+  trigger, value dropdowns) as the primary way to configure a condition,
+  matching the visual style of this element's own "Conditional logic"
+  tab, instead of requiring raw `#states` YAML for the common single-
+  condition case. The YAML field remains available for anything more
+  complex (multiple conditions, AND/OR/XOR combining) (#13).
+
 ### Fixed
 
 - Element-level `#states` (hiding/showing the *entire* ranking field

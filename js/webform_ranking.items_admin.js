@@ -36,6 +36,15 @@
  * WebformRankingItemsAdminJavaScriptTest: reopening the saved element's
  * config form after using the dialog shows the condition persisted.
  *
+ * The dialog now also contains a condition *picker* (element/trigger/value
+ * dropdowns, GitHub issue #13) alongside the YAML field — this file only
+ * relocates the whole group into the dialog as one unit and resets the
+ * picker's fields on "Clear condition"; the picker's own field wiring
+ * (value autocomplete, trigger-driven visibility) comes from Webform's own
+ * 'webform/webform.element.states' library, reused via matching CSS
+ * classes — see the 'condition_group' field definition in
+ * WebformRanking::form().
+ *
  * Uses const/let, unlike this module's other JS files (still var as of
  * writing) — see the module's tracked refactor issue to bring those in
  * line.
@@ -68,6 +77,16 @@
     if (!yamlField) {
       return;
     }
+    // The quick condition picker (element/trigger/value) added alongside
+    // the YAML fallback for GitHub issue #13 — cleared together with the
+    // YAML field by "Clear condition" below, so an emptied item never
+    // leaves stale picker selections behind (see
+    // WebformRanking::validateConfigurationForm(), which treats a
+    // non-empty selector as authoritative over the YAML field).
+    const modeField = wrapper.querySelector('.webform-ranking-item-condition-mode select');
+    const selectorField = wrapper.querySelector('.webform-states-table--selector select');
+    const triggerField = wrapper.querySelector('.webform-states-table--trigger select');
+    const valueField = wrapper.querySelector('.webform-states-table--value input');
 
     const form = wrapper.closest('form');
     const trigger = document.createElement('button');
@@ -104,6 +123,20 @@
                 // up the clear.
                 yamlField.dispatchEvent(new Event('input', {bubbles: true}));
                 yamlField.dispatchEvent(new Event('change', {bubbles: true}));
+
+                if (modeField) {
+                  modeField.value = 'visible';
+                }
+                if (selectorField) {
+                  selectorField.value = '';
+                  selectorField.dispatchEvent(new Event('change', {bubbles: true}));
+                }
+                if (triggerField) {
+                  triggerField.value = 'value';
+                }
+                if (valueField) {
+                  valueField.value = '';
+                }
               }
             },
             {
