@@ -285,6 +285,13 @@ class WebformRanking extends WebformElementBase {
       // default, which drupalSettings' JSON encoding won't stringify on
       // its own) populate the picker's dropdowns when JS builds rows
       // client-side, since rows aren't server-rendered per-row here.
+      // 'webformModulePath' is the same
+      // \Drupal::service('extension.list.module')->getPath('webform')
+      // the real WebformElementStates::buildOperations() itself calls
+      // to locate its plus.svg/minus.svg icons — computed server-side
+      // rather than hardcoding a 'modules/contrib/webform'-shaped guess
+      // client-side, since that path isn't guaranteed for every install
+      // layout.
       '#attached' => [
         'library' => ['webform_ranking/element.itemsAdmin'],
         'drupalSettings' => [
@@ -293,6 +300,7 @@ class WebformRanking extends WebformElementBase {
             'stateOptions' => $state_options,
             'selectorOptions' => $webform->getElementsSelectorOptions(),
             'triggerOptions' => array_map('strval', WebformElementStates::getTriggerOptions()),
+            'webformModulePath' => \Drupal::service('extension.list.module')->getPath('webform'),
           ],
         ],
       ],

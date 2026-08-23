@@ -250,6 +250,28 @@ JS,
   }
 
   /**
+   * Clicks a condition row's "+" or "-" icon button.
+   *
+   * In whichever dialog is currently visible. These are icon-only
+   * <button>s with no visible text (an
+   * accessible name via aria-label instead — see
+   * createIconButton() in items_admin.js), so they can't be matched
+   * via clickVisibleDialogButton()'s text-based lookup.
+   *
+   * @param int $row_index
+   *   0-based row index, in DOM order.
+   * @param string $icon
+   *   'Add' or 'Remove' — matches the button's aria-label exactly.
+   */
+  protected function clickConditionRowIcon(int $row_index, string $icon): void {
+    $this->getSession()->evaluateScript(sprintf(
+      "jQuery('.ui-dialog:visible .webform-ranking-item-condition-row').eq(%d).find(%s)[0].click();",
+      $row_index,
+      json_encode(sprintf('button[aria-label="%s"]', $icon))
+    ));
+  }
+
+  /**
    * Reads one condition row's field value from the visible dialog.
    *
    * @param int $row_index
@@ -553,7 +575,7 @@ JS,
     $this->setConditionRowField(0, 'trigger', 'value');
     $this->setConditionRowField(0, 'value', 'one');
 
-    $this->clickVisibleDialogButton('Add another condition');
+    $this->clickConditionRowIcon(0, 'Add');
     $this->assertSame(2, $this->conditionRowCount());
     $this->setConditionRowField(1, 'selector', ':input[name="trigger_field"]');
     $this->setConditionRowField(1, 'trigger', 'value');
@@ -586,12 +608,15 @@ JS,
   }
 
   /**
-   * Tests row add/remove chrome.
+   * Tests row add/remove chrome via each row's own +/- icon buttons.
    *
    * The combining-operator select is always visible on the state row
-   * (matching the real builder), but each row's own "Remove" button
-   * only once 2+ condition rows exist — removing the last one isn't
-   * offered.
+   * (matching the real builder). Each row's +/- buttons are always
+   * available too (matching the real builder's own default — its
+   * remove button is only ever omitted when '#multiple' is FALSE,
+   * never the case here): "-" on a row when 2+ exist removes that row;
+   * "-" on the sole remaining row resets it to blank instead, so the
+   * table never ends up with zero rows.
    */
   public function testConditionBuilderAddAndRemoveRowChrome(): void {
     $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
@@ -603,14 +628,23 @@ JS,
 
     $this->assertSame(1, $this->conditionRowCount());
     $this->assertTrue($this->isVisibleInDialog('.webform-states-table--operator'));
+    $this->setConditionRowField(0, 'selector', ':input[name="trigger_field"]');
 
-    $this->clickVisibleDialogButton('Add another condition');
+    $this->clickConditionRowIcon(0, 'Add');
     $this->assertSame(2, $this->conditionRowCount());
     $this->assertTrue($this->isVisibleInDialog('.webform-states-table--operator'));
 
-    $this->clickVisibleDialogButton('Remove');
+    // Removing the second (still-blank) row when 2 exist deletes it
+    // outright.
+    $this->clickConditionRowIcon(1, 'Remove');
     $this->assertSame(1, $this->conditionRowCount());
-    $this->assertTrue($this->isVisibleInDialog('.webform-states-table--operator'));
+    $this->assertSame(':input[name="trigger_field"]', $this->conditionRowField(0, 'selector'));
+
+    // Removing the sole remaining row resets it to blank rather than
+    // deleting it.
+    $this->clickConditionRowIcon(0, 'Remove');
+    $this->assertSame(1, $this->conditionRowCount());
+    $this->assertSame('', $this->conditionRowField(0, 'selector'));
   }
 
   /**

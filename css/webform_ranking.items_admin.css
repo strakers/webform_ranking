@@ -1,0 +1,42 @@
+/**
+ * @file
+ * Per-item condition builder (GitHub issue #65) icon buttons.
+ *
+ * Mirrors web/modules/contrib/webform/css/webform.element.states.css's
+ * own 'input[type="image"]' styling for the real element-level
+ * builder's +/- buttons as closely as possible, deliberately applied to
+ * a <button type="button"> instead: a real <input type="image"> is
+ * inherently a submit control — clicking one inside this dialog's
+ * enclosing admin <form> (see js/webform_ranking.items_admin.js's
+ * 'appendTo: form' note) would submit the whole element config form
+ * unless every click handler remembered to preventDefault(), which is
+ * one missed line away from an accidental early "Save" mid-edit. A
+ * plain button never submits regardless, so this is safe by
+ * construction rather than by discipline.
+ */
+.webform-ranking-item-icon-button {
+  box-sizing: border-box;
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  padding: 2px;
+  margin: 0;
+  border: 2px solid #333;
+  border-radius: 50%;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 12px 12px;
+  opacity: 0.4;
+  cursor: pointer;
+}
+
+.webform-ranking-item-icon-button + .webform-ranking-item-icon-button {
+  margin-left: 2px;
+}
+
+.webform-ranking-item-icon-button:hover,
+.webform-ranking-item-icon-button:focus,
+.webform-ranking-item-icon-button:active {
+  opacity: 1;
+}

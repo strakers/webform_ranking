@@ -204,6 +204,7 @@
     const selectorOptions = settings.selectorOptions || {};
     const triggerOptions = settings.triggerOptions || {};
     const conditionsByItemValue = settings.conditionsByItemValue || {};
+    const iconBaseUrl = (drupalSettings.path.baseUrl || '/') + (settings.webformModulePath || '') + '/images/icons/';
 
     const row = wrapper.closest('tr');
     const valueInput = row ? row.querySelector('input[name$="[value]"]') : null;
@@ -228,7 +229,7 @@
     legend.className = 'fieldset__legend fieldset__legend--visible';
     const legendLabel = document.createElement('span');
     legendLabel.className = 'fieldset__label';
-    legendLabel.textContent = Drupal.t('Condition');
+    legendLabel.textContent = Drupal.t('Conditional logic');
     legend.appendChild(legendLabel);
     fieldset.appendChild(legend);
 
@@ -293,13 +294,13 @@
     stateRow.appendChild(document.createElement('td'));
     tbody.appendChild(stateRow);
 
+    // No separate "Add condition" button here — matching the real
+    // builder, which has none for conditions either (only "Add another
+    // state", not applicable to this single-state design). Each
+    // condition row gets its own inline +/- icon buttons instead (see
+    // createConditionRow()'s operations cell).
     const actions = document.createElement('div');
     actions.className = 'webform-ranking-item-condition-actions';
-    const addButton = document.createElement('button');
-    addButton.type = 'button';
-    addButton.className = 'webform-ranking-item-condition-add button';
-    addButton.textContent = Drupal.t('Add another condition');
-    actions.appendChild(addButton);
 
     const editSourceToggle = document.createElement('button');
     editSourceToggle.type = 'button';
@@ -486,13 +487,20 @@
       conditionTd.appendChild(valueWrapper);
       conditionRow.appendChild(conditionTd);
 
+      // +/- icon buttons, always available (no "only once 2+ rows
+      // exist" floor) — matching the real builder, whose own remove
+      // button is only ever omitted when '#multiple' is FALSE (never
+      // the case here). "-" on the sole remaining row resets it to
+      // blank instead of deleting it, so the table never ends up with
+      // zero rows and no way back in without reopening the dialog —
+      // functionally identical either way, since emitYaml() already
+      // skips any condition with no selector chosen.
       const operationsTd = document.createElement('td');
       operationsTd.className = 'webform-states-table--operations';
-      const removeButton = document.createElement('button');
-      removeButton.type = 'button';
-      removeButton.className = 'webform-ranking-item-condition-remove button button--small';
-      removeButton.textContent = Drupal.t('Remove');
-      operationsTd.appendChild(removeButton);
+      const addRowButton = createIconButton('plus', Drupal.t('Add'));
+      const removeRowButton = createIconButton('minus', Drupal.t('Remove'));
+      operationsTd.appendChild(addRowButton);
+      operationsTd.appendChild(removeRowButton);
       conditionRow.appendChild(operationsTd);
 
       selectorSelect.addEventListener('change', onBuilderChange);
@@ -507,15 +515,58 @@
       // keystroke. onBuilderChange() is idempotent, so hearing both for
       // a single real edit is harmless.
       valueInputEl.addEventListener('change', onBuilderChange);
-      removeButton.addEventListener('click', function () {
-        conditionRow.remove();
-        updateRowChrome();
+      addRowButton.addEventListener('click', function () {
+        const newRow = createConditionRow({});
+        conditionRow.after(newRow);
+        Drupal.attachBehaviors(newRow);
+        onBuilderChange();
+      });
+      removeRowButton.addEventListener('click', function () {
+        if (tbody.querySelectorAll('.webform-ranking-item-condition-row').length > 1) {
+          conditionRow.remove();
+        }
+        else {
+          resetConditionRow(conditionRow);
+        }
         onBuilderChange();
       });
 
       updateValueFieldVisibility(conditionRow, triggerSelect.value);
 
       return conditionRow;
+    }
+
+    /**
+     * A <button> styled to match the real builder's own +/- icon
+     * buttons (web/modules/contrib/webform/css/webform.element.states.css's
+     * 'input[type="image"]' rules, reapplied to a <button type="button">
+     * here — see this library's own CSS file docblock for why not a
+     * real `<input type="image">`).
+     */
+    function createIconButton(iconName, label) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'webform-ranking-item-icon-button image-button';
+      button.style.backgroundImage = 'url(' + iconBaseUrl + iconName + '.svg)';
+      button.setAttribute('aria-label', label);
+      button.title = label;
+      return button;
+    }
+
+    /**
+     * Resets one condition row's fields back to blank/default.
+     *
+     * Used when "-" is clicked on the sole remaining row — see
+     * createConditionRow()'s own note on why that resets rather than
+     * removes.
+     */
+    function resetConditionRow(conditionRow) {
+      const selectorSelect = conditionRow.querySelector('.webform-states-table--selector select');
+      selectorSelect.value = '';
+      const triggerSelect = conditionRow.querySelector('.webform-states-table--trigger select');
+      triggerSelect.value = 'value';
+      conditionRow.querySelector('.webform-states-table--value input').value = '';
+      updateValueFieldVisibility(conditionRow, triggerSelect.value);
     }
 
     /**
@@ -539,29 +590,10 @@
       stateWarning.style.display = VISIBILITY_STATES.indexOf(modeSelect.value) === -1 ? '' : 'none';
     }
 
-    /**
-     * Updates each row's own "Remove" button, showing it only once
-     * removing it would still leave at least one row — matching the
-     * real builder's own "always at least one row" floor.
-     *
-     * The combining-operator select itself ("if [All/Any/One] of the
-     * following is met:") is NOT toggled here — it's always visible on
-     * the state row, same as the real builder, regardless of how many
-     * condition rows currently exist.
-     */
-    function updateRowChrome() {
-      const rows = tbody.querySelectorAll('.webform-ranking-item-condition-row');
-      rows.forEach(function (conditionRow) {
-        const removeButton = conditionRow.querySelector('.webform-ranking-item-condition-remove');
-        removeButton.style.display = rows.length > 1 ? '' : 'none';
-      });
-    }
-
     function addConditionRow(data) {
       const conditionRow = createConditionRow(data);
       tbody.appendChild(conditionRow);
       Drupal.attachBehaviors(conditionRow);
-      updateRowChrome();
       return conditionRow;
     }
 
@@ -587,7 +619,6 @@
         addConditionRow({});
       }
       updateStateWarning();
-      updateRowChrome();
     }
 
     /**
@@ -693,10 +724,6 @@
 
     modeSelect.addEventListener('change', onBuilderChange);
     operatorSelect.addEventListener('change', onBuilderChange);
-    addButton.addEventListener('click', function () {
-      addConditionRow({});
-      onBuilderChange();
-    });
 
     function showBuilder() {
       fieldset.style.display = '';

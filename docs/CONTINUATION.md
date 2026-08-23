@@ -1105,6 +1105,53 @@ no-input fallback only ever see canonical shape. The plugin's
     dialog-mechanics tests (trigger button, Clear condition, submission
     persistence), which needed no changes and serve as the regression
     check for the exact thing the first attempt broke.
+    **Two follow-up rounds of review, after the above landed:**
+    - *Exact markup, not approximate.* Every hand-built `<select>`/
+      `<input>` now carries the same classes Drupal's own form
+      rendering adds (`form-element`; `form-select`/
+      `form-element--type-select` on selects; `form-text`/
+      `form-element--type-text` on text inputs — via two small helpers,
+      `createSelectElement()`/`createTextInputElement()`, rather than
+      repeating the strings at each of the 5 call sites), and the
+      `<fieldset>`/`<legend>` copy the real `#type => fieldset`
+      element's own classes verbatim, including the
+      `<div class="fieldset__wrapper">` real fieldsets use to wrap
+      their content — the admin theme's fieldset CSS targets that div
+      for padding/spacing, not the `<fieldset>` element directly. Every
+      class list confirmed against this same admin form's real,
+      server-rendered markup (`#edit-conditional-logic` for the
+      fieldset), not guessed. The combining-operator select was also
+      corrected here to be unconditionally visible (an earlier pass
+      hid it until 2+ conditions existed).
+    - *Per-row +/- icon buttons*, replacing a single bottom "Add
+      another condition" text button — the real gap this closed: with
+      the bottom-button-only design, an item with exactly one
+      already-saved condition had no way to remove it at all (the
+      remove affordance only appeared once 2+ rows existed). Matches
+      `WebformElementStates::buildOperations()`'s own plus.svg/
+      minus.svg icon buttons, always available on every row (no
+      "at least one row" floor — same as the real widget, whose own
+      remove button is only ever omitted when `#multiple` is `FALSE`,
+      never the case here). Deliberately **not** `<input type="image">`
+      like the real widget, though: that's inherently a submit
+      control, and clicking one inside this dialog's enclosing admin
+      `<form>` would submit the whole element config form unless every
+      handler remembered `preventDefault()` — one missed line from an
+      accidental early "Save" mid-edit. Used a plain
+      `<button type="button">` instead (never submits, regardless),
+      styled via a new `css/webform_ranking.items_admin.css` to match
+      the real icon buttons' own CSS
+      (`webform.element.states.css`'s `input[type="image"]` rules,
+      reapplied to the button). The icon `src` URL itself is built from
+      `\Drupal::service('extension.list.module')->getPath('webform')`
+      — the same call the real widget's own PHP makes — passed via
+      `drupalSettings` rather than guessing a `modules/contrib/webform`-
+      shaped path client-side, since that layout isn't guaranteed for
+      every install. "-" on the sole remaining row resets it to blank
+      rather than deleting it (so the table never ends up with zero
+      rows and no way back in without reopening the dialog) —
+      functionally identical to true removal either way, since
+      `emitYaml()` already skips any condition with no selector chosen.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
