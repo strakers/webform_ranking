@@ -722,6 +722,46 @@ no-input fallback only ever see canonical shape. The plugin's
     not just hidden via CSS) when its cross-page condition resolves
     true, and renders completely normally when it resolves false.
 
+20. **GitHub issue #63: `#require_first_place`, closing the "mark
+    everything N/A" loophole in `#required_all`.** With `#allow_na` on,
+    `#required_all` only checks that every visible item is *accounted
+    for* (ranked or marked N/A) — a respondent can satisfy that by
+    marking every item N/A without ever ranking anything. New
+    independent checkbox + companion `#require_first_place_error`
+    message (same checkbox+textfield-gated-by-`#states` pattern as core
+    Webform's own `required`/`required_error` pair), validated in
+    `validateWebformRanking()` right after the N/A-not-allowed check:
+    `!empty($element['#require_first_place']) && !$values`. Relies on
+    the pre-existing "ranks must be assigned starting from 1st place
+    with no gaps" check (which runs earlier in the same method) to make
+    a non-empty `$values` array equivalent to "something is ranked
+    1st" — no separate rank-position inspection needed.
+    Deliberately NOT gated behind `#allow_na` via `#states` (unlike
+    `na_label`): it was tempting to hide the checkbox whenever
+    `#allow_na` is off, reasoning it's a no-op there, but that's only
+    true when `#required_all` is *also* on (every item must be ranked
+    already, so 1st is automatic). With `#required_all` off, leaving
+    the whole ranking blank is otherwise a valid submission regardless
+    of `#allow_na`, and `#require_first_place` still meaningfully
+    forbids that specific case — so hiding it on `#allow_na` alone
+    would incorrectly suppress a combination where it still matters.
+    The error-message field's own visibility, though, is safely gated
+    on `#require_first_place` itself (progressive disclosure, not a
+    correctness question).
+    Custom-message fallback uses `!empty()`, not the `??` pattern
+    `#required_error` uses elsewhere in this file — deliberately: since
+    `require_first_place_error` defaults to `''` via
+    `defineDefaultProperties()`, `??` would treat that empty string as
+    "customized" and never fall back to the default translated message.
+    Not fixed for the pre-existing `#required_error` (out of scope for
+    this issue), but avoided in this new property from the start.
+    Test coverage: `WebformRankingValidationKernelTest`, four new cases
+    covering rejection (all-N/A), passing (partial ranking, no full
+    `#required_all` needed), opt-in (disabled by default), and the
+    custom error message. `getTestValues()` (Webform's own Test tab)
+    needed no change — it already ranks every item sequentially from
+    1st, so it always satisfies this check.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,
