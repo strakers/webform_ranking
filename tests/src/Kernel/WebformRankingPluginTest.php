@@ -580,4 +580,142 @@ class WebformRankingPluginTest extends KernelTestBase {
     $this->assertNotSame(array_column($items, 'value'), $order_first);
   }
 
+  /**
+   * Tests decomposeItemStatesToConditions() for every trigger type.
+   *
+   * Covers every trigger \Drupal\webform\Element\WebformElementStates
+   * ::getTriggerOptions() offers, confirming each round-trips through
+   * decomposeCondition() correctly, including the nested
+   * pattern/less/less_equal/greater/greater_equal/between/!between
+   * shapes Form API represents one level deeper than a literal
+   * value/!value comparison.
+   */
+  public function testDecomposeSingleConditionForEveryTriggerType(): void {
+    $cases = [
+      'value' => [['value' => 'x'], 'x'],
+      '!value' => [['!value' => 'x'], 'x'],
+      'pattern' => [['value' => ['pattern' => '^a']], '^a'],
+      '!pattern' => [['value' => ['!pattern' => '^a']], '^a'],
+      'less' => [['value' => ['less' => '5']], '5'],
+      'less_equal' => [['value' => ['less_equal' => '5']], '5'],
+      'greater' => [['value' => ['greater' => '5']], '5'],
+      'greater_equal' => [['value' => ['greater_equal' => '5']], '5'],
+      'between' => [['value' => ['between' => '1:5']], '1:5'],
+      '!between' => [['value' => ['!between' => '1:5']], '1:5'],
+      'empty' => [['empty' => TRUE], ''],
+      'filled' => [['filled' => TRUE], ''],
+      'checked' => [['checked' => TRUE], ''],
+      'unchecked' => [['unchecked' => TRUE], ''],
+    ];
+
+    foreach ($cases as $trigger => [$condition, $expected_value]) {
+      $states = ['visible' => [':input[name="a"]' => $condition]];
+      $result = $this->invokePrivate('decomposeItemStatesToConditions', [$states]);
+      $this->assertSame(
+        [
+          'mode' => 'visible',
+          'operator' => 'and',
+          'conditions' => [
+            ['selector' => ':input[name="a"]', 'trigger' => $trigger, 'value' => $expected_value],
+          ],
+        ],
+        $result,
+        "Trigger '$trigger' did not decompose as expected."
+      );
+    }
+  }
+
+  /**
+   * Tests decomposeItemStatesToConditions() for multi-condition shapes.
+   *
+   * AND (associative, no explicit operator), OR, and XOR (both
+   * numerically-indexed with the literal operator string between
+   * conditions) — the same shapes
+   * \Drupal\webform\Element\WebformElementStates
+   * ::convertElementValueToFormApiStates() itself produces.
+   */
+  public function testDecomposeMultiConditionShapes(): void {
+    $and = [
+      'visible' => [
+        ':input[name="a"]' => ['value' => '1'],
+        ':input[name="b"]' => ['value' => '2'],
+      ],
+    ];
+    $this->assertSame('and', $this->invokePrivate('decomposeItemStatesToConditions', [$and])['operator']);
+    $this->assertCount(2, $this->invokePrivate('decomposeItemStatesToConditions', [$and])['conditions']);
+
+    $or = [
+      'invisible' => [
+      [':input[name="a"]' => ['value' => '1']],
+        'or',
+      [':input[name="b"]' => ['value' => '2']],
+      ],
+    ];
+    $or_result = $this->invokePrivate('decomposeItemStatesToConditions', [$or]);
+    $this->assertSame('invisible', $or_result['mode']);
+    $this->assertSame('or', $or_result['operator']);
+    $this->assertCount(2, $or_result['conditions']);
+
+    $xor = [
+      'visible' => [
+      [':input[name="a"]' => ['value' => '1']],
+        'xor',
+      [':input[name="b"]' => ['value' => '2']],
+        'xor',
+      [':input[name="c"]' => ['checked' => TRUE]],
+      ],
+    ];
+    $xor_result = $this->invokePrivate('decomposeItemStatesToConditions', [$xor]);
+    $this->assertSame('xor', $xor_result['operator']);
+    $this->assertCount(3, $xor_result['conditions']);
+  }
+
+  /**
+   * Tests that unsupported shapes decompose to NULL, not corrupted data.
+   *
+   * A shape the condition-rows builder can't represent should fall back
+   * to the raw YAML view, not silently corrupt or drop data. Multiple
+   * states, mixed OR/XOR operators within one state, a trailing
+   * operator, an unrecognized trigger, and a malformed (non-array)
+   * condition value are all real shapes a hand-written YAML block could
+   * contain.
+   */
+  public function testDecomposeReturnsNullForUnsupportedShapes(): void {
+    $cases = [
+      'multiple states' => [
+        'visible' => [':input[name="a"]' => ['value' => '1']],
+        'required' => [':input[name="a"]' => ['value' => '1']],
+      ],
+      'mixed or/xor operators' => [
+        'visible' => [
+        [':input[name="a"]' => ['value' => '1']],
+          'or',
+        [':input[name="b"]' => ['value' => '2']],
+          'xor',
+        [':input[name="c"]' => ['value' => '3']],
+        ],
+      ],
+      'trailing operator' => [
+        'visible' => [
+        [':input[name="a"]' => ['value' => '1']],
+          'or',
+        ],
+      ],
+      'unrecognized trigger' => ['visible' => [':input[name="a"]' => ['bogus' => '1']]],
+      'malformed condition value' => ['visible' => ':input[name="a"]'],
+      // 'readonly' is a real Form API #states key (part of the "State"
+      // optgroup WebformElementStates::getStateOptions() offers) but
+      // isn't in self::PICKER_STATE_KEYS — the picker's dropdown only
+      // offers a curated subset, see that constant's own docblock.
+      'unrecognized state' => ['readonly' => [':input[name="a"]' => ['value' => '1']]],
+    ];
+
+    foreach ($cases as $label => $states) {
+      $this->assertNull(
+        $this->invokePrivate('decomposeItemStatesToConditions', [$states]),
+        "Expected '$label' to be non-decomposable."
+      );
+    }
+  }
+
 }

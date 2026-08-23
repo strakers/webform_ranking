@@ -990,6 +990,96 @@ no-input fallback only ever see canonical shape. The plugin's
     `testDuplicateRankInForgedValueIsRejected()` already established)
     rather than driving the real matrix/converter path.
 
+26. **GitHub issue #65 (redo of #13): a visual condition-rows builder
+    for per-item states, matching the real element-level "Conditional
+    logic" tab's own look.** A first attempt at #13 (closed PR #64)
+    built a simplified custom 4-field picker instead of replicating the
+    real builder's UI, and — the more consequential mistake — introduced
+    a new `condition_group` wrapper around the whole field, moving the
+    `webform-ranking-item-states-wrapper` class `items_admin.js` uses to
+    find/relocate content into the dialog up one DOM level from where it
+    always lived, incidentally altering the "Conditions" trigger
+    button's own markup. Redone from scratch on a new branch after
+    review flagged both problems, with a tightened spec (`docs/
+    issue-13-redo-plan.md`, later archived) confirmed before
+    implementation started.
+    **Key design choice:** the builder writes directly into the
+    *existing* `states` YAML `webform_codemirror` field — no new form
+    field at all. Confirmed first that `#decode_value => TRUE` already
+    accepts any valid `#states` shape (multi-condition, AND/OR/XOR)
+    with no PHP-side restriction, so this was purely a UI gap. The
+    `states` field's own `#type`/`#mode`/`#decode_value`/
+    `#wrapper_attributes`/position in `#element` are byte-identical to
+    the pre-#13 baseline — the only PHP addition is computing
+    `decomposeItemStatesToConditions()` (a generalized version of the
+    first attempt's single-condition decompose, now also handling
+    AND/OR/XOR multi-condition shapes) and passing the result to JS via
+    `drupalSettings`, keyed by item `value` (the stable identity used
+    throughout this codebase). No corresponding `compose*()` needed
+    server-side: the builder keeps the textarea's own YAML text in sync
+    on every change, so the existing, unmodified decode-on-submit path
+    handles it exactly as it does for hand-typed YAML.
+    **UI fidelity, per explicit direction during review** (not the
+    original scoped-down plan): a `<fieldset>` wrapping a real
+    `<table class="webform-states-table">` with State/Element/
+    Trigger-Value columns, the state row's combining-operator select
+    always visible ("if [All/Any/One] of the following is met:",
+    unconditionally, matching the real widget — an earlier draft of
+    this hid it until 2+ conditions existed, caught and corrected from
+    live feedback), the full curated state list (`self::
+    PICKER_STATE_KEYS`: Visible/Hidden/Visible (Slide)/Hidden (Slide)/
+    Enabled/Disabled/Required/Optional — a subset of `WebformElementStates
+    ::getStateOptions()`'s full list, excluding states aimed at form
+    *inputs* rather than item visibility), and the "Edit source" button
+    label matching the real widget's own text exactly. Only
+    `visible`/`invisible`(-slide) actually affect item inclusion
+    (`WebformRankingVisibilityResolver` still only acts on those); the
+    other four are accepted/stored like any other `#states` value,
+    matching the real widget's own flexibility, with a warning note
+    shown when selected rather than hidden outright.
+    **Two real bugs found via live browser testing, not guessed:**
+    - *jQuery UI autocomplete double-init crash.* The real widget's own
+      server-rendered markup puts the class `webform-states-table--condition`
+      on both a condition `<tr>` AND its own inner `<td>` wrapping
+      trigger+value (confirmed by reading `WebformElementStates
+      ::buildConditionRow()` directly) — reproducing this exactly caused
+      `webform/webform.element.states`'s behavior (which scopes itself
+      via `.find()` from any matching element) to initialize twice on
+      the same value input, the second pass corrupting the widget
+      instance the first had already set up:
+      `TypeError: this.source is not a function` inside jQuery UI's
+      autocomplete, breaking every subsequent selector change. Fixed by
+      keeping the class on the `<tr>` only — the row is the only match
+      that has selector+trigger+value all as `.find()`-reachable
+      descendants anyway, since selector is a sibling `<td>` of the
+      trigger/value cell, not nested inside it.
+    - *Test-environment-only: jQuery 4's `.trigger('change')` never
+      reached plain `addEventListener('change', ...)` listeners at
+      all*, confirmed via an isolated scratch-element check
+      (`jQuery(el).val(x).trigger('change')` on a bare `<select>` with a
+      manually-attached native listener: zero fires). Not a production
+      bug — a real user's actual browser interaction is a genuine native
+      event either way — but it meant every `FunctionalJavascript` test
+      helper that used jQuery's `.trigger()` to simulate a field change
+      silently no-opped. Fixed in the test file only, dispatching
+      `new Event('change', {bubbles: true})` directly instead, matching
+      what the pre-existing (already-working) YAML-field test helpers
+      did all along.
+    Test coverage: `WebformRankingPluginTest` gained
+    `decomposeItemStatesToConditions()` cases for every trigger type and
+    AND/OR/XOR shapes, plus confirmation that genuinely unsupported
+    shapes (multiple states, mixed operators, a trailing operator, an
+    unrecognized trigger) correctly return `NULL` rather than corrupting
+    data. `WebformRankingItemsAdminJavaScriptTest` gained: decomposed-
+    condition display, set-via-builder-and-persist (proving the
+    client-side YAML emitter is correct, not just "looks right"),
+    multi-condition OR persistence, add/remove row chrome, the
+    too-complex-condition YAML-view fallback, and the Edit
+    source/back-to-builder toggle — on top of the three pre-existing
+    dialog-mechanics tests (trigger button, Clear condition, submission
+    persistence), which needed no changes and serve as the regression
+    check for the exact thing the first attempt broke.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,
