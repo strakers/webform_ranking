@@ -38,8 +38,7 @@ Add a **Ranking** element to your webform to begin. Under the element settings, 
 ## Key Design Considerations & Limitations
 
 - **Conditional Logic Format:** Setting up visibility rules for individual choices within the ranking element requires entering raw YAML syntax inside the configuration dialog, rather than using Webform's visual rule builder.
-- **Matrix Style Grid Columns:** If you hide items conditionally, the columns in the **Matrix** layout remain fixed to your total number of configured items rather than shrinking dynamically. The **Drag and Drop** layout will successfully renumber its position indicators dynamically.
-- **Strict Matrix Order:** The Matrix display style requires respondents to assign ranks sequentially starting from the top slot. Skipping a leading rank (e.g., selecting 2nd and 3rd but leaving 1st unassigned) triggers a validation error on submission.
+- **Strict Matrix Order:** The Matrix display style requires respondents to assign ranks sequentially starting from the top slot. Skipping a leading rank (e.g., selecting 2nd and 3rd but leaving 1st unassigned) triggers a validation error on submission. The error message is customizable via the "Sequential ranks error message" setting.
 
 ## Development
 

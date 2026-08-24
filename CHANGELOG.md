@@ -15,6 +15,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and satisfy validation without ranking anything at all. This is an
   independent toggle for genuine engagement — a top choice is required,
   even when full engagement with every item isn't (#63).
+- New "Sequential ranks error message" admin field (matrix display
+  style), for overriding the message shown when a respondent's ranking
+  skips a position (e.g. picks 2nd/3rd but not 1st) — matches the
+  existing "Require 1st place error message" field's pattern (#74).
+
+### Changed
+
+- Every validation error message this element shows has been rewritten
+  in plainer, less technical language, and brought in line with
+  Webform core's own message convention (the field's title embedded
+  grammatically into the sentence, e.g. `"@title field is required."`)
+  — several of this element's own messages had instead invented a
+  `"@title: <message>"` colon-prefixed style found nowhere else in
+  Webform core. Most notably, the matrix "no gaps" message changes from
+  "ranks must be assigned starting from the top, with no gaps — a lower
+  rank cannot be used unless every rank above it is also used" to
+  "must be ranked in order (1st, 2nd, 3rd, etc.), without skipping any
+  positions" — with an added sentence noting N/A is available, when
+  "Allow abstaining" is enabled (#74).
+- "Require 1st place message" admin field renamed to "Require 1st place
+  error message," and its description reworded to clarify it appears
+  specifically when there is a validation error for that setting (#74).
 
 ### Fixed
 

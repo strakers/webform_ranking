@@ -87,11 +87,11 @@ class WebformRankingInlineFormErrorsJavaScriptTest extends WebDriverTestBase {
     $this->getSession()->getPage()->find('css', 'input[name="ranking[matrix][c]"][value="na"]')->click();
 
     $this->getSession()->getPage()->pressButton('Submit');
-    $found = $this->assertSession()->waitForText('starting from the top');
+    $found = $this->assertSession()->waitForText('must be ranked in order');
     $this->assertNotNull($found, 'Expected validation error text never appeared.');
 
     $html = $this->getSession()->getPage()->getHtml();
-    $occurrences = substr_count($html, 'starting from the top');
+    $occurrences = substr_count($html, 'must be ranked in order');
     $this->assertSame(1, $occurrences, "Expected the error message exactly once, found $occurrences.");
   }
 

@@ -928,6 +928,68 @@ no-input fallback only ever see canonical shape. The plugin's
     reveal again) and an initial-load case (own webform, trigger
     pre-filled) exercising the `offsetParent` seed path specifically.
 
+25. **GitHub issue #74: validation message wording audit + a new
+    `#sequential_ranks_error` override.** User-flagged: the matrix
+    "no gaps" message ("ranks must be assigned starting from the top,
+    with no gaps — a lower rank cannot be used unless every rank above
+    it is also used") was too technical for an end user. Triage widened
+    the scope beyond just that one message: this element's own 8
+    `validateWebformRanking()` messages were internally inconsistent
+    with themselves *and* with Webform core's own real convention.
+    Confirmed against core (`web/modules/contrib/webform/src/Element/
+    *.php`) — `WebformSignature.php`'s `'@title contains an invalid
+    signature.'`, `WebformTermsOfService.php`'s `'@name field is
+    required.'`, `WebformTime.php`'s `'%name must be a valid time.'` —
+    core never colon-prefixes the field title; it's embedded
+    grammatically into the sentence. 5 of this element's own 8
+    messages had instead invented a `'@title: <message>'` colon-
+    prefixed style found nowhere in core, while the other 3 already
+    matched. Per user direction: rewrite **all 8** for plain language
+    and fix the colon-prefix deviation on the 5 that had it, but only
+    **two** get a new admin-overridable textfield — the sequential-
+    ranks message (new `#sequential_ranks_error`) and the existing
+    `#require_first_place_error` — the other three deviating messages
+    (duplicate rank, ranked+N/A conflict, `#required_all`'s "every item
+    must be ranked[/or marked N/A]") get wording fixes only. User
+    explicitly chose this narrower scope over "every message becomes
+    overridable" when asked.
+    `#sequential_ranks_error` follows `#require_first_place_error`'s
+    exact established pattern: `defineDefaultProperties()` default
+    `''`, added to `defineTranslatableProperties()`, checked via
+    `!empty()` in `validateWebformRanking()` (not `??` — the default is
+    `''`, not `NULL`, so `??` would treat an admin's not-yet-set field
+    as "customized" and never fall back to the translated default).
+    Its admin field is deliberately left ungated by `#states` (unlike
+    `na_label`/`require_first_place_error`, both gated on their own
+    toggle) even though the check it overrides is matrix-only — user's
+    own call: the extra `#states` complexity isn't worth it for a field
+    that simply does nothing when irrelevant, same as `#required_all`
+    itself applying unconditionally to both display styles.
+    `#require_first_place_error`'s own admin field also changed:
+    label "Require 1st place message" → "Require 1st place error
+    message"; description reworded to the "appears when there is an
+    error in validation for..." framing, which the new field's
+    description matches for consistency between the two.
+    Wording-change blast radius was wider than just
+    `validateWebformRanking()` itself — audited the whole test suite
+    (not just the obvious kernel test) and found two
+    `FunctionalJavascript` tests from earlier PRs
+    (`WebformRankingErrorDisplayJavaScriptTest`,
+    `WebformRankingInlineFormErrorsJavaScriptTest`) asserting on the
+    literal old `'starting from the top'` substring, plus several
+    `WebformRankingValidationKernelTest` substring assertions
+    (`'every item must be ranked'`, `'1st place'`) that no longer
+    matched the new wording — all updated, not just the obviously-
+    affected message-content tests. Two new kernel tests added
+    specifically for the sequential-ranks check, previously untested
+    at the kernel level at all (only indirect coverage via
+    `WebformRankingConditionalItemTest`/the FunctionalJavascript
+    suite): one for the new default wording, one for the
+    `#sequential_ranks_error` override, both using a directly-
+    fabricated `#_matrix_raw_input` (same forged-input technique
+    `testDuplicateRankInForgedValueIsRejected()` already established)
+    rather than driving the real matrix/converter path.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,

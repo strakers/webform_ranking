@@ -213,7 +213,10 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
 
     $errors = $form_state->getErrors();
     $this->assertCount(1, $errors);
-    $this->assertStringContainsString('every item must be ranked', (string) reset($errors));
+    // 'Every item in' (not just 'must be ranked'): both this message and
+    // the sequential-ranks one contain 'must be ranked' — this substring
+    // is specific to the #required_all message actually under test.
+    $this->assertStringContainsString('Every item in Ranking must be ranked', (string) reset($errors));
     // Flat shape, not canonical {values, na} — the exact regression.
     $this->assertSame(['item_a' => '1'], $form_state->getValue('ranking'));
   }
@@ -299,7 +302,10 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
 
     $errors = $form_state->getErrors();
     $this->assertCount(1, $errors);
-    $this->assertStringContainsString('every item must be ranked', (string) reset($errors));
+    // 'Every item in' (not just 'must be ranked'): both this message and
+    // the sequential-ranks one contain 'must be ranked' — this substring
+    // is specific to the #required_all message actually under test.
+    $this->assertStringContainsString('Every item in Ranking must be ranked', (string) reset($errors));
   }
 
   /**
@@ -420,7 +426,7 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
 
     $errors = $form_state->getErrors();
     $this->assertCount(1, $errors);
-    $this->assertStringContainsString('1st place', (string) reset($errors));
+    $this->assertStringContainsString('ranked 1st', (string) reset($errors));
   }
 
   /**
@@ -468,6 +474,54 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     $errors = $form_state->getErrors();
     $this->assertCount(1, $errors);
     $this->assertSame('Pick a favorite first.', (string) reset($errors));
+  }
+
+  /**
+   * Tests the sequential-ranks ("no gaps") check's default message.
+   *
+   * GitHub issue #74: no prior kernel-level coverage of this message's
+   * actual content existed (only indirect coverage via
+   * WebformRankingConditionalItemTest/the FunctionalJavascript suite) —
+   * added alongside the new '#sequential_ranks_error' override this
+   * issue introduces. '#_matrix_raw_input' is set directly (ranks 2/3
+   * used, 1 skipped) rather than driven through the real matrix/
+   * converter path, same forged-input approach
+   * testDuplicateRankInForgedValueIsRejected() above uses — the
+   * canonical 'values' here doesn't need to correspond to those same
+   * ranks, since the sequential-ranks check reads
+   * '#_matrix_raw_input' exclusively, independent of 'values'/'na'.
+   * #required_all is off so only this one check can fire.
+   */
+  public function testSequentialRanksRejectsGapWithDefaultMessage(): void {
+    $form_state = $this->validate(
+      [
+        '#required_all' => FALSE,
+        '#_matrix_raw_input' => ['item_a' => '2', 'item_b' => '3'],
+      ],
+      ['values' => ['item_a', 'item_b'], 'na' => []]
+    );
+
+    $errors = $form_state->getErrors();
+    $this->assertCount(1, $errors);
+    $this->assertStringContainsString('must be ranked in order', (string) reset($errors));
+  }
+
+  /**
+   * Tests that a custom #sequential_ranks_error overrides the default.
+   */
+  public function testSequentialRanksUsesCustomErrorMessage(): void {
+    $form_state = $this->validate(
+      [
+        '#required_all' => FALSE,
+        '#_matrix_raw_input' => ['item_a' => '2', 'item_b' => '3'],
+        '#sequential_ranks_error' => 'Start with your top pick.',
+      ],
+      ['values' => ['item_a', 'item_b'], 'na' => []]
+    );
+
+    $errors = $form_state->getErrors();
+    $this->assertCount(1, $errors);
+    $this->assertSame('Start with your top pick.', (string) reset($errors));
   }
 
 }
