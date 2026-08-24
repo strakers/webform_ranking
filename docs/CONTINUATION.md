@@ -762,6 +762,88 @@ no-input fallback only ever see canonical shape. The plugin's
     needed no change — it already ranks every item sequentially from
     1st, so it always satisfies this check.
 
+21. **GitHub issue #68: matrix `#required_all`'s native `required`
+    attribute silently blocked submission on a same-page conditionally-
+    hidden row.** Found the same way as #61/#63's own downstream bugs —
+    manual browser testing, not the automated suite: a headless HTTP
+    client never runs the browser's own native constraint validation,
+    so this class of bug is invisible to Kernel tests entirely.
+    `buildMatrix()` baked `#attributes['required'] = 'required'` onto
+    every `#required_all` row's radios unconditionally, *before* the
+    same method's own per-item `#states` visibility handling ran below
+    it. A row hidden by a same-page condition is only hidden
+    client-side (states.js toggling display) — the native attribute
+    stayed regardless, on a now-hidden, unfocusable control. Browsers
+    refuse to submit a form with an unsatisfied required control they
+    can't even focus, and do so silently: no Drupal error, no visible
+    error, just a console warning. Server-side validation was already
+    correct (`WebformRankingVisibilityResolver` already excludes hidden
+    items from the `#required_all` check in `validateWebformRanking()`)
+    — this was purely a client-side gap.
+    Fixed by mirroring the item's own `visible`/`invisible` condition
+    onto a `required`/`optional` companion in the *same* `#states`
+    array the row already gets — `optional` is core's own alias for
+    `!required`, exactly parallel to `invisible` being `!visible` (see
+    `Drupal.states.State.aliases`, `core/misc/states.js`) — so
+    states.js's own existing `state:required` handler adds/removes the
+    native attribute itself, in lockstep with visibility, both on page
+    load and on every live change. Gated on `#required_all` specifically
+    (confirmed by a regression this fix itself caught in
+    `WebformRankingCrossPageItemStatesTest`): with it off there's no
+    static `required` attribute to begin with, so mirroring anything
+    into `#states` would only add a pointless key nothing ever reads.
+    Test coverage: `WebformRankingRequiredIndicationTest` (the
+    required/optional mirror appears in the rendered `#states` JSON),
+    plus a new `WebformRankingRequiredAllConditionalRowJavaScriptTest`
+    (real browser: the native attribute tracks live visibility, and a
+    submission with the hidden row's own required constraint no longer
+    silently blocked reaches the confirmation page).
+
+22. **GitHub issue #69: validation errors rendered duplicated, once per
+    matrix radio, when core's `inline_form_errors` module is enabled.**
+    Also found via manual browser testing while verifying #63, same
+    session as #68. Root cause: `FormState::getError()` walks an
+    element's own `#parents` from the root and returns the *first*
+    prefix match — since every matrix radio's `#parents` starts with
+    the composite ranking element's own, every radio inherits the
+    *exact same* `#errors` value as the composite element itself, not
+    just its own. With `inline_form_errors` enabled, its
+    `hook_preprocess_form_element()` prints `#errors` inline for any
+    `form_element`-themed element lacking `#error_no_message` — every
+    matrix radio qualifies (`Radio`'s default `#theme_wrappers` is
+    `['form_element']`), and so does the composite ranking element
+    itself (this element's own `#theme_wrappers`, per
+    `preRenderWebformRanking()`'s docblock). The result: the module's
+    own composite-level message (added for #48, via
+    `preRenderWebformRanking()`) plus one duplicate per radio, plus a
+    second duplicate at the composite level itself once
+    `inline_form_errors` restores core's own normally-suppressed
+    `errors` template variable there too.
+    Fixed by setting `#error_no_message => TRUE` on every matrix radio
+    and on the composite element itself — the same convention Webform's
+    own composite elements (`WebformElementComposite`,
+    `WebformEmailConfirm`, etc.) already use to suppress exactly this.
+    Deliberate design decision, flagged in-code for future re-review:
+    chose to always suppress `inline_form_errors` and keep this
+    element's own rendering as the single code path, rather than
+    detecting the module and deferring to its own rendering when
+    active — `form-element.html.twig` renders the restored `errors`
+    variable as markup-for-markup the same `<div
+    class="form-item--error-message">` box this element's own
+    `ranking_errors` child already produces, just missing the
+    `webform-ranking__errors` class this module's own CSS/tests key
+    off, so deferring would add real complexity for no current benefit.
+    Test coverage: `WebformRankingErrorDisplayTest` (every matrix radio
+    and the composite element itself carry `#error_no_message`), plus
+    a new `WebformRankingInlineFormErrorsJavaScriptTest` (real browser,
+    `inline_form_errors` enabled: a failed submission's error text
+    appears exactly once, not once per radio).
+    Both #68 and #69 landed together in one PR (two commits, one per
+    issue, kept separate for independent review/revert despite both
+    editing the same `buildMatrix()`/`preRenderWebformRanking()`
+    methods) — bundled since both were found in the same browser-
+    testing session and both are small, low-risk fixes.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,

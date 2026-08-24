@@ -32,6 +32,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   render element at the point that resolution runs. Now resolved
   statically, server-side, for cross-page triggers specifically;
   same-page conditions are unaffected (#61).
+- Matrix display style: with "Require every visible item to be ranked
+  or marked N/A" on, a row hidden by its own same-page conditional
+  visibility still carried a native HTML `required` attribute on its
+  radios — a hidden, unfocusable control the browser could never let
+  the user satisfy, silently blocking submission with no Drupal error
+  and no visible one. Now kept in sync with the row's own live
+  visibility instead of being fixed at render time (#68).
+- Validation errors on this element rendered duplicated, once per
+  matrix radio, when Drupal core's `inline_form_errors` module is
+  enabled — the module's own per-element error rendering and this
+  element's own inline error text (added for #48) were both firing for
+  the same error, unaware of each other. Now suppressed the same way
+  Webform's own composite elements suppress it for their sub-elements
+  (#69).
 
 ## [0.2.1] - 2026-08-21
 
