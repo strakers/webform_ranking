@@ -97,6 +97,37 @@ class WebformRankingItemsAdminJavaScriptTest extends WebDriverTestBase {
                 'required' => [':input[name="trigger_field"]' => ['value' => 'x']],
               ],
             ],
+            // Item value with incidental surrounding whitespace (bypasses
+            // the settings-form-only save-time value validation since
+            // this is set directly on the config entity, not through
+            // WebformUiElementFormBase) — regression fixture for the
+            // trim() mismatch between PHP's $conditions_by_value lookup
+            // key and the JS-side live DOM value read.
+            [
+              'value' => ' e ',
+              'label' => 'Item E',
+              'states' => [
+                'visible' => [
+                  ':input[name="trigger_field"]' => ['value' => 'trimmed'],
+                ],
+              ],
+            ],
+            // A condition saved against a selector that isn't in
+            // getElementsSelectorOptions()'s list (e.g. its target
+            // element was since renamed/removed) — exercises
+            // createConditionRow()'s "stray option" fallback, which
+            // synthesizes an option for the saved-but-unlisted selector
+            // so it stays selected rather than silently showing as
+            // unselected/dropped.
+            [
+              'value' => 'f',
+              'label' => 'Item F',
+              'states' => [
+                'visible' => [
+                  ':input[name="no_longer_exists"]' => ['value' => 'x'],
+                ],
+              ],
+            ],
           ],
         ],
       ]),
@@ -366,7 +397,7 @@ JS,
     $triggers_a = $this->getSession()->getPage()->findAll('css', '.webform-ranking-item-configure-states');
     // Each item gets exactly one trigger button — see this method's
     // docblock for the duplicate-wrapper bug this guards against.
-    $this->assertCount(4, $triggers_a);
+    $this->assertCount(6, $triggers_a);
 
     $trigger_a = $this->triggerForItemValue('a');
     $this->assertSame('Conditions', $trigger_a->getText());
@@ -463,10 +494,90 @@ JS,
     $this->triggerForItemValue('b')->click();
     $assert_session->waitForElementVisible('css', '.ui-dialog');
 
-    $this->assertSame('visible', $this->getVisibleDialogFieldValue('.webform-states-table--state select'));
+    $this->assertSame('visible', $this->getVisibleDialogFieldValue('.webform-ranking-item-condition-state-cell select'));
     $this->assertSame(1, $this->conditionRowCount());
     $this->assertSame(':input[name="trigger_field"]', $this->conditionRowField(0, 'selector'));
     $this->assertSame('checked', $this->conditionRowField(0, 'trigger'));
+  }
+
+  /**
+   * Tests a saved condition still decomposes when its item value has
+   * incidental surrounding whitespace.
+   *
+   * Regression test (PR #66 code review): PHP's $conditions_by_value
+   * lookup key is trim($item['value'] ?? ''), but the JS side originally
+   * read the item's live Value input verbatim (no trim) before indexing
+   * into the same lookup table — a mismatch that would silently miss a
+   * real, decomposable condition and fall back to the raw YAML view.
+   */
+  public function testConditionBuilderShowsDecomposedConditionWithWhitespaceValue(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue(' e ')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $this->assertTrue($this->isVisibleInDialog('.webform-ranking-item-condition-builder'));
+    $this->assertFalse($this->isVisibleInDialog('.webform-ranking-item-yaml-view'));
+    $this->assertSame(':input[name="trigger_field"]', $this->conditionRowField(0, 'selector'));
+    $this->assertSame('value', $this->conditionRowField(0, 'trigger'));
+  }
+
+  /**
+   * Tests a saved condition targeting a selector no longer in the
+   * webform (e.g. its element was renamed/removed) still decomposes and
+   * stays selected via the "stray option" fallback.
+   *
+   * Regression test: PR #66's own fixture change (item 'b' switched from
+   * a deliberately out-of-list selector to a real one, for an unrelated
+   * reason) had silently dropped the only test coverage of this fallback
+   * branch in createConditionRow() — restored here as its own dedicated
+   * case rather than piggybacking on item 'b' again.
+   */
+  public function testConditionBuilderPreservesUnlistedSelector(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue('f')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $this->assertTrue($this->isVisibleInDialog('.webform-ranking-item-condition-builder'));
+    $this->assertSame(':input[name="no_longer_exists"]', $this->conditionRowField(0, 'selector'));
+    $this->assertSame('value', $this->conditionRowField(0, 'trigger'));
+  }
+
+  /**
+   * Tests setting an item's condition State to "Required" leaves this
+   * element's own, unrelated "Required" property checkbox untouched.
+   *
+   * Regression test (PR #66 code review): the state picker's <select>
+   * originally reused Webform core's own 'webform-states-table--state'
+   * class for visual parity, which also wired it into core's *unscoped*
+   * webform.element.states.js behavior — toggleRequiredCheckbox() scans
+   * the whole page (not just this dialog) for any matching <select> set
+   * to required/optional and force-checks/disables
+   * 'properties[required]' accordingly, even though that element-level
+   * property has nothing to do with one item's own conditional state.
+   * Now uses a module-scoped class instead (see
+   * webform_ranking.items_admin.js's own comment at the state row).
+   */
+  public function testConditionStateRequiredDoesNotAffectElementRequiredCheckbox(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $required_checkbox = $assert_session->elementExists('css', 'input[name="properties[required]"]');
+    $this->assertFalse($required_checkbox->isChecked(), 'Sanity check: Required starts unchecked.');
+
+    $this->triggerForItemValue('a')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $this->setVisibleDialogFieldValue('.webform-ranking-item-condition-state-cell select', 'required');
+
+    $this->assertFalse($required_checkbox->isChecked());
+    $this->assertFalse($required_checkbox->hasAttribute('disabled'));
   }
 
   /**
@@ -493,7 +604,7 @@ JS,
 
     foreach ($select_classes as $class) {
       $this->assertTrue(
-        $this->hasClassInDialog('.webform-states-table--state select', $class),
+        $this->hasClassInDialog('.webform-ranking-item-condition-state-cell select', $class),
         "State select missing '{$class}'."
       );
       $this->assertTrue(
@@ -535,7 +646,7 @@ JS,
     $this->triggerForItemValue('a')->click();
     $assert_session->waitForElementVisible('css', '.ui-dialog');
 
-    $this->setVisibleDialogFieldValue('.webform-states-table--state select', 'invisible');
+    $this->setVisibleDialogFieldValue('.webform-ranking-item-condition-state-cell select', 'invisible');
     $this->setConditionRowField(0, 'selector', ':input[name="trigger_field"]');
     $this->setConditionRowField(0, 'trigger', 'value');
     $this->setConditionRowField(0, 'value', 'hide-me');
@@ -608,6 +719,55 @@ JS,
   }
 
   /**
+   * Tests the duplicate-selector warning (PR #66 code review).
+   *
+   * Two condition rows on the same Element combined with "All" have no
+   * lossless #states representation — the emitted YAML would silently
+   * keep only the last one on save. The warning should appear for
+   * exactly that combination, and disappear again once either the
+   * operator changes away from "All" or the duplicate is resolved.
+   */
+  public function testDuplicateSelectorUnderAndShowsWarning(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue('a')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $warning = '.webform-ranking-item-condition-duplicate-warning';
+    $this->assertFalse($this->isVisibleInDialog($warning));
+
+    $this->setConditionRowField(0, 'selector', ':input[name="trigger_field"]');
+    $this->setConditionRowField(0, 'trigger', 'value');
+    $this->setConditionRowField(0, 'value', 'one');
+    $this->assertFalse($this->isVisibleInDialog($warning));
+
+    $this->clickConditionRowIcon(0, 'Add');
+    $this->setConditionRowField(1, 'selector', ':input[name="trigger_field"]');
+    $this->setConditionRowField(1, 'trigger', 'value');
+    $this->setConditionRowField(1, 'value', 'two');
+
+    // Same selector on both rows, operator still "All" (the default):
+    // the warning should now be visible.
+    $this->assertTrue($this->isVisibleInDialog($warning));
+
+    // Switching to "Any" resolves it — this combination has a valid,
+    // lossless #states representation.
+    $this->setVisibleDialogFieldValue('.webform-states-table--operator select', 'or');
+    $this->assertFalse($this->isVisibleInDialog($warning));
+
+    // Back to "All", still duplicated: warning returns.
+    $this->setVisibleDialogFieldValue('.webform-states-table--operator select', 'and');
+    $this->assertTrue($this->isVisibleInDialog($warning));
+
+    // Removing the duplicate row resolves it too, without touching the
+    // operator.
+    $this->clickConditionRowIcon(1, 'Remove');
+    $this->assertFalse($this->isVisibleInDialog($warning));
+  }
+
+  /**
    * Tests row add/remove chrome via each row's own +/- icon buttons.
    *
    * The combining-operator select is always visible on the state row
@@ -666,6 +826,31 @@ JS,
     $this->assertTrue($this->isVisibleInDialog('.webform-ranking-item-yaml-view'));
     $this->assertFalse($this->isVisibleInDialog('.webform-ranking-item-condition-builder'));
     $this->assertStringContainsString('required', $this->getOpenDialogYamlValue());
+  }
+
+  /**
+   * Tests "Clear condition" empties the field without switching views.
+   *
+   * Regression test (PR #66 code review): the "Clear condition" handler
+   * originally force-called showBuilder(), yanking a user who had "Edit
+   * source" open (as item 'd' does by default — see the test above) back
+   * to the builder view unannounced. Clearing should only empty the
+   * field, leaving whichever view was already showing.
+   */
+  public function testClearConditionDoesNotSwitchFromYamlView(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue('d')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+    $this->assertTrue($this->isVisibleInDialog('.webform-ranking-item-yaml-view'));
+
+    $this->getSession()->getPage()->pressButton('Clear condition');
+
+    $this->assertSame('', $this->getOpenDialogYamlValue());
+    $this->assertTrue($this->isVisibleInDialog('.webform-ranking-item-yaml-view'));
+    $this->assertFalse($this->isVisibleInDialog('.webform-ranking-item-condition-builder'));
   }
 
   /**
