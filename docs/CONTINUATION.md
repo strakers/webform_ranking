@@ -891,6 +891,43 @@ no-input fallback only ever see canonical shape. The plugin's
     `offsetParent` seed; combined here so it's written once and shared
     by both `toggleRow()` and `updateRankColumns()`, not copy-pasted.
 
+24. **GitHub issue #60: matrix rank columns didn't shrink as items were
+    conditionally hidden.** Rank columns (1st, 2nd, ... + N/A) are
+    built server-side from the *full configured* item count and never
+    recomputed — already flagged as a known gap in `buildMatrix()`'s
+    own docblock before this issue formalized it. Fixed entirely
+    client-side, in `webform_ranking.matrix.js`'s new
+    `updateRankColumns()`: hides (native `hidden` attribute, matching
+    GitHub issue #59's row-hiding technique) a rank column's header
+    *and* every row's cell at that position once fewer ranks than
+    configured items are currently needed. N/A is never affected —
+    it isn't a rank position tied to item count. Determines rank count
+    and whether an N/A column exists from the *first row's own radio
+    list* (`rank_1..rank_N` + optional `'na'`, always in the same
+    order — `buildMatrix()` builds every row from the same configured
+    rank count) rather than parsing header markup — matches this
+    module's established structure-agnostic convention (see
+    `getRadioGroups()`/`rowLabel()` in the same file).
+    Driven by the *same* `'state:visible'` event already listened to
+    for rank-exclusivity (`markTakenRanks()`) — no new event wiring,
+    just one more reaction to data already being observed. Shares
+    GitHub issue #59's `offsetParent`-seeded initial `visible` state
+    (see that entry above) rather than duplicating its own copy, since
+    both fixes landed together in the same branch/PR.
+    Purely presentational, by design: rank-exclusivity and server-side
+    "no gaps" validation
+    (`WebformRankingConverter::matrixRanksAreSequential()`) already
+    operate on the visible item set only — narrowing what's *offered*
+    here doesn't change what's *valid*.
+    A defensive `th[hidden]`/`td[hidden]` CSS rule (same rationale as
+    GitHub issue #59's `tr[hidden]` rule) guards against a theme's own
+    `th`/`td` display CSS outranking the `[hidden]` UA default.
+    Test coverage: two new `WebformRankingMatrixJavaScriptTest` cases —
+    a live transition (hide item C, confirm the 3rd column hides for
+    the still-visible items specifically, N/A stays offered, then
+    reveal again) and an initial-load case (own webform, trigger
+    pre-filled) exercising the `offsetParent` seed path specifically.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,

@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "Include this item when..." condition only hid the label and radios —
   the containing table row itself stayed in the DOM, showing as an
   empty-looking row. Now the whole row hides/shows together (#59).
+- Matrix display style: rank columns (1st, 2nd, 3rd, ... + N/A) no
+  longer stay fixed at the full configured item count when one or more
+  items are conditionally hidden — only as many rank positions as
+  there are currently-visible items are offered, N/A excepted (#60).
 - Matrix display style: with "Require every visible item to be ranked
   or marked N/A" on, a row hidden by its own same-page conditional
   visibility still carried a native HTML `required` attribute on its

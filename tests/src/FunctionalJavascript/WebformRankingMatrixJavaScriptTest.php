@@ -472,4 +472,118 @@ class WebformRankingMatrixJavaScriptTest extends WebDriverTestBase {
     $this->assertFalse($row->isVisible());
   }
 
+  /**
+   * Reads back whether a given rank's header cell is currently hidden.
+   *
+   * $rank is '1'-based numeric rank, or 'na' for the N/A column.
+   */
+  protected function isRankColumnHidden(string $rank): bool {
+    $header = $this->getSession()->getPage()->find(
+      'xpath',
+      '//table[contains(@class, "webform-ranking-matrix")]/thead/tr/th[' . ($rank === 'na' ? 'last()' : ((int) $rank + 1)) . ']'
+    );
+    return $header && !$header->isVisible();
+  }
+
+  /**
+   * Tests that surplus rank columns hide once fewer items are visible.
+   *
+   * GitHub issue #60: rank columns are built server-side from the full
+   * *configured* item count and never recomputed — with 3 configured
+   * items (one conditionally hidden), the 2 remaining visible items
+   * still offered "1st/2nd/3rd" instead of just "1st/2nd". Fixed
+   * client-side in webform_ranking.matrix.js: updateRankColumns(),
+   * reacting to the same 'state:visible' event already used for
+   * rank-exclusivity (see testHidingRankedItemFreesItsRankForOtherItems()
+   * above).
+   */
+  public function testSurplusRankColumnHidesWhenItemIsHidden(): void {
+    $this->drupalGet('/webform/test_ranking_matrix');
+    $this->assertSession()->waitForElement('css', 'input[name="ranking[matrix][a]"]');
+
+    // All 3 configured items start visible: all 3 rank columns, plus
+    // N/A, are offered.
+    $this->assertFalse($this->isRankColumnHidden('1'));
+    $this->assertFalse($this->isRankColumnHidden('2'));
+    $this->assertFalse($this->isRankColumnHidden('3'));
+    $this->assertFalse($this->isRankColumnHidden('na'));
+
+    // Hiding item C leaves only 2 visible items — the 3rd rank column
+    // is no longer meaningful and should hide, but N/A never depends
+    // on the visible item count and must stay offered regardless.
+    $this->getSession()->getPage()->fillField('trigger', 'anything');
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () {
+      return $this->isRankColumnHidden('3');
+    }));
+    $this->assertFalse($this->isRankColumnHidden('1'));
+    $this->assertFalse($this->isRankColumnHidden('2'));
+    $this->assertFalse($this->isRankColumnHidden('na'));
+
+    // Item C's own rank-3 cell (and its row) is hidden regardless (its
+    // own '#states'); confirm the *other* still-visible items' rank-3
+    // cells specifically are what just hid.
+    $rank3ForA = $this->getSession()->getPage()->find('css', 'input[name="ranking[matrix][a]"][value="3"]');
+    $this->assertFalse($rank3ForA->isVisible());
+
+    // Revealing item C again restores the 3rd column.
+    $this->getSession()->getPage()->fillField('trigger', '');
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () {
+      return !$this->isRankColumnHidden('3');
+    }));
+  }
+
+  /**
+   * Tests that a rank column already surplus on initial page load hides.
+   *
+   * Distinct from testSurplusRankColumnHidesWhenItemIsHidden(): that
+   * test only covers a *live* transition after a 'state:visible' event
+   * fires while webform_ranking.matrix.js is already listening.
+   * updateRankColumns() needs each row's *initial* visibility (seeded
+   * from `offsetParent === null`, since states.js's own page-load
+   * evaluation — and the 'state:visible' event announcing it — already
+   * happens before this behavior's listener exists to catch it) to get
+   * the very first render right. Uses its own webform so the trigger
+   * can start pre-filled.
+   */
+  public function testSurplusRankColumnHiddenOnInitialLoad(): void {
+    Webform::create([
+      'langcode' => 'en',
+      'status' => WebformInterface::STATUS_OPEN,
+      'id' => 'test_ranking_matrix_cols',
+      'title' => 'Test ranking matrix initial columns',
+      'elements' => Yaml::encode([
+        'trigger' => [
+          '#type' => 'textfield',
+          '#title' => 'Trigger',
+          '#default_value' => 'anything',
+        ],
+        'ranking' => [
+          '#type' => 'webform_ranking',
+          '#title' => 'Ranking',
+          '#ranking_style' => 'matrix',
+          '#items' => [
+            ['value' => 'a', 'label' => 'Item A'],
+            ['value' => 'b', 'label' => 'Item B'],
+            [
+              'value' => 'c',
+              'label' => 'Item C',
+              'states' => [
+                'invisible' => [
+                  ':input[name="trigger"]' => ['filled' => TRUE],
+                ],
+              ],
+            ],
+          ],
+        ],
+      ]),
+    ])->save();
+
+    $this->drupalGet('/webform/test_ranking_matrix_cols');
+    $this->assertSession()->waitForElement('css', 'input[name="ranking[matrix][a]"]');
+
+    $this->assertTrue($this->isRankColumnHidden('3'));
+    $this->assertFalse($this->isRankColumnHidden('1'));
+    $this->assertFalse($this->isRankColumnHidden('2'));
+  }
+
 }

@@ -578,10 +578,13 @@ class WebformRanking extends FormElementBase {
       // from rendering/submission entirely) is used instead of a live
       // '#states' attachment that would never react to anything anyway.
       //
-      // Not yet handled here: dynamic rank relabeling (recomputing
-      // "1st/2nd/3rd" to match the currently-visible item count) is a
-      // client-side JS concern, still open — see element.matrix
-      // library.
+      // Rank *columns* are still always built here from the full
+      // configured item count, regardless of any item's '#states' —
+      // hiding surplus columns once fewer are needed (GitHub issue #60)
+      // is a client-side JS concern (updateRankColumns(), reacting to
+      // the same 'state:visible' event this docblock's own condition
+      // triggers), not something this server-side render pass needs to
+      // account for.
       if (!empty($item['_cross_page_hidden'])) {
         foreach ($cell_keys as $cell_key) {
           $element['matrix'][$row_key][$cell_key]['#access'] = FALSE;
