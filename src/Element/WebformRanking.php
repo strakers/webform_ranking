@@ -514,6 +514,18 @@ class WebformRanking extends FormElementBase {
           '#default_value' => $current_value,
           '#parents' => $row_parents,
           '#id' => Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, [$return_value]))),
+          // GitHub issue #69: FormState::getError() matches on the
+          // *first* #parents prefix hit, so every one of these radios
+          // (whose #parents all start with this element's own) inherits
+          // the exact same '#errors' value as the composite element
+          // itself. With 'inline_form_errors' enabled, that means the
+          // message would print once per radio on top of the one copy
+          // this element's own preRenderWebformRanking() already
+          // renders (GitHub issue #48) — suppressed here the same way
+          // Webform's own composite elements (WebformElementComposite,
+          // WebformEmailConfirm, etc.) suppress it for their own
+          // sub-elements.
+          '#error_no_message' => TRUE,
         ];
         if ($required_all) {
           // Native 'required' (not Drupal's own '#required'): a plain
@@ -540,6 +552,7 @@ class WebformRanking extends FormElementBase {
           '#default_value' => $current_value,
           '#parents' => $row_parents,
           '#id' => Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, ['na']))),
+          '#error_no_message' => TRUE,
         ];
         if ($required_all) {
           if (!$suppress_static_required) {
@@ -1019,6 +1032,40 @@ class WebformRanking extends FormElementBase {
           '#markup' => $element['#errors'],
         ],
       ];
+
+      // GitHub issue #69: this element's own '#theme_wrappers' =>
+      // ['form_element'] means 'inline_form_errors' hook_preprocess_
+      // form_element() targets THIS element too, not just its
+      // sub-radios (already suppressed in buildMatrix()) — its
+      // core-preprocess-suppressed 'errors' template variable (see this
+      // method's own docblock above) gets restored right back by that
+      // hook once the module is enabled, duplicating the 'ranking_errors'
+      // child just added above. '#error_no_message' is core's own
+      // convention for opting an element out of that hook entirely.
+      //
+      // *** DELIBERATE DESIGN DECISION — FLAG FOR FUTURE RE-REVIEW ***
+      // Chose to always suppress 'inline_form_errors' and keep this
+      // element's own rendering as the single, unconditional code path,
+      // rather than detecting the module (e.g. via
+      // \Drupal::moduleHandler()->moduleExists('inline_form_errors'))
+      // and deferring to its rendering instead when active. Reasoning
+      // at the time: functionally there's nothing to gain from
+      // deferring — form-element.html.twig renders the restored
+      // 'errors' variable as
+      // `<div class="form-item--error-message">{{ errors }}</div>`,
+      // which is markup-for-markup what 'ranking_errors' above already
+      // produces (`<div class="webform-ranking__errors
+      // form-item--error-message">...</div>`), just missing the
+      // 'webform-ranking__errors' class this module's own CSS/tests
+      // (e.g. WebformRankingErrorDisplayJavaScriptTest) key off. A
+      // module-detection branch would add real complexity (two rendering
+      // paths to keep in sync, a hard dependency on another module's
+      // internal behavior) for a visually identical result. Revisit
+      // this if either template's error markup ever diverges in a way
+      // that would make deferring to 'inline_form_errors' meaningfully
+      // better — e.g. if it starts adding its own error icon/ARIA
+      // treatment beyond what {{ errors }} does today.
+      $element['#error_no_message'] = TRUE;
     }
 
     return $element;
