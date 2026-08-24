@@ -44,9 +44,30 @@
           selected[name] = input.value;
         }
       });
+      // Seeds `visible` from each row's *already-applied* states.js
+      // result, not just from events caught from here on. Both
+      // Drupal.behaviors.states (core/drupal.states, a declared
+      // dependency of this library — see webform_ranking.libraries.yml)
+      // and this behavior run during the same page-load attach pass,
+      // states.js first; by the time this runs, a conditionally-hidden
+      // row's cells are already hidden, but the 'state:visible' event
+      // that announced it fired *before* the listener below existed to
+      // catch it. Needed here so both toggleRow() (GitHub issue #59)
+      // and updateRankColumns() (GitHub issue #60) get their own very
+      // first render right, not just later live changes. `offsetParent
+      // === null` is a plain, well-supported way to ask "is this
+      // currently hidden" after the fact — same technique
+      // webform_ranking.dragdrop.js's own position-numbering already
+      // relies on for the same reason.
+      var firstInput = groups[name][0];
+      if (firstInput && firstInput.offsetParent === null) {
+        visible[name] = false;
+      }
+      toggleRow(firstInput, visible[name] !== false);
     });
 
     markTakenRanks(groups, groupNames, selected, visible);
+    updateRankColumns(table, groups, groupNames, visible);
 
     groupNames.forEach(function (name) {
       groups[name].forEach(function (input) {
@@ -114,6 +135,8 @@
         $(input).on('state:visible', function (e) {
           visible[name] = e.value;
           markTakenRanks(groups, groupNames, selected, visible);
+          toggleRow(input, e.value);
+          updateRankColumns(table, groups, groupNames, visible);
         });
       });
     });
@@ -186,6 +209,113 @@
         });
       });
     });
+  }
+
+  /**
+   * Hides/shows an item's entire <tr>, not just its label/radio cells.
+   *
+   * GitHub issue #59: buildMatrix() applies a conditionally-visible
+   * item's own '#states' to each cell's *content* individually (the
+   * label div, each radio) — states.js has nothing to attach to on the
+   * row itself (Table::preRenderTable()'s row-attributes-to-<tr> merge
+   * happens during #pre_render, before #states processing adds
+   * 'data-drupal-states' — the same timing constraint buildMatrix()'s
+   * own docblock documents for why the label needed a 'container'
+   * wrapper). Left alone, a hidden item's <tr>/<td> stays in the DOM:
+   * empty-looking, but present and taking up a table row. This is a
+   * pure display fix — server-side validation already discards a
+   * hidden item's stale selection regardless of what the row looks
+   * like (see WebformRankingVisibilityResolver).
+   *
+   * The native `hidden` IDL attribute, not a CSS class or inline
+   * `display`: equivalent to states.js's own plain 'visible'/'invisible'
+   * hiding (not the 'slide' variants — this element's own admin UI only
+   * ever offers 'visible'/'invisible', see WebformRanking::form()'s
+   * condition picker), and one property rather than a stylesheet
+   * dependency.
+   */
+  function toggleRow(input, isVisible) {
+    var row = input && input.closest('tr');
+    if (row) {
+      row.hidden = !isVisible;
+    }
+  }
+
+  /**
+   * Hides rank columns beyond what the currently-visible items need.
+   *
+   * GitHub issue #60: rank columns (1st, 2nd, 3rd, ... + N/A) are built
+   * server-side from the *full configured* item count and never
+   * recomputed — hiding one item via its own '#states' condition still
+   * left every other, still-visible item offering the full original
+   * set of rank positions (e.g. 3 configured items, one hidden, leaves
+   * 2 visible items each still offering "1st/2nd/3rd" instead of just
+   * "1st/2nd"). Purely presentational: rank-exclusivity
+   * (markTakenRanks()) and server-side validation
+   * (WebformRankingConverter::matrixRanksAreSequential()) already
+   * operate on the visible item set only, so narrowing what's *offered*
+   * here doesn't change what's *valid* — a stale rank beyond the
+   * visible count is already dropped server-side regardless of what
+   * the client displays.
+   *
+   * Hides (native `hidden` attribute, matching the same technique
+   * GitHub issue #59 uses for whole rows) rather than merely disabling:
+   * consistent with how a conditionally-hidden item itself is already
+   * handled, and avoids leaving a selectable-looking but meaningless
+   * "3rd" column visible when only 2 items could ever hold it.
+   *
+   * The N/A column, when present, is never affected — N/A isn't a
+   * rank position tied to the visible item count, any number of
+   * visible items can be marked N/A at once.
+   *
+   * At least one rank column always stays available even if every item
+   * is currently hidden (nothing meaningful to rank, but an entirely
+   * columnless table is worse) — an edge case, not a scenario this
+   * element's own validation otherwise needs to specially handle.
+   */
+  function updateRankColumns(table, groups, groupNames, visible) {
+    if (!groupNames.length) {
+      return;
+    }
+    // Every row has the same rank_1..rank_N (+ optional 'na') radios in
+    // the same order — buildMatrix() builds all rows from the same
+    // configured rank count — so the first row's own radio list is
+    // enough to determine both the total rank count and whether an N/A
+    // column exists, without assuming anything about header markup.
+    var sample = groups[groupNames[0]];
+    var hasNa = sample.length > 0 && sample[sample.length - 1].value === 'na';
+    var rankCount = sample.length - (hasNa ? 1 : 0);
+    if (rankCount < 1) {
+      return;
+    }
+
+    var visibleCount = groupNames.filter(function (name) {
+      return visible[name] !== false;
+    }).length;
+    var neededRanks = Math.max(1, Math.min(rankCount, visibleCount));
+
+    // Header cells: [blank label column, rank_1, rank_2, ..., rank_N,
+    // (na)] — same indexing buildAnnouncement() below already relies
+    // on (`columnIndex + 1`).
+    var headers = table.querySelectorAll('thead th');
+
+    for (var rank = 1; rank <= rankCount; rank++) {
+      var show = rank <= neededRanks;
+      var header = headers[rank];
+      if (header) {
+        header.hidden = !show;
+      }
+      var rankValue = String(rank);
+      groupNames.forEach(function (name) {
+        var radio = groups[name].filter(function (input) {
+          return input.value === rankValue;
+        })[0];
+        var cell = radio && radio.closest('td');
+        if (cell) {
+          cell.hidden = !show;
+        }
+      });
+    }
   }
 
   /**

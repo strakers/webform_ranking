@@ -75,7 +75,7 @@ class WebformRankingConditionalItemTest extends WebformRankingKernelTestBase {
    * normal item ranked 2nd. Before the B1 fix, the resolver wrongly
    * excluded item_b regardless of the trigger, which dropped rank '1'
    * from the raw input the sequential-rank check reads — producing a
-   * false "ranks must be assigned starting from the top" error.
+   * false "must be ranked in order" sequential-rank error.
    */
   public function testConditionSatisfiedConditionalItemRanked1stSubmitsCleanly(): void {
     [, $submission] = $this->createTriggerWebform('regression_gap', 'yes');

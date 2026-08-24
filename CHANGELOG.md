@@ -7,6 +7,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-24
+
+### Added
+
+- New "Require at least one item to be ranked 1st" option. Previously,
+  with "Allow abstaining (N/A)" and "Require every visible item to be
+  ranked or marked N/A" both on, a respondent could mark every item N/A
+  and satisfy validation without ranking anything at all. This is an
+  independent toggle for genuine engagement — a top choice is required,
+  even when full engagement with every item isn't (#63).
+- New "Sequential ranks error message" admin field (matrix display
+  style), for overriding the message shown when a respondent's ranking
+  skips a position (e.g. picks 2nd/3rd but not 1st) — matches the
+  existing "Require 1st place error message" field's pattern (#74).
+
+### Changed
+
+- Every validation error message this element shows has been rewritten
+  in plainer, less technical language, and brought in line with
+  Webform core's own message convention (the field's title embedded
+  grammatically into the sentence, e.g. `"@title field is required."`)
+  — several of this element's own messages had instead invented a
+  `"@title: <message>"` colon-prefixed style found nowhere else in
+  Webform core. Most notably, the matrix "no gaps" message changes from
+  "ranks must be assigned starting from the top, with no gaps — a lower
+  rank cannot be used unless every rank above it is also used" to
+  "must be ranked in order (1st, 2nd, 3rd, etc.), without skipping any
+  positions" — with an added sentence noting N/A is available, when
+  "Allow abstaining" is enabled (#74).
+- "Require 1st place message" admin field renamed to "Require 1st place
+  error message," and its description reworded to clarify it appears
+  specifically when there is a validation error for that setting (#74).
+
+### Fixed
+
+- Element-level `#states` (hiding/showing the *entire* ranking field
+  based on another element's value, configured via this element's own
+  "Conditional logic" tab) did not work at all — the `data-drupal-states`
+  attribute states.js needs was being written to a render array property
+  (`#attributes`) this element's `form_element` theme wrapper never
+  outputs. Per-item conditional visibility, and other elements reacting
+  to a ranking item's value, were unaffected and continue to work (#57).
+- Matrix display style: an item's own conditional visibility never
+  worked when its trigger element lived on an earlier wizard page —
+  Webform's cross-page condition handling never saw the condition in
+  the first place, since it isn't a real, independently-discoverable
+  render element at the point that resolution runs. Now resolved
+  statically, server-side, for cross-page triggers specifically;
+  same-page conditions are unaffected (#61).
+- Matrix display style: hiding a conditionally-visible item via its own
+  "Include this item when..." condition only hid the label and radios —
+  the containing table row itself stayed in the DOM, showing as an
+  empty-looking row. Now the whole row hides/shows together (#59).
+- Matrix display style: rank columns (1st, 2nd, 3rd, ... + N/A) no
+  longer stay fixed at the full configured item count when one or more
+  items are conditionally hidden — only as many rank positions as
+  there are currently-visible items are offered, N/A excepted (#60).
+- Matrix display style: with "Require every visible item to be ranked
+  or marked N/A" on, a row hidden by its own same-page conditional
+  visibility still carried a native HTML `required` attribute on its
+  radios — a hidden, unfocusable control the browser could never let
+  the user satisfy, silently blocking submission with no Drupal error
+  and no visible one. Now kept in sync with the row's own live
+  visibility instead of being fixed at render time (#68).
+- Validation errors on this element rendered duplicated, once per
+  matrix radio, when Drupal core's `inline_form_errors` module is
+  enabled — the module's own per-element error rendering and this
+  element's own inline error text (added for #48) were both firing for
+  the same error, unaware of each other. Now suppressed the same way
+  Webform's own composite elements suppress it for their sub-elements
+  (#69).
+
 ## [0.2.1] - 2026-08-21
 
 ### Added

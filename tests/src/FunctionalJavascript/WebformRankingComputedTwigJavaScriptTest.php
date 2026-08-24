@@ -156,8 +156,8 @@ class WebformRankingComputedTwigJavaScriptTest extends WebDriverTestBase {
   /**
    * Documents current (undecided-whether-final) behavior for a gap.
    *
-   * Ranking 1st + 3rd while skipping 2nd fails validation ("ranks must
-   * be assigned starting from the top, with no gaps") — but per the
+   * Ranking 1st + 3rd while skipping 2nd fails validation ("must be
+   * ranked in order... without skipping any positions") — but per the
    * unconditional value write-back, the live computed preview still
    * shows a value during this invalid interim state, and that value
    * is SILENTLY RENUMBERED: poutine's actual "3rd" pick renders as

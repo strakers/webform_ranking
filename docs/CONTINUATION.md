@@ -676,6 +676,320 @@ no-input fallback only ever see canonical shape. The plugin's
     didn't have one, and GitHub's own UI (license badge, etc.) reads it
     directly from the repo.
 
+19. **GitHub issue #61: per-item `#states` never worked when the trigger
+    lived on an earlier wizard page — root-caused and fixed.** Reported
+    from a real production form (a multi-page application with a
+    `constituency` select on an earlier page and a matrix item
+    conditioned on it several pages later). Distinct from Key Design
+    Decision #15's fix (that was same-page conditions never decoding
+    from YAML at all) and from the separate element-level `#states` gap
+    fixed for GitHub issue #57 — this is specifically the *per-item*
+    condition, on a *cross-page* trigger.
+    Root cause: `WebformSubmissionConditionsValidator::buildForm()`
+    walks the webform's *configured* element tree to detect and rewrite
+    cross-page conditions, before `\Drupal::formBuilder()` even starts
+    running `#process` callbacks — i.e. before `processWebformRanking()`
+    has expanded `#items` into real, independently-discoverable
+    sub-elements at all. An item's condition, nested inside `#items`, is
+    structurally invisible to that walk no matter what, so it never gets
+    the same cross-page treatment the element's own top-level `#states`
+    correctly receives.
+    Fixed by replicating that treatment narrowly, in
+    `resolveCrossPageItemStates()`: for each item whose condition
+    references a selector resolving to an element outside the
+    currently-accessible wizard page (confirmed, via a live
+    reproduction, that `$complete_form` already has non-current pages'
+    `#access` correctly set to `FALSE` by the time `processWebformRanking()`
+    runs — verified empirically, not just inferred), the condition is
+    resolved *once* via the same `WebformRankingVisibilityResolver`
+    server-side validation already trusts, then applied statically:
+    resolved-visible items render unconditionally (no live `#states`,
+    since nothing on the current page could ever change the trigger's
+    value anyway), resolved-hidden items get `'#access' => FALSE` on
+    every cell instead of a `'#states'` attachment pointing at a
+    selector with nothing on the page to bind to. Same-page conditions
+    (or no condition) are left completely untouched.
+    A design question was settled alongside this fix, before
+    implementation started: whether to rename the per-item `states` key
+    to `#states` (matching the element-level property). Decided against
+    — see the GitHub issue #61 discussion for the full reasoning
+    (`#`-prefixing is a Render API convention that doesn't apply to
+    `#items`' plain config data, and the rename isn't functionally
+    connected to this fix at all; it would only be a stored-config
+    migration cost for a cosmetic change).
+    Verified live in a browser (both directions): the reported `uab`
+    item is now fully excluded from rendering (no label, no radios —
+    not just hidden via CSS) when its cross-page condition resolves
+    true, and renders completely normally when it resolves false.
+
+20. **GitHub issue #63: `#require_first_place`, closing the "mark
+    everything N/A" loophole in `#required_all`.** With `#allow_na` on,
+    `#required_all` only checks that every visible item is *accounted
+    for* (ranked or marked N/A) — a respondent can satisfy that by
+    marking every item N/A without ever ranking anything. New
+    independent checkbox + companion `#require_first_place_error`
+    message (same checkbox+textfield-gated-by-`#states` pattern as core
+    Webform's own `required`/`required_error` pair), validated in
+    `validateWebformRanking()` right after the N/A-not-allowed check:
+    `!empty($element['#require_first_place']) && !$values`. Relies on
+    the pre-existing "ranks must be assigned starting from 1st place
+    with no gaps" check (which runs earlier in the same method) to make
+    a non-empty `$values` array equivalent to "something is ranked
+    1st" — no separate rank-position inspection needed.
+    Deliberately NOT gated behind `#allow_na` via `#states` (unlike
+    `na_label`): it was tempting to hide the checkbox whenever
+    `#allow_na` is off, reasoning it's a no-op there, but that's only
+    true when `#required_all` is *also* on (every item must be ranked
+    already, so 1st is automatic). With `#required_all` off, leaving
+    the whole ranking blank is otherwise a valid submission regardless
+    of `#allow_na`, and `#require_first_place` still meaningfully
+    forbids that specific case — so hiding it on `#allow_na` alone
+    would incorrectly suppress a combination where it still matters.
+    The error-message field's own visibility, though, is safely gated
+    on `#require_first_place` itself (progressive disclosure, not a
+    correctness question).
+    Custom-message fallback uses `!empty()`, not the `??` pattern
+    `#required_error` uses elsewhere in this file — deliberately: since
+    `require_first_place_error` defaults to `''` via
+    `defineDefaultProperties()`, `??` would treat that empty string as
+    "customized" and never fall back to the default translated message.
+    Not fixed for the pre-existing `#required_error` (out of scope for
+    this issue), but avoided in this new property from the start.
+    Test coverage: `WebformRankingValidationKernelTest`, four new cases
+    covering rejection (all-N/A), passing (partial ranking, no full
+    `#required_all` needed), opt-in (disabled by default), and the
+    custom error message. `getTestValues()` (Webform's own Test tab)
+    needed no change — it already ranks every item sequentially from
+    1st, so it always satisfies this check.
+
+21. **GitHub issue #68: matrix `#required_all`'s native `required`
+    attribute silently blocked submission on a same-page conditionally-
+    hidden row.** Found the same way as #61/#63's own downstream bugs —
+    manual browser testing, not the automated suite: a headless HTTP
+    client never runs the browser's own native constraint validation,
+    so this class of bug is invisible to Kernel tests entirely.
+    `buildMatrix()` baked `#attributes['required'] = 'required'` onto
+    every `#required_all` row's radios unconditionally, *before* the
+    same method's own per-item `#states` visibility handling ran below
+    it. A row hidden by a same-page condition is only hidden
+    client-side (states.js toggling display) — the native attribute
+    stayed regardless, on a now-hidden, unfocusable control. Browsers
+    refuse to submit a form with an unsatisfied required control they
+    can't even focus, and do so silently: no Drupal error, no visible
+    error, just a console warning. Server-side validation was already
+    correct (`WebformRankingVisibilityResolver` already excludes hidden
+    items from the `#required_all` check in `validateWebformRanking()`)
+    — this was purely a client-side gap.
+    Fixed by mirroring the item's own `visible`/`invisible` condition
+    onto a `required`/`optional` companion in the *same* `#states`
+    array the row already gets — `optional` is core's own alias for
+    `!required`, exactly parallel to `invisible` being `!visible` (see
+    `Drupal.states.State.aliases`, `core/misc/states.js`) — so
+    states.js's own existing `state:required` handler adds/removes the
+    native attribute itself, in lockstep with visibility, both on page
+    load and on every live change. Gated on `#required_all` specifically
+    (confirmed by a regression this fix itself caught in
+    `WebformRankingCrossPageItemStatesTest`): with it off there's no
+    static `required` attribute to begin with, so mirroring anything
+    into `#states` would only add a pointless key nothing ever reads.
+    Test coverage: `WebformRankingRequiredIndicationTest` (the
+    required/optional mirror appears in the rendered `#states` JSON),
+    plus a new `WebformRankingRequiredAllConditionalRowJavaScriptTest`
+    (real browser: the native attribute tracks live visibility, and a
+    submission with the hidden row's own required constraint no longer
+    silently blocked reaches the confirmation page).
+
+22. **GitHub issue #69: validation errors rendered duplicated, once per
+    matrix radio, when core's `inline_form_errors` module is enabled.**
+    Also found via manual browser testing while verifying #63, same
+    session as #68. Root cause: `FormState::getError()` walks an
+    element's own `#parents` from the root and returns the *first*
+    prefix match — since every matrix radio's `#parents` starts with
+    the composite ranking element's own, every radio inherits the
+    *exact same* `#errors` value as the composite element itself, not
+    just its own. With `inline_form_errors` enabled, its
+    `hook_preprocess_form_element()` prints `#errors` inline for any
+    `form_element`-themed element lacking `#error_no_message` — every
+    matrix radio qualifies (`Radio`'s default `#theme_wrappers` is
+    `['form_element']`), and so does the composite ranking element
+    itself (this element's own `#theme_wrappers`, per
+    `preRenderWebformRanking()`'s docblock). The result: the module's
+    own composite-level message (added for #48, via
+    `preRenderWebformRanking()`) plus one duplicate per radio, plus a
+    second duplicate at the composite level itself once
+    `inline_form_errors` restores core's own normally-suppressed
+    `errors` template variable there too.
+    Fixed by setting `#error_no_message => TRUE` on every matrix radio
+    and on the composite element itself — the same convention Webform's
+    own composite elements (`WebformElementComposite`,
+    `WebformEmailConfirm`, etc.) already use to suppress exactly this.
+    Deliberate design decision, flagged in-code for future re-review:
+    chose to always suppress `inline_form_errors` and keep this
+    element's own rendering as the single code path, rather than
+    detecting the module and deferring to its own rendering when
+    active — `form-element.html.twig` renders the restored `errors`
+    variable as markup-for-markup the same `<div
+    class="form-item--error-message">` box this element's own
+    `ranking_errors` child already produces, just missing the
+    `webform-ranking__errors` class this module's own CSS/tests key
+    off, so deferring would add real complexity for no current benefit.
+    Test coverage: `WebformRankingErrorDisplayTest` (every matrix radio
+    and the composite element itself carry `#error_no_message`), plus
+    a new `WebformRankingInlineFormErrorsJavaScriptTest` (real browser,
+    `inline_form_errors` enabled: a failed submission's error text
+    appears exactly once, not once per radio).
+    Both #68 and #69 landed together in one PR (two commits, one per
+    issue, kept separate for independent review/revert despite both
+    editing the same `buildMatrix()`/`preRenderWebformRanking()`
+    methods) — bundled since both were found in the same browser-
+    testing session and both are small, low-risk fixes.
+
+23. **GitHub issue #59: matrix style's conditionally-hidden `<tr>`
+    stayed in the DOM.** `buildMatrix()` applies a conditional item's
+    `#states` to each *cell's* content individually (label div, each
+    radio) — never to the row itself, since
+    `Table::preRenderTable()`'s row-`#attributes`-to-`<tr>` merge runs
+    during `#pre_render`, before `#states` processing adds
+    `data-drupal-states` (the same timing constraint the file's own
+    docblock already documents for why the label needed its own
+    `container` wrapper). A hidden item left an empty `<tr>`/`<td>`
+    shell visible. Not fixable server-side the same way as GitHub issue
+    #57's fix (that's `form-element`-theme-wrapper-specific, not
+    applicable to a `<tr>` inside `#type => 'table'`).
+    Fixed client-side instead, in `webform_ranking.matrix.js`: a new
+    `toggleRow()` sets the native `hidden` attribute on the row,
+    driven by the *same* `'state:visible'` event already listened to
+    for rank-exclusivity (`markTakenRanks()`, GitHub issue unrelated —
+    see that function's own docblock) — no new event wiring needed,
+    just acting on data already being observed.
+    A real, easy-to-miss timing gap surfaced while implementing this,
+    also fixed: `Drupal.behaviors.states` (core) and this element's own
+    behavior both run during the same page-load attach pass, states.js
+    first — so a row that's hidden *from the very first render* has
+    already had its `'state:visible'` event fire and its cells hidden
+    before this behavior's own listener existed to catch it. The
+    existing `visible` tracking (used by `markTakenRanks()`) had this
+    exact same latent gap already, just never surfaced as a visible bug
+    since a stale "taken rank" mark is cosmetic. Fixed by seeding each
+    row's initial `visible` state from `offsetParent === null` — the
+    same technique `webform_ranking.dragdrop.js` already uses for its
+    own position-numbering, for the identical reason. Covered by a
+    dedicated test (`testConditionalItemRowHiddenOnInitialLoad()`,
+    using its own webform with the trigger pre-filled) distinct from
+    the live-transition test, specifically to exercise this path.
+    Also added: `.webform-ranking-matrix tr[hidden] { display: none
+    !important; }` in `css/webform_ranking.matrix.css` — `[hidden]` is
+    a UA-stylesheet default, but table rows are a known cross-theme
+    exception where an equal-specificity `tr { display: table-row }`
+    rule declared later can win; explicit and `!important` so this
+    doesn't depend on whichever theme this element happens to render
+    under.
+    Landed alongside GitHub issue #60 in the same branch/PR — both
+    fixes react to the same `'state:visible'` event in the same file,
+    and an earlier implementation pass of each (see #60's own
+    write-up below) independently duplicated this exact same
+    `offsetParent` seed; combined here so it's written once and shared
+    by both `toggleRow()` and `updateRankColumns()`, not copy-pasted.
+
+24. **GitHub issue #60: matrix rank columns didn't shrink as items were
+    conditionally hidden.** Rank columns (1st, 2nd, ... + N/A) are
+    built server-side from the *full configured* item count and never
+    recomputed — already flagged as a known gap in `buildMatrix()`'s
+    own docblock before this issue formalized it. Fixed entirely
+    client-side, in `webform_ranking.matrix.js`'s new
+    `updateRankColumns()`: hides (native `hidden` attribute, matching
+    GitHub issue #59's row-hiding technique) a rank column's header
+    *and* every row's cell at that position once fewer ranks than
+    configured items are currently needed. N/A is never affected —
+    it isn't a rank position tied to item count. Determines rank count
+    and whether an N/A column exists from the *first row's own radio
+    list* (`rank_1..rank_N` + optional `'na'`, always in the same
+    order — `buildMatrix()` builds every row from the same configured
+    rank count) rather than parsing header markup — matches this
+    module's established structure-agnostic convention (see
+    `getRadioGroups()`/`rowLabel()` in the same file).
+    Driven by the *same* `'state:visible'` event already listened to
+    for rank-exclusivity (`markTakenRanks()`) — no new event wiring,
+    just one more reaction to data already being observed. Shares
+    GitHub issue #59's `offsetParent`-seeded initial `visible` state
+    (see that entry above) rather than duplicating its own copy, since
+    both fixes landed together in the same branch/PR.
+    Purely presentational, by design: rank-exclusivity and server-side
+    "no gaps" validation
+    (`WebformRankingConverter::matrixRanksAreSequential()`) already
+    operate on the visible item set only — narrowing what's *offered*
+    here doesn't change what's *valid*.
+    A defensive `th[hidden]`/`td[hidden]` CSS rule (same rationale as
+    GitHub issue #59's `tr[hidden]` rule) guards against a theme's own
+    `th`/`td` display CSS outranking the `[hidden]` UA default.
+    Test coverage: two new `WebformRankingMatrixJavaScriptTest` cases —
+    a live transition (hide item C, confirm the 3rd column hides for
+    the still-visible items specifically, N/A stays offered, then
+    reveal again) and an initial-load case (own webform, trigger
+    pre-filled) exercising the `offsetParent` seed path specifically.
+
+25. **GitHub issue #74: validation message wording audit + a new
+    `#sequential_ranks_error` override.** User-flagged: the matrix
+    "no gaps" message ("ranks must be assigned starting from the top,
+    with no gaps — a lower rank cannot be used unless every rank above
+    it is also used") was too technical for an end user. Triage widened
+    the scope beyond just that one message: this element's own 8
+    `validateWebformRanking()` messages were internally inconsistent
+    with themselves *and* with Webform core's own real convention.
+    Confirmed against core (`web/modules/contrib/webform/src/Element/
+    *.php`) — `WebformSignature.php`'s `'@title contains an invalid
+    signature.'`, `WebformTermsOfService.php`'s `'@name field is
+    required.'`, `WebformTime.php`'s `'%name must be a valid time.'` —
+    core never colon-prefixes the field title; it's embedded
+    grammatically into the sentence. 5 of this element's own 8
+    messages had instead invented a `'@title: <message>'` colon-
+    prefixed style found nowhere in core, while the other 3 already
+    matched. Per user direction: rewrite **all 8** for plain language
+    and fix the colon-prefix deviation on the 5 that had it, but only
+    **two** get a new admin-overridable textfield — the sequential-
+    ranks message (new `#sequential_ranks_error`) and the existing
+    `#require_first_place_error` — the other three deviating messages
+    (duplicate rank, ranked+N/A conflict, `#required_all`'s "every item
+    must be ranked[/or marked N/A]") get wording fixes only. User
+    explicitly chose this narrower scope over "every message becomes
+    overridable" when asked.
+    `#sequential_ranks_error` follows `#require_first_place_error`'s
+    exact established pattern: `defineDefaultProperties()` default
+    `''`, added to `defineTranslatableProperties()`, checked via
+    `!empty()` in `validateWebformRanking()` (not `??` — the default is
+    `''`, not `NULL`, so `??` would treat an admin's not-yet-set field
+    as "customized" and never fall back to the translated default).
+    Its admin field is deliberately left ungated by `#states` (unlike
+    `na_label`/`require_first_place_error`, both gated on their own
+    toggle) even though the check it overrides is matrix-only — user's
+    own call: the extra `#states` complexity isn't worth it for a field
+    that simply does nothing when irrelevant, same as `#required_all`
+    itself applying unconditionally to both display styles.
+    `#require_first_place_error`'s own admin field also changed:
+    label "Require 1st place message" → "Require 1st place error
+    message"; description reworded to the "appears when there is an
+    error in validation for..." framing, which the new field's
+    description matches for consistency between the two.
+    Wording-change blast radius was wider than just
+    `validateWebformRanking()` itself — audited the whole test suite
+    (not just the obvious kernel test) and found two
+    `FunctionalJavascript` tests from earlier PRs
+    (`WebformRankingErrorDisplayJavaScriptTest`,
+    `WebformRankingInlineFormErrorsJavaScriptTest`) asserting on the
+    literal old `'starting from the top'` substring, plus several
+    `WebformRankingValidationKernelTest` substring assertions
+    (`'every item must be ranked'`, `'1st place'`) that no longer
+    matched the new wording — all updated, not just the obviously-
+    affected message-content tests. Two new kernel tests added
+    specifically for the sequential-ranks check, previously untested
+    at the kernel level at all (only indirect coverage via
+    `WebformRankingConditionalItemTest`/the FunctionalJavascript
+    suite): one for the new default wording, one for the
+    `#sequential_ranks_error` override, both using a directly-
+    fabricated `#_matrix_raw_input` (same forged-input technique
+    `testDuplicateRankInForgedValueIsRejected()` already established)
+    rather than driving the real matrix/converter path.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,
