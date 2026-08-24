@@ -53,6 +53,8 @@ class WebformRanking extends WebformElementBase {
       'rank_labels' => [],
       'randomize_item_order' => FALSE,
       'required_all' => TRUE,
+      'require_first_place' => FALSE,
+      'require_first_place_error' => '',
     ] + parent::defineDefaultProperties();
 
     // The canonical {values, na} ranking value has no scalar
@@ -81,6 +83,7 @@ class WebformRanking extends WebformElementBase {
     return array_merge(parent::defineTranslatableProperties(), [
       'na_label',
       'rank_labels',
+      'require_first_place_error',
       // 'items' handled specially in buildConfigurationForm() /
       // config translation, since it's a nested sequence and only the
       // 'label' sub-key of each row should be exposed for translation.
@@ -231,6 +234,35 @@ class WebformRanking extends WebformElementBase {
       '#type' => 'checkbox',
       '#title' => $this->t('Require every visible item to be ranked or marked N/A'),
       '#default_value' => TRUE,
+    ];
+
+    // GitHub issue #63: with #allow_na on, #required_all alone lets a
+    // respondent mark every item N/A and satisfy validation without
+    // ranking anything — every item is "accounted for" (ranked or N/A),
+    // which is all #required_all checks. This is a separate, independent
+    // toggle for "you don't have to rank everything, but you must pick
+    // something as your top choice" — deliberately not gated behind
+    // #allow_na or #required_all via #states: it's only a true no-op
+    // when *both* #allow_na is off and #required_all is on (every visible
+    // item must be ranked, so something is always 1st already); with
+    // #required_all off (regardless of #allow_na), leaving the whole
+    // ranking blank is otherwise a valid, unranked submission, and this
+    // option still meaningfully forbids that specific case. Gating
+    // visibility on #allow_na alone (matching 'na_label' below) would
+    // incorrectly hide a combination where this checkbox still matters.
+    $form['ranking']['require_first_place'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Require at least one item to be ranked 1st'),
+      '#description' => $this->t('Ensures at least one item is ranked, even if not every item needs to be. Most useful alongside "Allow abstaining", which otherwise lets every item be marked N/A without ranking anything.'),
+    ];
+
+    $form['ranking']['require_first_place_error'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Require 1st place message'),
+      '#description' => $this->t('If set, this message will be used when no item is ranked 1st, instead of the default "You must select at least one option as 1st place." message.'),
+      '#states' => [
+        'visible' => [':input[name="properties[require_first_place]"]' => ['checked' => TRUE]],
+      ],
     ];
 
     $form['ranking']['randomize_item_order'] = [

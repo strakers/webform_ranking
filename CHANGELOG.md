@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- New "Require at least one item to be ranked 1st" option. Previously,
+  with "Allow abstaining (N/A)" and "Require every visible item to be
+  ranked or marked N/A" both on, a respondent could mark every item N/A
+  and satisfy validation without ranking anything at all. This is an
+  independent toggle for genuine engagement — a top choice is required,
+  even when full engagement with every item isn't (#63).
+
 ### Fixed
 
 - Element-level `#states` (hiding/showing the *entire* ranking field

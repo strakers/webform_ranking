@@ -405,6 +405,71 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
     );
   }
 
+  /**
+   * Tests the GitHub issue #63 loophole #require_first_place closes.
+   *
+   * With #allow_na on, #required_all alone is satisfied by marking
+   * every item N/A — nothing ranked at all. #require_first_place must
+   * reject that specifically.
+   */
+  public function testRequireFirstPlaceRejectsAllNaRanking(): void {
+    $form_state = $this->validate(
+      ['#allow_na' => TRUE, '#required_all' => TRUE, '#require_first_place' => TRUE],
+      ['values' => [], 'na' => ['item_a', 'item_b', 'item_c']]
+    );
+
+    $errors = $form_state->getErrors();
+    $this->assertCount(1, $errors);
+    $this->assertStringContainsString('1st place', (string) reset($errors));
+  }
+
+  /**
+   * Tests that #require_first_place passes once anything is ranked 1st.
+   *
+   * Deliberately a partial ranking (not every item), to confirm this
+   * check is independent of #required_all's own "everything accounted
+   * for" rule.
+   */
+  public function testRequireFirstPlacePassesWithPartialRanking(): void {
+    $form_state = $this->validate(
+      ['#allow_na' => TRUE, '#required_all' => FALSE, '#require_first_place' => TRUE],
+      ['values' => ['item_a'], 'na' => []]
+    );
+
+    $this->assertSame([], $form_state->getErrors());
+  }
+
+  /**
+   * Tests that #require_first_place is opt-in, not enforced by default.
+   */
+  public function testRequireFirstPlaceNotEnforcedWhenDisabled(): void {
+    $form_state = $this->validate(
+      ['#allow_na' => TRUE, '#required_all' => TRUE],
+      ['values' => [], 'na' => ['item_a', 'item_b', 'item_c']]
+    );
+
+    $this->assertSame([], $form_state->getErrors());
+  }
+
+  /**
+   * Tests that a custom #require_first_place_error overrides the default.
+   */
+  public function testRequireFirstPlaceUsesCustomErrorMessage(): void {
+    $form_state = $this->validate(
+      [
+        '#allow_na' => TRUE,
+        '#required_all' => TRUE,
+        '#require_first_place' => TRUE,
+        '#require_first_place_error' => 'Pick a favorite first.',
+      ],
+      ['values' => [], 'na' => ['item_a', 'item_b', 'item_c']]
+    );
+
+    $errors = $form_state->getErrors();
+    $this->assertCount(1, $errors);
+    $this->assertSame('Pick a favorite first.', (string) reset($errors));
+  }
+
 }
 
 /**

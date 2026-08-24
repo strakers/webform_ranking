@@ -1105,6 +1105,21 @@ class WebformRanking extends FormElementBase {
       $form_state->setError($element, $translation->translate('@title does not allow leaving items unranked.', ['@title' => $title]));
     }
 
+    // GitHub issue #63: #required_all alone (below) only ensures every
+    // visible item is *accounted for* — ranked or marked N/A — which a
+    // respondent can satisfy by marking everything N/A without ever
+    // ranking anything, when #allow_na is on. This is a separate check
+    // for genuine engagement: at least one item ranked 1st. The "ranks
+    // must be assigned starting from 1st place with no gaps" check above
+    // already guarantees $values can't be non-empty without a 1st-place
+    // entry, so an empty $values here is exactly equivalent to "nothing
+    // is ranked 1st" — no need to inspect rank position directly.
+    if (!empty($element['#require_first_place']) && !$values) {
+      $form_state->setError($element, !empty($element['#require_first_place_error'])
+        ? $element['#require_first_place_error']
+        : $translation->translate('@title: you must select at least one option as 1st place.', ['@title' => $title]));
+    }
+
     // Note on array structure: $values was already reindexed via
     // array_values() a few lines up (dropping stale/invisible entries),
     // which means it's *always* a proper 0-indexed sequential list by
