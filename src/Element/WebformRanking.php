@@ -460,6 +460,45 @@ class WebformRanking extends FormElementBase {
       $current_value = $defaults[$row_key] ?? NULL;
       $cell_keys = ['label'];
 
+      // Native 'required' vs. a same-page conditional row (GitHub issue
+      // #68): a row hidden by this item's own '#states' (applied below)
+      // is only hidden client-side (states.js toggling display) — a
+      // 'required' attribute baked in unconditionally would still sit
+      // on a now-hidden, unfocusable control, which the browser can
+      // never let the user satisfy and silently refuses to submit
+      // against (no Drupal error, no visible one — just a console
+      // warning). Fix: don't bake the attribute in statically for these
+      // rows at all. Instead, mirror the item's own visible/invisible
+      // condition onto 'required'/'optional' in the *same* '#states'
+      // array these cells already get below — 'optional' is core's own
+      // alias for '!required', exactly parallel to 'invisible' being
+      // '!visible' (Drupal.states.State.aliases, core/misc/states.js)
+      // — so states.js's existing state:required handler adds/removes
+      // the attribute itself, in lockstep with visibility, both on page
+      // load and on every live change. A row with no live per-page
+      // condition (including one already resolved and excluded via
+      // '#access' for the cross-page case, GitHub issue #61) is never
+      // hidden by JS, so it keeps the plain static attribute below —
+      // nothing there to ever desync from.
+      // Gated on $required_all: with it off, there's no static
+      // 'required' attribute anywhere on this row to begin with, so
+      // mirroring anything into '#states' here would only add a
+      // pointless 'optional'/'required' key nothing ever reads —
+      // confirmed by WebformRankingCrossPageItemStatesTest's own
+      // same-page-item-condition case, which expects a non-required_all
+      // item's '#states' to pass through completely untouched.
+      $has_live_states = $required_all && !empty($item['states']) && empty($item['_cross_page_hidden']);
+      $required_states = [];
+      if ($has_live_states) {
+        if (isset($item['states']['visible'])) {
+          $required_states['required'] = $item['states']['visible'];
+        }
+        elseif (isset($item['states']['invisible'])) {
+          $required_states['optional'] = $item['states']['invisible'];
+        }
+      }
+      $suppress_static_required = $has_live_states && $required_states;
+
       foreach ($rank_labels as $rank => $rank_label) {
         $return_value = (string) ($rank + 1);
         $cell_key = 'rank_' . $return_value;
@@ -484,7 +523,9 @@ class WebformRanking extends FormElementBase {
           // required check — which operates on a single radio, not the
           // whole row, and would conflict with this element's own
           // #required_all validation in validateWebformRanking().
-          $element['matrix'][$row_key][$cell_key]['#attributes']['required'] = 'required';
+          if (!$suppress_static_required) {
+            $element['matrix'][$row_key][$cell_key]['#attributes']['required'] = 'required';
+          }
           $element['matrix'][$row_key][$cell_key]['#attributes']['aria-describedby'] = $rank_header_ids[$rank];
         }
       }
@@ -501,7 +542,9 @@ class WebformRanking extends FormElementBase {
           '#id' => Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, ['na']))),
         ];
         if ($required_all) {
-          $element['matrix'][$row_key]['rank_na']['#attributes']['required'] = 'required';
+          if (!$suppress_static_required) {
+            $element['matrix'][$row_key]['rank_na']['#attributes']['required'] = 'required';
+          }
           $element['matrix'][$row_key]['rank_na']['#attributes']['aria-describedby'] = $na_header_id;
         }
       }
@@ -532,8 +575,12 @@ class WebformRanking extends FormElementBase {
         }
       }
       elseif (!empty($item['states'])) {
+        // $required_states (computed above) rides along in the same
+        // '#states' array so the required/optional mirror is live from
+        // the same trigger, not a second, independently-timed binding.
+        $cell_states = $suppress_static_required ? $item['states'] + $required_states : $item['states'];
         foreach ($cell_keys as $cell_key) {
-          $element['matrix'][$row_key][$cell_key]['#states'] = $item['states'];
+          $element['matrix'][$row_key][$cell_key]['#states'] = $cell_states;
         }
       }
     }

@@ -143,6 +143,60 @@ class WebformRankingRequiredIndicationTest extends KernelTestBase {
     $this->assertStringNotContainsString('This item is required', $markup);
   }
 
+  /**
+   * A radio input matching the given rendered #name, or NULL if absent.
+   */
+  protected function findRadioByName(string $markup, string $name): ?\DOMElement {
+    $dom = new \DOMDocument();
+    // Errors suppressed: the markup fragment isn't a full HTML document,
+    // which libxml otherwise warns about.
+    @$dom->loadHTML('<?xml encoding="utf-8" ?>' . $markup);
+    $xpath = new \DOMXPath($dom);
+    $nodes = $xpath->query(sprintf('//input[@name="%s"]', $name));
+    return $nodes->length ? $nodes->item(0) : NULL;
+  }
+
+  /**
+   * GitHub issue #68: a same-page conditional row's radios don't get a
+   * static native 'required' attribute — a row states.js can hide via
+   * display:none would otherwise still carry one, which the browser can
+   * never let the user satisfy, silently blocking submission client-side
+   * with no Drupal error. Instead, the item's own visible/invisible
+   * condition is mirrored onto 'required'/'optional' in the same
+   * '#states' array, so states.js's own state:required handler manages
+   * the attribute reactively. An item with no live condition is
+   * untouched by this and keeps the plain static attribute.
+   */
+  public function testMatrixRequiredAllWithConditionalItemMirrorsRequiredIntoStates(): void {
+    $markup = $this->renderElement([
+      '#ranking_style' => 'matrix',
+      '#required_all' => TRUE,
+      '#items' => [
+        ['value' => 'item_a', 'label' => 'Item A'],
+        [
+          'value' => 'item_b',
+          'label' => 'Item B',
+          'states' => [
+            'invisible' => [
+              ':input[name="trigger"]' => ['checked' => TRUE],
+            ],
+          ],
+        ],
+      ],
+    ]);
+
+    $item_a_radio = $this->findRadioByName($markup, 'ranking[matrix][item_a]');
+    $this->assertNotNull($item_a_radio);
+    $this->assertSame('required', $item_a_radio->getAttribute('required'));
+
+    $item_b_radio = $this->findRadioByName($markup, 'ranking[matrix][item_b]');
+    $this->assertNotNull($item_b_radio);
+    $this->assertSame('', $item_b_radio->getAttribute('required'));
+    $states = $item_b_radio->getAttribute('data-drupal-states');
+    $this->assertStringContainsString('invisible', $states);
+    $this->assertStringContainsString('optional', $states);
+  }
+
 }
 
 /**

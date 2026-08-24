@@ -136,6 +136,16 @@ class WebformRankingCrossPageItemStatesTest extends WebformRankingKernelTestBase
         '#type' => 'webform_ranking',
         '#title' => 'Ranking',
         '#ranking_style' => 'matrix',
+        // Explicitly off: #required_all defaults to TRUE (see the
+        // plugin's prepare()), which since GitHub issue #68 mirrors a
+        // live per-item condition's visible/invisible key into an
+        // extra 'required'/'optional' key in the same '#states' array
+        // — real, intended behavior, but orthogonal to what this test
+        // is isolating (only that a same-page condition survives
+        // resolveCrossPageItemStates() unclobbered). Off here so the
+        // assertion below stays a precise match against the item's own
+        // configured condition, not entangled with a second feature.
+        '#required_all' => FALSE,
         '#items' => [
           ['value' => 'a', 'label' => 'Item A', 'states' => []],
           [
