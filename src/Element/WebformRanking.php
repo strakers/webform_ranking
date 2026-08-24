@@ -1184,17 +1184,31 @@ class WebformRanking extends FormElementBase {
       array_flip($visible_item_values)
     );
     if (!WebformRankingConverter::matrixRanksAreSequential($raw_matrix_input)) {
-      $form_state->setError($element, $translation->translate('@title: ranks must be assigned starting from the top, with no gaps — a lower rank cannot be used unless every rank above it is also used.', ['@title' => $title]));
+      // GitHub issue #74: the default message here is plain-language,
+      // end-user-appropriate wording (not the earlier, more technical
+      // "starting from the top, with no gaps" phrasing), and — unlike
+      // every other message in this method except #require_first_place_error
+      // — admin-overridable via '#sequential_ranks_error', following that
+      // property's exact pattern ('!empty()', not '??': its own default
+      // is '' via defineDefaultProperties(), not NULL, so '??' would
+      // treat an unset-by-admin empty string as "customized" and never
+      // fall back to the translated default below).
+      $default_message = !empty($element['#allow_na'])
+        ? $translation->translate('Items in @title must be ranked in order (1st, 2nd, 3rd, etc.), without skipping any positions. Where available, you may select N/A for items you do not wish to rank.', ['@title' => $title])
+        : $translation->translate('Items in @title must be ranked in order (1st, 2nd, 3rd, etc.), without skipping any positions.', ['@title' => $title]);
+      $form_state->setError($element, !empty($element['#sequential_ranks_error'])
+        ? $element['#sequential_ranks_error']
+        : $default_message);
     }
 
     // Ranks must be a set: no item ranked more than once.
     if (count($values) !== count(array_unique($values))) {
-      $form_state->setError($element, $translation->translate('@title: each item can only be ranked once.', ['@title' => $title]));
+      $form_state->setError($element, $translation->translate('Each item in @title can only be ranked once.', ['@title' => $title]));
     }
 
     // No item both ranked and marked N/A.
     if (array_intersect($values, $na)) {
-      $form_state->setError($element, $translation->translate('@title: an item cannot be both ranked and marked N/A.', ['@title' => $title]));
+      $form_state->setError($element, $translation->translate('An item in @title cannot be both ranked and marked N/A.', ['@title' => $title]));
     }
 
     // N/A submitted despite not being enabled for this element.
@@ -1214,7 +1228,7 @@ class WebformRanking extends FormElementBase {
     if (!empty($element['#require_first_place']) && !$values) {
       $form_state->setError($element, !empty($element['#require_first_place_error'])
         ? $element['#require_first_place_error']
-        : $translation->translate('@title: you must select at least one option as 1st place.', ['@title' => $title]));
+        : $translation->translate('@title requires at least one item to be ranked 1st.', ['@title' => $title]));
     }
 
     // Note on array structure: $values was already reindexed via
@@ -1236,8 +1250,8 @@ class WebformRanking extends FormElementBase {
       $missing = array_diff($visible_item_values, $accounted_for);
       if ($missing) {
         $message = !empty($element['#allow_na'])
-          ? $translation->translate('@title: every item must be ranked or marked N/A.', ['@title' => $title])
-          : $translation->translate('@title: every item must be ranked.', ['@title' => $title]);
+          ? $translation->translate('Every item in @title must be ranked or marked N/A.', ['@title' => $title])
+          : $translation->translate('Every item in @title must be ranked.', ['@title' => $title]);
         $form_state->setError($element, $message);
       }
     }

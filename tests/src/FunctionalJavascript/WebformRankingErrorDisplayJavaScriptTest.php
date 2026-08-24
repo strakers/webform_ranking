@@ -124,7 +124,7 @@ class WebformRankingErrorDisplayJavaScriptTest extends WebDriverTestBase {
     $this->getSession()->getPage()->find('css', 'input[name="ranking[matrix][c]"][value="na"]')->click();
 
     $this->getSession()->getPage()->pressButton('Submit');
-    $found = $this->assertSession()->waitForText('starting from the top');
+    $found = $this->assertSession()->waitForText('must be ranked in order');
     $this->assertNotNull($found, 'Expected validation error text never appeared.');
 
     $wrapper = $this->wrapper();
@@ -134,7 +134,7 @@ class WebformRankingErrorDisplayJavaScriptTest extends WebDriverTestBase {
     $inline_error = $wrapper->find('css', '.webform-ranking__errors');
     $this->assertNotNull($inline_error, 'Inline error text missing.');
     $this->assertTrue($inline_error->isVisible());
-    $this->assertStringContainsString('starting from the top', $inline_error->getText());
+    $this->assertStringContainsString('must be ranked in order', $inline_error->getText());
   }
 
 }

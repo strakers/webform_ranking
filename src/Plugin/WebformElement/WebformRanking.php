@@ -55,6 +55,7 @@ class WebformRanking extends WebformElementBase {
       'required_all' => TRUE,
       'require_first_place' => FALSE,
       'require_first_place_error' => '',
+      'sequential_ranks_error' => '',
     ] + parent::defineDefaultProperties();
 
     // The canonical {values, na} ranking value has no scalar
@@ -84,6 +85,7 @@ class WebformRanking extends WebformElementBase {
       'na_label',
       'rank_labels',
       'require_first_place_error',
+      'sequential_ranks_error',
       // 'items' handled specially in buildConfigurationForm() /
       // config translation, since it's a nested sequence and only the
       // 'label' sub-key of each row should be exposed for translation.
@@ -258,11 +260,28 @@ class WebformRanking extends WebformElementBase {
 
     $form['ranking']['require_first_place_error'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('Require 1st place message'),
-      '#description' => $this->t('If set, this message will be used when no item is ranked 1st, instead of the default "You must select at least one option as 1st place." message.'),
+      '#title' => $this->t('Require 1st place error message'),
+      '#description' => $this->t('If set, this error message appears when there is an error in validation for "Require at least one item to be ranked 1st" — instead of the default "Field x requires at least one item to be ranked 1st." message.'),
       '#states' => [
         'visible' => [':input[name="properties[require_first_place]"]' => ['checked' => TRUE]],
       ],
+    ];
+
+    // GitHub issue #74: always visible, not #states-gated on
+    // #ranking_style — the check this overrides (sequential ranks
+    // starting from 1st, no gaps) is matrix-only (dragdrop's ordering
+    // is inherently gapless by construction, see
+    // WebformRankingConverter::matrixRanksAreSequential()'s docblock),
+    // so this field is a no-op for a drag/drop-style element. Left
+    // ungated anyway, by deliberate choice: the extra complexity of a
+    // ranking_style-conditional #states rule isn't worth it for a
+    // field that simply does nothing when irrelevant, same reasoning
+    // as #required_all above applying to both styles without any
+    // style-specific gating of its own.
+    $form['ranking']['sequential_ranks_error'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Sequential ranks error message'),
+      '#description' => $this->t('If set, this error message appears when there is an error in validation for out-of-order or skipped rankings (matrix display style only) — instead of the default "Items in Field x must be ranked in order (1st, 2nd, 3rd, etc.), without skipping any positions." message (which adds a sentence about N/A being available when "Allow abstaining" is enabled).'),
     ];
 
     $form['ranking']['randomize_item_order'] = [
