@@ -460,6 +460,45 @@ class WebformRanking extends FormElementBase {
       $current_value = $defaults[$row_key] ?? NULL;
       $cell_keys = ['label'];
 
+      // Native 'required' vs. a same-page conditional row (GitHub issue
+      // #68): a row hidden by this item's own '#states' (applied below)
+      // is only hidden client-side (states.js toggling display) — a
+      // 'required' attribute baked in unconditionally would still sit
+      // on a now-hidden, unfocusable control, which the browser can
+      // never let the user satisfy and silently refuses to submit
+      // against (no Drupal error, no visible one — just a console
+      // warning). Fix: don't bake the attribute in statically for these
+      // rows at all. Instead, mirror the item's own visible/invisible
+      // condition onto 'required'/'optional' in the *same* '#states'
+      // array these cells already get below — 'optional' is core's own
+      // alias for '!required', exactly parallel to 'invisible' being
+      // '!visible' (Drupal.states.State.aliases, core/misc/states.js)
+      // — so states.js's existing state:required handler adds/removes
+      // the attribute itself, in lockstep with visibility, both on page
+      // load and on every live change. A row with no live per-page
+      // condition (including one already resolved and excluded via
+      // '#access' for the cross-page case, GitHub issue #61) is never
+      // hidden by JS, so it keeps the plain static attribute below —
+      // nothing there to ever desync from.
+      // Gated on $required_all: with it off, there's no static
+      // 'required' attribute anywhere on this row to begin with, so
+      // mirroring anything into '#states' here would only add a
+      // pointless 'optional'/'required' key nothing ever reads —
+      // confirmed by WebformRankingCrossPageItemStatesTest's own
+      // same-page-item-condition case, which expects a non-required_all
+      // item's '#states' to pass through completely untouched.
+      $has_live_states = $required_all && !empty($item['states']) && empty($item['_cross_page_hidden']);
+      $required_states = [];
+      if ($has_live_states) {
+        if (isset($item['states']['visible'])) {
+          $required_states['required'] = $item['states']['visible'];
+        }
+        elseif (isset($item['states']['invisible'])) {
+          $required_states['optional'] = $item['states']['invisible'];
+        }
+      }
+      $suppress_static_required = $has_live_states && $required_states;
+
       foreach ($rank_labels as $rank => $rank_label) {
         $return_value = (string) ($rank + 1);
         $cell_key = 'rank_' . $return_value;
@@ -475,6 +514,18 @@ class WebformRanking extends FormElementBase {
           '#default_value' => $current_value,
           '#parents' => $row_parents,
           '#id' => Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, [$return_value]))),
+          // GitHub issue #69: FormState::getError() matches on the
+          // *first* #parents prefix hit, so every one of these radios
+          // (whose #parents all start with this element's own) inherits
+          // the exact same '#errors' value as the composite element
+          // itself. With 'inline_form_errors' enabled, that means the
+          // message would print once per radio on top of the one copy
+          // this element's own preRenderWebformRanking() already
+          // renders (GitHub issue #48) — suppressed here the same way
+          // Webform's own composite elements (WebformElementComposite,
+          // WebformEmailConfirm, etc.) suppress it for their own
+          // sub-elements.
+          '#error_no_message' => TRUE,
         ];
         if ($required_all) {
           // Native 'required' (not Drupal's own '#required'): a plain
@@ -484,7 +535,9 @@ class WebformRanking extends FormElementBase {
           // required check — which operates on a single radio, not the
           // whole row, and would conflict with this element's own
           // #required_all validation in validateWebformRanking().
-          $element['matrix'][$row_key][$cell_key]['#attributes']['required'] = 'required';
+          if (!$suppress_static_required) {
+            $element['matrix'][$row_key][$cell_key]['#attributes']['required'] = 'required';
+          }
           $element['matrix'][$row_key][$cell_key]['#attributes']['aria-describedby'] = $rank_header_ids[$rank];
         }
       }
@@ -499,9 +552,12 @@ class WebformRanking extends FormElementBase {
           '#default_value' => $current_value,
           '#parents' => $row_parents,
           '#id' => Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, ['na']))),
+          '#error_no_message' => TRUE,
         ];
         if ($required_all) {
-          $element['matrix'][$row_key]['rank_na']['#attributes']['required'] = 'required';
+          if (!$suppress_static_required) {
+            $element['matrix'][$row_key]['rank_na']['#attributes']['required'] = 'required';
+          }
           $element['matrix'][$row_key]['rank_na']['#attributes']['aria-describedby'] = $na_header_id;
         }
       }
@@ -532,8 +588,12 @@ class WebformRanking extends FormElementBase {
         }
       }
       elseif (!empty($item['states'])) {
+        // $required_states (computed above) rides along in the same
+        // '#states' array so the required/optional mirror is live from
+        // the same trigger, not a second, independently-timed binding.
+        $cell_states = $suppress_static_required ? $item['states'] + $required_states : $item['states'];
         foreach ($cell_keys as $cell_key) {
-          $element['matrix'][$row_key][$cell_key]['#states'] = $item['states'];
+          $element['matrix'][$row_key][$cell_key]['#states'] = $cell_states;
         }
       }
     }
@@ -972,6 +1032,40 @@ class WebformRanking extends FormElementBase {
           '#markup' => $element['#errors'],
         ],
       ];
+
+      // GitHub issue #69: this element's own '#theme_wrappers' =>
+      // ['form_element'] means 'inline_form_errors' hook_preprocess_
+      // form_element() targets THIS element too, not just its
+      // sub-radios (already suppressed in buildMatrix()) — its
+      // core-preprocess-suppressed 'errors' template variable (see this
+      // method's own docblock above) gets restored right back by that
+      // hook once the module is enabled, duplicating the 'ranking_errors'
+      // child just added above. '#error_no_message' is core's own
+      // convention for opting an element out of that hook entirely.
+      //
+      // *** DELIBERATE DESIGN DECISION — FLAG FOR FUTURE RE-REVIEW ***
+      // Chose to always suppress 'inline_form_errors' and keep this
+      // element's own rendering as the single, unconditional code path,
+      // rather than detecting the module (e.g. via
+      // \Drupal::moduleHandler()->moduleExists('inline_form_errors'))
+      // and deferring to its rendering instead when active. Reasoning
+      // at the time: functionally there's nothing to gain from
+      // deferring — form-element.html.twig renders the restored
+      // 'errors' variable as
+      // `<div class="form-item--error-message">{{ errors }}</div>`,
+      // which is markup-for-markup what 'ranking_errors' above already
+      // produces (`<div class="webform-ranking__errors
+      // form-item--error-message">...</div>`), just missing the
+      // 'webform-ranking__errors' class this module's own CSS/tests
+      // (e.g. WebformRankingErrorDisplayJavaScriptTest) key off. A
+      // module-detection branch would add real complexity (two rendering
+      // paths to keep in sync, a hard dependency on another module's
+      // internal behavior) for a visually identical result. Revisit
+      // this if either template's error markup ever diverges in a way
+      // that would make deferring to 'inline_form_errors' meaningfully
+      // better — e.g. if it starts adding its own error icon/ARIA
+      // treatment beyond what {{ errors }} does today.
+      $element['#error_no_message'] = TRUE;
     }
 
     return $element;

@@ -2,6 +2,8 @@
 
 namespace Drupal\Tests\webform_ranking\Kernel;
 
+use Drupal\Core\Form\FormInterface;
+use Drupal\Core\Form\FormStateInterface;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\webform_ranking\Element\WebformRanking as WebformRankingElement;
 use PHPUnit\Framework\Attributes\Group;
@@ -112,6 +114,88 @@ class WebformRankingErrorDisplayTest extends KernelTestBase {
     $this->assertContains('js-webform-ranking', $element['#wrapper_attributes']['class']);
     $this->assertSame('edit-ranking--wrapper', $element['#wrapper_attributes']['id']);
     $this->assertSame('edit-ranking--wrapper', $element['#wrapper_attributes']['data-drupal-selector']);
+  }
+
+  /**
+   * GitHub issue #69: every matrix radio suppresses its own inline error.
+   *
+   * Unlike the tests above, this drives a real form build (buildMatrix()'s
+   * own #process output, via FormBuilder — not a hand-built element) since
+   * '#error_no_message' is set by buildMatrix() itself, not
+   * preRenderWebformRanking(). FormState::getError() matches on the first
+   * #parents prefix hit, so every matrix radio would otherwise inherit the
+   * exact same '#errors' value as the composite element itself — with
+   * 'inline_form_errors' enabled, that means its
+   * hook_preprocess_form_element() would print the same message once per
+   * radio, on top of the one copy preRenderWebformRanking() already
+   * renders. Checked against the built render array directly:
+   * '#error_no_message' is a server-side render property, never emitted
+   * to markup, so it can't be asserted from rendered HTML the way the
+   * required-indication tests assert '#attributes'.
+   */
+  public function testMatrixRadiosSuppressOwnInlineErrorMessage(): void {
+    \Drupal::configFactory()->getEditable('webform.settings')
+      ->set('element.allowed_tags', 'admin')
+      ->save();
+    /** @var \Drupal\webform_ranking\Plugin\WebformElement\WebformRanking $plugin */
+    $plugin = \Drupal::service('plugin.manager.webform.element')->createInstance('webform_ranking');
+    $element = [
+      '#type' => 'webform_ranking',
+      '#title' => 'Ranking',
+      '#ranking_style' => 'matrix',
+      '#allow_na' => TRUE,
+      '#items' => [
+        ['value' => 'item_a', 'label' => 'Item A'],
+        ['value' => 'item_b', 'label' => 'Item B'],
+      ],
+    ];
+    $plugin->prepare($element);
+
+    $form_object = new WebformRankingErrorDisplayDummyForm($element);
+    $form = \Drupal::formBuilder()->getForm($form_object);
+
+    $matrix = $form['ranking']['matrix'];
+    foreach (['item_a', 'item_b'] as $row_key) {
+      $this->assertTrue($matrix[$row_key]['rank_1']['#error_no_message'] ?? FALSE, "$row_key rank_1 radio should suppress its own inline error.");
+      $this->assertTrue($matrix[$row_key]['rank_2']['#error_no_message'] ?? FALSE, "$row_key rank_2 radio should suppress its own inline error.");
+      $this->assertTrue($matrix[$row_key]['rank_na']['#error_no_message'] ?? FALSE, "$row_key rank_na radio should suppress its own inline error.");
+    }
+  }
+
+}
+
+/**
+ * Minimal form wrapping a single pre-prepared ranking element.
+ */
+class WebformRankingErrorDisplayDummyForm implements FormInterface {
+
+  public function __construct(protected array $element) {}
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getFormId() {
+    return 'webform_ranking_error_display_dummy_form';
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function buildForm(array $form, FormStateInterface $form_state) {
+    $form['ranking'] = $this->element;
+    return $form;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function validateForm(array &$form, FormStateInterface $form_state) {
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function submitForm(array &$form, FormStateInterface $form_state) {
   }
 
 }
