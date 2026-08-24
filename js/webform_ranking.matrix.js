@@ -44,6 +44,25 @@
           selected[name] = input.value;
         }
       });
+      // Seeds `visible` from each row's *already-applied* states.js
+      // result, not just from events caught from here on. Both
+      // Drupal.behaviors.states (core/drupal.states, a declared
+      // dependency of this library — see webform_ranking.libraries.yml)
+      // and this behavior run during the same page-load attach pass,
+      // states.js first; by the time this runs, a conditionally-hidden
+      // row's cells are already hidden, but the 'state:visible' event
+      // that announced it fired *before* the listener below existed to
+      // catch it. Needed here so toggleRow() (GitHub issue #59) gets
+      // the very first render right, not just later live changes.
+      // `offsetParent === null` is a plain, well-supported way to ask
+      // "is this currently hidden" after the fact — same technique
+      // webform_ranking.dragdrop.js's own position-numbering already
+      // relies on for the same reason.
+      var firstInput = groups[name][0];
+      if (firstInput && firstInput.offsetParent === null) {
+        visible[name] = false;
+      }
+      toggleRow(firstInput, visible[name] !== false);
     });
 
     markTakenRanks(groups, groupNames, selected, visible);
@@ -114,6 +133,7 @@
         $(input).on('state:visible', function (e) {
           visible[name] = e.value;
           markTakenRanks(groups, groupNames, selected, visible);
+          toggleRow(input, e.value);
         });
       });
     });
@@ -186,6 +206,36 @@
         });
       });
     });
+  }
+
+  /**
+   * Hides/shows an item's entire <tr>, not just its label/radio cells.
+   *
+   * GitHub issue #59: buildMatrix() applies a conditionally-visible
+   * item's own '#states' to each cell's *content* individually (the
+   * label div, each radio) — states.js has nothing to attach to on the
+   * row itself (Table::preRenderTable()'s row-attributes-to-<tr> merge
+   * happens during #pre_render, before #states processing adds
+   * 'data-drupal-states' — the same timing constraint buildMatrix()'s
+   * own docblock documents for why the label needed a 'container'
+   * wrapper). Left alone, a hidden item's <tr>/<td> stays in the DOM:
+   * empty-looking, but present and taking up a table row. This is a
+   * pure display fix — server-side validation already discards a
+   * hidden item's stale selection regardless of what the row looks
+   * like (see WebformRankingVisibilityResolver).
+   *
+   * The native `hidden` IDL attribute, not a CSS class or inline
+   * `display`: equivalent to states.js's own plain 'visible'/'invisible'
+   * hiding (not the 'slide' variants — this element's own admin UI only
+   * ever offers 'visible'/'invisible', see WebformRanking::form()'s
+   * condition picker), and one property rather than a stylesheet
+   * dependency.
+   */
+  function toggleRow(input, isVisible) {
+    var row = input && input.closest('tr');
+    if (row) {
+      row.hidden = !isVisible;
+    }
   }
 
   /**

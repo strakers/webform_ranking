@@ -844,6 +844,53 @@ no-input fallback only ever see canonical shape. The plugin's
     methods) — bundled since both were found in the same browser-
     testing session and both are small, low-risk fixes.
 
+23. **GitHub issue #59: matrix style's conditionally-hidden `<tr>`
+    stayed in the DOM.** `buildMatrix()` applies a conditional item's
+    `#states` to each *cell's* content individually (label div, each
+    radio) — never to the row itself, since
+    `Table::preRenderTable()`'s row-`#attributes`-to-`<tr>` merge runs
+    during `#pre_render`, before `#states` processing adds
+    `data-drupal-states` (the same timing constraint the file's own
+    docblock already documents for why the label needed its own
+    `container` wrapper). A hidden item left an empty `<tr>`/`<td>`
+    shell visible. Not fixable server-side the same way as GitHub issue
+    #57's fix (that's `form-element`-theme-wrapper-specific, not
+    applicable to a `<tr>` inside `#type => 'table'`).
+    Fixed client-side instead, in `webform_ranking.matrix.js`: a new
+    `toggleRow()` sets the native `hidden` attribute on the row,
+    driven by the *same* `'state:visible'` event already listened to
+    for rank-exclusivity (`markTakenRanks()`, GitHub issue unrelated —
+    see that function's own docblock) — no new event wiring needed,
+    just acting on data already being observed.
+    A real, easy-to-miss timing gap surfaced while implementing this,
+    also fixed: `Drupal.behaviors.states` (core) and this element's own
+    behavior both run during the same page-load attach pass, states.js
+    first — so a row that's hidden *from the very first render* has
+    already had its `'state:visible'` event fire and its cells hidden
+    before this behavior's own listener existed to catch it. The
+    existing `visible` tracking (used by `markTakenRanks()`) had this
+    exact same latent gap already, just never surfaced as a visible bug
+    since a stale "taken rank" mark is cosmetic. Fixed by seeding each
+    row's initial `visible` state from `offsetParent === null` — the
+    same technique `webform_ranking.dragdrop.js` already uses for its
+    own position-numbering, for the identical reason. Covered by a
+    dedicated test (`testConditionalItemRowHiddenOnInitialLoad()`,
+    using its own webform with the trigger pre-filled) distinct from
+    the live-transition test, specifically to exercise this path.
+    Also added: `.webform-ranking-matrix tr[hidden] { display: none
+    !important; }` in `css/webform_ranking.matrix.css` — `[hidden]` is
+    a UA-stylesheet default, but table rows are a known cross-theme
+    exception where an equal-specificity `tr { display: table-row }`
+    rule declared later can win; explicit and `!important` so this
+    doesn't depend on whichever theme this element happens to render
+    under.
+    Landed alongside GitHub issue #60 in the same branch/PR — both
+    fixes react to the same `'state:visible'` event in the same file,
+    and an earlier implementation pass of each (see #60's own
+    write-up below) independently duplicated this exact same
+    `offsetParent` seed; combined here so it's written once and shared
+    by both `toggleRow()` and `updateRankColumns()`, not copy-pasted.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,

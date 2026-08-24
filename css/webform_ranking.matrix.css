@@ -20,6 +20,22 @@
 }
 
 /**
+ * GitHub issue #59: webform_ranking.matrix.js sets the native `hidden`
+ * attribute on a conditionally-hidden item's <tr> (states.js has
+ * nothing to attach '#states' to on the row itself — see
+ * WebformRanking::buildMatrix()'s docblock). `[hidden] { display: none }`
+ * is already a UA-stylesheet default, but table rows are a known
+ * exception across themes: a `tr { display: table-row }` rule of equal
+ * specificity, declared later in the cascade, can win over the UA
+ * default and leave the row visible despite the attribute. Explicit and
+ * `!important` here so this doesn't depend on which theme's own base
+ * CSS this element happens to render under.
+ */
+.webform-ranking-matrix tr[hidden] {
+  display: none !important;
+}
+
+/**
  * Informational only — this radio is still enabled and clickable;
  * clicking it reassigns the rank away from whichever item currently
  * holds it (see webform_ranking.matrix.js). Not a `:disabled` style:

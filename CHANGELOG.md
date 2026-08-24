@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   render element at the point that resolution runs. Now resolved
   statically, server-side, for cross-page triggers specifically;
   same-page conditions are unaffected (#61).
+- Matrix display style: hiding a conditionally-visible item via its own
+  "Include this item when..." condition only hid the label and radios —
+  the containing table row itself stayed in the DOM, showing as an
+  empty-looking row. Now the whole row hides/shows together (#59).
 - Matrix display style: with "Require every visible item to be ranked
   or marked N/A" on, a row hidden by its own same-page conditional
   visibility still carried a native HTML `required` attribute on its

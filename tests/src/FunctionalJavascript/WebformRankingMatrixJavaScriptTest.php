@@ -380,4 +380,96 @@ class WebformRankingMatrixJavaScriptTest extends WebDriverTestBase {
     $this->assertTrue($this->isTaken('b', '1'));
   }
 
+  /**
+   * Tests that hiding a conditional item hides its whole <tr>, not just
+   * its label/radio cells (GitHub issue #59).
+   *
+   * Real bug: buildMatrix() applies a conditional item's '#states' to
+   * each cell's *content* individually — the label div, each radio —
+   * never to the row itself (Table::preRenderTable()'s row-attributes-
+   * to-<tr> merge happens before '#states' processing can add
+   * 'data-drupal-states', the same timing constraint documented for why
+   * the label needed its own 'container' wrapper). A hidden item left
+   * an empty-looking <tr>/<td> shell in the table. Fixed client-side in
+   * webform_ranking.matrix.js: toggleRow() sets the native `hidden`
+   * attribute on the row itself, driven by the same 'state:visible'
+   * event already listened to for rank-exclusivity (see
+   * testHidingRankedItemFreesItsRankForOtherItems()).
+   */
+  public function testConditionalItemRowIsFullyHidden(): void {
+    $this->drupalGet('/webform/test_ranking_matrix');
+
+    $radio = $this->getSession()->getPage()->find('css', 'input[name="ranking[matrix][c]"][value="1"]');
+    $row = $radio->find('xpath', './ancestor::tr[1]');
+    $this->assertNotNull($row);
+    $this->assertTrue($row->isVisible());
+
+    $this->getSession()->getPage()->fillField('trigger', 'anything');
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () use ($row) {
+      return !$row->isVisible();
+    }));
+
+    // Revealing it again un-hides the row, not just its cells.
+    $this->getSession()->getPage()->fillField('trigger', '');
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () use ($row) {
+      return $row->isVisible();
+    }));
+  }
+
+  /**
+   * Tests that a row already hidden on initial page load stays hidden.
+   *
+   * Distinct from testConditionalItemRowIsFullyHidden(): that test only
+   * covers a *live* transition after a 'state:visible' event fires
+   * while webform_ranking.matrix.js is already listening.
+   * webform_ranking.matrix.js seeds each row's initial visibility from
+   * `offsetParent === null` specifically because states.js's own
+   * behavior evaluates and fires that event during page-load attach,
+   * before this element's own behavior has a chance to listen for it —
+   * an item hidden from the very first render would otherwise never
+   * get its row hidden at all. Uses its own webform (not the shared
+   * fixture) so the trigger can start pre-filled.
+   */
+  public function testConditionalItemRowHiddenOnInitialLoad(): void {
+    Webform::create([
+      'langcode' => 'en',
+      'status' => WebformInterface::STATUS_OPEN,
+      'id' => 'test_ranking_matrix_initial_hide',
+      'title' => 'Test ranking matrix initial hide',
+      'elements' => Yaml::encode([
+        'trigger' => [
+          '#type' => 'textfield',
+          '#title' => 'Trigger',
+          '#default_value' => 'anything',
+        ],
+        'ranking' => [
+          '#type' => 'webform_ranking',
+          '#title' => 'Ranking',
+          '#ranking_style' => 'matrix',
+          '#items' => [
+            ['value' => 'a', 'label' => 'Item A'],
+            ['value' => 'b', 'label' => 'Item B'],
+            [
+              'value' => 'c',
+              'label' => 'Item C',
+              'states' => [
+                'invisible' => [
+                  ':input[name="trigger"]' => ['filled' => TRUE],
+                ],
+              ],
+            ],
+          ],
+        ],
+      ]),
+    ])->save();
+
+    $this->drupalGet('/webform/test_ranking_matrix_initial_hide');
+    $this->assertSession()->waitForElement('css', 'input[name="ranking[matrix][a]"]');
+
+    $radio = $this->getSession()->getPage()->find('css', 'input[name="ranking[matrix][c]"][value="1"]');
+    $row = $radio->find('xpath', './ancestor::tr[1]');
+    $this->assertNotNull($row);
+    $this->assertFalse($row->isVisible());
+  }
+
 }
