@@ -40,3 +40,26 @@
 .webform-ranking-item-icon-button:active {
   opacity: 1;
 }
+
+/**
+ * State row/cell: cosmetic-only equivalents of
+ * web/modules/contrib/webform/css/webform.element.states.css's own
+ * 'tr.webform-states-table--state' / '...--state select' rules,
+ * deliberately reimplemented under module-scoped class names rather
+ * than reusing those classes directly — see
+ * js/webform_ranking.items_admin.js's own comment at the state row's
+ * construction for why (that exact class string is also core's
+ * unscoped selector for an unrelated "Required" checkbox behavior).
+ */
+tr.webform-ranking-item-condition-state-row {
+  border-top: 2px solid #a6a6a6;
+}
+
+tr.webform-ranking-item-condition-state-row:first-child {
+  border-top: inherit;
+}
+
+.webform-ranking-item-condition-state-cell select {
+  width: 100%;
+  max-width: 100%;
+}

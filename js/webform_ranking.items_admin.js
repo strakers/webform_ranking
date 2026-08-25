@@ -208,7 +208,12 @@
 
     const row = wrapper.closest('tr');
     const valueInput = row ? row.querySelector('input[name$="[value]"]') : null;
-    const itemValue = valueInput ? valueInput.value : '';
+    // trim() to match PHP's own lookup key: WebformRanking::form() builds
+    // $conditions_by_value keyed by trim($item['value'] ?? ''), so an
+    // item value with incidental leading/trailing whitespace would
+    // otherwise miss a real, saved, decomposable condition here and
+    // silently fall back to the raw YAML view instead.
+    const itemValue = valueInput ? valueInput.value.trim() : '';
 
     // <fieldset> + <table class="webform-states-table"> — the same
     // wrapping element and table classes the real element-level
@@ -247,6 +252,26 @@
     stateWarning.textContent = Drupal.t('This state does not affect whether the item is ranked or hidden — only Visible/Hidden (and their Slide variants) do.');
     fieldsetWrapper.appendChild(stateWarning);
 
+    // Two "All" (AND) conditions on the same Element have no lossless
+    // #states representation: the real widget's own equivalent case
+    // (WebformElementStates::convertElementValueToFormApiStates()) hard-
+    // errors on a duplicate selector under AND rather than emitting
+    // anything, since Drupal's #states shape has no "AND of two triggers
+    // via two separate rows" form — only a single row's trigger/value can
+    // itself carry a 'between'/'!between' range, or multiple triggers
+    // nested under one condition object, neither of which this picker's
+    // one-trigger-per-row model produces. Rather than inventing a shape
+    // that isn't actually valid #states syntax, this warns and — same as
+    // the real widget not saving anything for that state at all — still
+    // emits *something* (the last-condition-wins associative map) so the
+    // dialog doesn't silently look broken, but makes the data loss
+    // visible instead of silent.
+    const duplicateSelectorWarning = document.createElement('div');
+    duplicateSelectorWarning.className = 'webform-ranking-item-condition-duplicate-warning messages messages--warning';
+    duplicateSelectorWarning.style.display = 'none';
+    duplicateSelectorWarning.textContent = Drupal.t('Two conditions target the same Element combined with "All" — only the last one will be saved. Use "Any"/"One" instead, or a single "between"/"not between" condition for a numeric range.');
+    fieldsetWrapper.appendChild(duplicateSelectorWarning);
+
     const table = document.createElement('table');
     table.className = 'webform-states-table';
     const thead = document.createElement('thead');
@@ -265,10 +290,23 @@
     // State row: one per item (not repeatable — see VISIBILITY_STATES
     // above on why only a single state is offered here, unlike the real
     // builder's "Add another state").
+    //
+    // Deliberately NOT the real widget's own 'webform-states-table--state'
+    // class here (only the visual '.webform-states-table' on the table
+    // itself, above, is shared) — that exact class is also core's own
+    // *unscoped* jQuery selector for toggleRequiredCheckbox() in
+    // webform.element.states.js, which force-checks/disables this
+    // element's entirely unrelated top-level "Required" property
+    // whenever ANY matching <select> anywhere on the page (not just this
+    // dialog) is set to Required/Optional — and PICKER_STATE_KEYS below
+    // allows exactly those values. A module-scoped class name plus the
+    // equivalent cosmetic rules copied into this module's own CSS (see
+    // webform_ranking.items_admin.css) keeps the identical visual result
+    // without that cross-behavior collision.
     const stateRow = document.createElement('tr');
-    stateRow.className = 'webform-states-table--state';
+    stateRow.className = 'webform-ranking-item-condition-state-row';
     const stateCell = document.createElement('td');
-    stateCell.className = 'webform-states-table--state';
+    stateCell.className = 'webform-ranking-item-condition-state-cell';
     const modeSelect = createSelectElement();
     Object.keys(stateOptions).forEach(function (key) {
       addOption(modeSelect, key, stateOptions[key]);
@@ -590,6 +628,28 @@
       stateWarning.style.display = VISIBILITY_STATES.indexOf(modeSelect.value) === -1 ? '' : 'none';
     }
 
+    /**
+     * Shows a note when the "All" operator is selected with two or more
+     * condition rows sharing the same Element — see
+     * duplicateSelectorWarning's own construction comment above for why
+     * that combination can't be losslessly saved.
+     */
+    function updateDuplicateSelectorWarning() {
+      const selectors = [];
+      let hasDuplicate = false;
+      tbody.querySelectorAll('.webform-ranking-item-condition-row').forEach(function (conditionRow) {
+        const selector = conditionRow.querySelector('.webform-states-table--selector select').value;
+        if (!selector) {
+          return;
+        }
+        if (selectors.indexOf(selector) !== -1) {
+          hasDuplicate = true;
+        }
+        selectors.push(selector);
+      });
+      duplicateSelectorWarning.style.display = (operatorSelect.value === 'and' && hasDuplicate) ? '' : 'none';
+    }
+
     function addConditionRow(data) {
       const conditionRow = createConditionRow(data);
       tbody.appendChild(conditionRow);
@@ -619,6 +679,7 @@
         addConditionRow({});
       }
       updateStateWarning();
+      updateDuplicateSelectorWarning();
     }
 
     /**
@@ -719,6 +780,7 @@
 
     function onBuilderChange() {
       updateStateWarning();
+      updateDuplicateSelectorWarning();
       writeYamlField(emitYaml());
     }
 
@@ -761,9 +823,16 @@
 
     return {
       clear: function () {
+        // Resets the builder's own rows to a single blank one and empties
+        // the YAML field, but deliberately does NOT force showBuilder():
+        // a user who has "Edit source" open (e.g. editing a
+        // too-complex-for-the-builder condition) and clicks "Clear
+        // condition" expects just the field to empty, not to be yanked
+        // to a different view they didn't ask for. The builder's rows
+        // are still reset underneath so they're correct if/when the user
+        // does click "Back to condition builder" themselves.
         renderConditions(null);
         writeYamlField('');
-        showBuilder();
       }
     };
   }
