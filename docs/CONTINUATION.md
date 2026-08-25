@@ -990,6 +990,267 @@ no-input fallback only ever see canonical shape. The plugin's
     `testDuplicateRankInForgedValueIsRejected()` already established)
     rather than driving the real matrix/converter path.
 
+26. **GitHub issue #65 (redo of #13): a visual condition-rows builder
+    for per-item states, matching the real element-level "Conditional
+    logic" tab's own look.** A first attempt at #13 (closed PR #64)
+    built a simplified custom 4-field picker instead of replicating the
+    real builder's UI, and — the more consequential mistake — introduced
+    a new `condition_group` wrapper around the whole field, moving the
+    `webform-ranking-item-states-wrapper` class `items_admin.js` uses to
+    find/relocate content into the dialog up one DOM level from where it
+    always lived, incidentally altering the "Conditions" trigger
+    button's own markup. Redone from scratch on a new branch after
+    review flagged both problems, with a tightened spec (`docs/
+    issue-13-redo-plan.md`, later archived) confirmed before
+    implementation started.
+    **Key design choice:** the builder writes directly into the
+    *existing* `states` YAML `webform_codemirror` field — no new form
+    field at all. Confirmed first that `#decode_value => TRUE` already
+    accepts any valid `#states` shape (multi-condition, AND/OR/XOR)
+    with no PHP-side restriction, so this was purely a UI gap. The
+    `states` field's own `#type`/`#mode`/`#decode_value`/
+    `#wrapper_attributes`/position in `#element` are byte-identical to
+    the pre-#13 baseline — the only PHP addition is computing
+    `decomposeItemStatesToConditions()` (a generalized version of the
+    first attempt's single-condition decompose, now also handling
+    AND/OR/XOR multi-condition shapes) and passing the result to JS via
+    `drupalSettings`, keyed by item `value` (the stable identity used
+    throughout this codebase). No corresponding `compose*()` needed
+    server-side: the builder keeps the textarea's own YAML text in sync
+    on every change, so the existing, unmodified decode-on-submit path
+    handles it exactly as it does for hand-typed YAML.
+    **UI fidelity, per explicit direction during review** (not the
+    original scoped-down plan): a `<fieldset>` wrapping a real
+    `<table class="webform-states-table">` with State/Element/
+    Trigger-Value columns, the state row's combining-operator select
+    always visible ("if [All/Any/One] of the following is met:",
+    unconditionally, matching the real widget — an earlier draft of
+    this hid it until 2+ conditions existed, caught and corrected from
+    live feedback), the full curated state list (`self::
+    PICKER_STATE_KEYS`: Visible/Hidden/Visible (Slide)/Hidden (Slide)/
+    Enabled/Disabled/Required/Optional — a subset of `WebformElementStates
+    ::getStateOptions()`'s full list, excluding states aimed at form
+    *inputs* rather than item visibility), and the "Edit source" button
+    label matching the real widget's own text exactly. Only
+    `visible`/`invisible`(-slide) actually affect item inclusion
+    (`WebformRankingVisibilityResolver` still only acts on those); the
+    other four are accepted/stored like any other `#states` value,
+    matching the real widget's own flexibility, with a warning note
+    shown when selected rather than hidden outright.
+    **Markup classes matched exactly, not approximately**, per further
+    review feedback — Drupal's admin theme styles form elements and
+    fieldsets via specific classes, not the bare tags, so getting these
+    exactly right (confirmed each time by inspecting this same admin
+    form's real, server-rendered markup, not guessed) is what actually
+    produces matching visual treatment rather than unstyled native
+    controls: every hand-built `<select>`/`<input>` carries the same
+    classes Drupal's own form rendering adds (`form-element` on both;
+    `form-select`/`form-element--type-select` on selects;
+    `form-text`/`form-element--type-text` on text inputs — via two new
+    small helpers, `createSelectElement()`/`createTextInputElement()`,
+    rather than repeating the class strings at each of the 5 call
+    sites). The `<fieldset>`/`<legend>` similarly copy the real
+    `#type => fieldset` element's own classes verbatim
+    (`js-webform-type-fieldset webform-type-fieldset fieldset
+    js-form-item form-item js-form-wrapper form-wrapper` on the
+    fieldset; `fieldset__legend fieldset__legend--visible` on the
+    legend, with its text wrapped in a `<span class="fieldset__label">`
+    — all three confirmed against the element-level "Conditional
+    logic" tab's own rendered fieldset, `#edit-conditional-logic`),
+    including the `<div class="fieldset__wrapper">` real fieldsets use
+    to wrap their content (everything but the legend) — not explicitly
+    requested, but added once found: it's what the admin theme's
+    fieldset CSS actually targets for padding/spacing, not the
+    `<fieldset>` element directly, so omitting it would have left the
+    class-matching incomplete.
+    **Two real bugs found via live browser testing, not guessed:**
+    - *jQuery UI autocomplete double-init crash.* The real widget's own
+      server-rendered markup puts the class `webform-states-table--condition`
+      on both a condition `<tr>` AND its own inner `<td>` wrapping
+      trigger+value (confirmed by reading `WebformElementStates
+      ::buildConditionRow()` directly) — reproducing this exactly caused
+      `webform/webform.element.states`'s behavior (which scopes itself
+      via `.find()` from any matching element) to initialize twice on
+      the same value input, the second pass corrupting the widget
+      instance the first had already set up:
+      `TypeError: this.source is not a function` inside jQuery UI's
+      autocomplete, breaking every subsequent selector change. Fixed by
+      keeping the class on the `<tr>` only — the row is the only match
+      that has selector+trigger+value all as `.find()`-reachable
+      descendants anyway, since selector is a sibling `<td>` of the
+      trigger/value cell, not nested inside it.
+    - *Test-environment-only: jQuery 4's `.trigger('change')` never
+      reached plain `addEventListener('change', ...)` listeners at
+      all*, confirmed via an isolated scratch-element check
+      (`jQuery(el).val(x).trigger('change')` on a bare `<select>` with a
+      manually-attached native listener: zero fires). Not a production
+      bug — a real user's actual browser interaction is a genuine native
+      event either way — but it meant every `FunctionalJavascript` test
+      helper that used jQuery's `.trigger()` to simulate a field change
+      silently no-opped. Fixed in the test file only, dispatching
+      `new Event('change', {bubbles: true})` directly instead, matching
+      what the pre-existing (already-working) YAML-field test helpers
+      did all along.
+    Test coverage: `WebformRankingPluginTest` gained
+    `decomposeItemStatesToConditions()` cases for every trigger type and
+    AND/OR/XOR shapes, plus confirmation that genuinely unsupported
+    shapes (multiple states, mixed operators, a trailing operator, an
+    unrecognized trigger) correctly return `NULL` rather than corrupting
+    data. `WebformRankingItemsAdminJavaScriptTest` gained: decomposed-
+    condition display, set-via-builder-and-persist (proving the
+    client-side YAML emitter is correct, not just "looks right"),
+    multi-condition OR persistence, add/remove row chrome, the
+    too-complex-condition YAML-view fallback, and the Edit
+    source/back-to-builder toggle — on top of the three pre-existing
+    dialog-mechanics tests (trigger button, Clear condition, submission
+    persistence), which needed no changes and serve as the regression
+    check for the exact thing the first attempt broke.
+    **Two follow-up rounds of review, after the above landed:**
+    - *Exact markup, not approximate.* Every hand-built `<select>`/
+      `<input>` now carries the same classes Drupal's own form
+      rendering adds (`form-element`; `form-select`/
+      `form-element--type-select` on selects; `form-text`/
+      `form-element--type-text` on text inputs — via two small helpers,
+      `createSelectElement()`/`createTextInputElement()`, rather than
+      repeating the strings at each of the 5 call sites), and the
+      `<fieldset>`/`<legend>` copy the real `#type => fieldset`
+      element's own classes verbatim, including the
+      `<div class="fieldset__wrapper">` real fieldsets use to wrap
+      their content — the admin theme's fieldset CSS targets that div
+      for padding/spacing, not the `<fieldset>` element directly. Every
+      class list confirmed against this same admin form's real,
+      server-rendered markup (`#edit-conditional-logic` for the
+      fieldset), not guessed. The combining-operator select was also
+      corrected here to be unconditionally visible (an earlier pass
+      hid it until 2+ conditions existed).
+    - *Per-row +/- icon buttons*, replacing a single bottom "Add
+      another condition" text button — the real gap this closed: with
+      the bottom-button-only design, an item with exactly one
+      already-saved condition had no way to remove it at all (the
+      remove affordance only appeared once 2+ rows existed). Matches
+      `WebformElementStates::buildOperations()`'s own plus.svg/
+      minus.svg icon buttons, always available on every row (no
+      "at least one row" floor — same as the real widget, whose own
+      remove button is only ever omitted when `#multiple` is `FALSE`,
+      never the case here). Deliberately **not** `<input type="image">`
+      like the real widget, though: that's inherently a submit
+      control, and clicking one inside this dialog's enclosing admin
+      `<form>` would submit the whole element config form unless every
+      handler remembered `preventDefault()` — one missed line from an
+      accidental early "Save" mid-edit. Used a plain
+      `<button type="button">` instead (never submits, regardless),
+      styled via a new `css/webform_ranking.items_admin.css` to match
+      the real icon buttons' own CSS
+      (`webform.element.states.css`'s `input[type="image"]` rules,
+      reapplied to the button). The icon `src` URL itself is built from
+      `\Drupal::service('extension.list.module')->getPath('webform')`
+      — the same call the real widget's own PHP makes — passed via
+      `drupalSettings` rather than guessing a `modules/contrib/webform`-
+      shaped path client-side, since that layout isn't guaranteed for
+      every install. "-" on the sole remaining row resets it to blank
+      rather than deleting it (so the table never ends up with zero
+      rows and no way back in without reopening the dialog) —
+      functionally identical to true removal either way, since
+      `emitYaml()` already skips any condition with no selector chosen.
+
+27. **PR #66 code review response: 6 fixes to the per-item condition
+    builder (issue #65), 2 confirmed real bugs and 4 smaller ones,
+    verified against actual vendored source rather than taken on faith
+    from the review's own claims.**
+    - **State-select/Required-checkbox collision (confirmed).** The
+      state picker's `<select>` originally reused Webform core's own
+      `webform-states-table--state` class for visual parity — which
+      also happens to be core's own *unscoped* jQuery selector in
+      `webform.element.states.js`'s `toggleRequiredCheckbox()`, run
+      against the whole document (not just this dialog) on every
+      `Drupal.attachBehaviors()` call. Since `PICKER_STATE_KEYS` allows
+      Required/Optional as valid per-item states, and the builder DOM is
+      built eagerly for every item at page load, simply having an item
+      saved with a Required/Optional state force-checked and disabled
+      this element's entirely unrelated top-level "Required" property on
+      every page load. Fixed by renaming to module-scoped classes
+      (`webform-ranking-item-condition-state-row`/`-cell`) with the same
+      cosmetic CSS reapplied under the new names — the per-row *empty*
+      state placeholder `<td>` (column alignment only, no `<select>`
+      inside it, matching the real widget's own row markup) was
+      deliberately left on the original class name, since it has no
+      `<select>` descendant and so can't trigger the same collision.
+    - **Duplicate-selector-under-"All" data loss (confirmed).** Two
+      condition rows targeting the same Element combined with "All"
+      serialize to a YAML flow mapping keyed by selector twice —
+      confirmed against the vendored `vendor/symfony/yaml/Parser.php`
+      that a duplicate mapping key silently keeps only the last
+      occurrence. Investigated whether an indexed-list-with-literal-
+      `'and'` shape (as one review pass suggested, "mirroring" `'or'`/
+      `'xor'`) could losslessly represent this instead — traced Drupal
+      core's actual client-side evaluator (`web/core/misc/states.js`'s
+      `verifyConstraints()`) and confirmed an indexed array only ever
+      means OR (default) or XOR (if the literal `'xor'` token is
+      present); there's no `'and'` token semantics at all, so a literal
+      `'and'` entry would silently evaluate as an inert no-op, not an
+      AND — that "fix" would have been *worse* than the bug (wrong
+      results at runtime, not just one dropped condition). Re-checked
+      core's own `WebformElementStates::convertElementValueToFormApiStates()`:
+      for this exact case it doesn't attempt an alternate shape either —
+      it raises a hard validation error. No lossless representation
+      exists in Drupal's own #states model for "two AND conditions, same
+      selector" at all (the correct native way is a single `between`/
+      `!between` trigger on one row). Fixed by mirroring core's own
+      choice — detect and warn, not invent a shape — via a new
+      `duplicateSelectorWarning` message (same `messages messages--
+      warning` pattern as the existing `stateWarning`), checked in
+      `updateDuplicateSelectorWarning()` on every builder change.
+    - **Reclassified, not fixed: "parser rejects valid indexed-'and'
+      shape."** The review flagged `decomposeItemStatesToConditions()`
+      rejecting a literal `'and'` operator in the indexed-list branch as
+      a bug. Per the states.js investigation above, that shape isn't
+      actually valid/meaningful #states syntax at all — nothing produces
+      it, and nothing correctly consumes it at runtime. Left unchanged.
+    - **AJAX row-add reverting unsaved condition edits: deferred to
+      #79**, not fixed here. Traced to `WebformUiElementFormBase`
+      caching the saved entity's `element_properties` across
+      `#webform_multiple` AJAX rebuilds (confirmed via the vendored
+      webform module) — a real bug, but one whose fix touches base
+      Webform UI class behavior rather than this module's own code, and
+      is riskier/bigger than the other fixes here. Filed as its own
+      issue with the full root-cause trace rather than attempting a
+      shallow fix under this branch's time budget.
+    - **`trim()` mismatch between PHP's and JS's lookup keys.** PHP's
+      `$conditions_by_value` is keyed by `trim($item['value'] ?? '')`;
+      the JS read the live Value input verbatim. Fixed by trimming
+      client-side too. Regression-tested with a fixture item whose value
+      has literal surrounding whitespace (set directly on the config
+      entity in the test, bypassing the settings-form-only save-time
+      value validation from issue #21).
+    - **"Clear condition" force-switching away from YAML view.** The new
+      `builder.clear()` unconditionally called `showBuilder()`, yanking
+      a user who had "Edit source" open back to the builder view even
+      though clearing has nothing to do with which view should be
+      showing. Fixed by dropping that call — the builder's own rows
+      still reset underneath, correct whenever the user does switch back
+      themselves.
+    - **Test-coverage gap restored.** PR #66's own fixture change (item
+      `b`'s selector switched from a deliberately out-of-list value to a
+      real one, for an unrelated reason) had silently dropped the only
+      coverage of `createConditionRow()`'s "stray option" fallback for a
+      saved-but-unlisted selector. Restored as its own dedicated fixture
+      item/test rather than re-overloading item `b`.
+    - **Stale docs.** `DEVELOPMENT.md` and this file's own Known Gaps
+      section both claimed this module's CSS is "structural/layout
+      only" — no longer true once `webform_ranking.items_admin.css`
+      (genuine visual design, mirroring core's own icon-button styling)
+      shipped with #65. Both updated to note the one exception.
+    Deliberately NOT addressed in this same branch (left for a separate
+    pass, per explicit scoping): the review's reuse/efficiency/
+    simplification findings (hand-duplicated trigger-classification
+    lists between JS and PHP, the icon-button CSS copy-pasted instead of
+    overriding shared core classes, per-keystroke full YAML/CodeMirror
+    rebuilds, eager per-item DOM construction at page load, and a few
+    smaller code-duplication items) — real cleanup opportunities, but
+    none are correctness bugs, and bundling them in would have made this
+    already-large review-response diff much harder to review in one
+    sitting.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,
@@ -1028,7 +1289,10 @@ evidence rather than assert confidently.
   DOM**~~ — resolved by Key Design Decision #17's redesign: the checkbox
   + row-matching heuristic this referred to no longer exists (replaced
   by a per-item dialog with no row-matching step at all).
-- **No visual CSS design pass** — current CSS is structural/layout only.
+- **No visual CSS design pass** — current CSS is structural/layout only,
+  except `webform_ranking.items_admin.css` (added for GitHub issue #65),
+  which deliberately mirrors core Webform's own +/- icon-button styling
+  for the per-item condition builder — genuine, if narrow, visual design.
 - **`webform_element_states` nested-widget crash root cause never actually
   diagnosed** — worked around, not fixed/understood. Could theoretically
   be revisited if raw-YAML UX becomes a real problem.
