@@ -879,4 +879,56 @@ JS,
     $this->assertSame(':input[name="trigger_field"]', $this->conditionRowField(0, 'selector'));
   }
 
+  /**
+   * Tests an unsaved condition edit survives an unrelated AJAX rebuild.
+   *
+   * Regression test for GitHub issue #79: WebformUiElementFormBase caches
+   * the *saved* entity's item states in $form_state->get('element_properties'),
+   * unchanged across #webform_multiple's own AJAX rebuilds (e.g. "Add" on
+   * the items table) — so an in-progress, not-yet-submitted condition
+   * edit on one item used to be silently discarded and reverted to
+   * whatever was last saved, the moment the admin triggered *any* AJAX
+   * rebuild elsewhere on the form, even though the live edit was still
+   * correctly sitting in that item's own YAML <textarea> the whole time.
+   * Fixed by preferring $form_state->getValue(['items', 'items']) — the
+   * form's own live submitted values, confirmed (via a live DDEV/browser
+   * investigation, not guessed) to already be fully populated during
+   * exactly this kind of AJAX rebuild — over the stale saved-entity
+   * snapshot, whenever it's present.
+   */
+  public function testUnsavedConditionEditSurvivesUnrelatedAjaxRebuild(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    // Item 'a' starts with no saved condition — edit it via the builder,
+    // but never save the form.
+    $this->triggerForItemValue('a')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+    $this->setConditionRowField(0, 'selector', ':input[name="trigger_field"]');
+    $this->setConditionRowField(0, 'trigger', 'value');
+    $this->setConditionRowField(0, 'value', 'unsaved-edit');
+    $this->clickVisibleDialogButton('Done');
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () {
+      return !$this->getSession()->getPage()->find('css', '.ui-dialog')?->isVisible();
+    }));
+
+    // Trigger an unrelated AJAX rebuild: "Add" on the items table itself
+    // (#webform_multiple's own add-row button, distinct from any
+    // condition-row "+"/"-" button inside a dialog).
+    $this->getSession()->getPage()->find('css', '#edit-properties-items-add-submit')->click();
+    $assert_session->assertWaitOnAjaxRequest();
+
+    // Reopen item 'a's dialog (freshly rebuilt DOM after the AJAX
+    // response) — the unsaved edit must still be there, decomposed into
+    // the builder, not reverted to blank.
+    $this->triggerForItemValue('a')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $this->assertTrue($this->isVisibleInDialog('.webform-ranking-item-condition-builder'));
+    $this->assertSame(':input[name="trigger_field"]', $this->conditionRowField(0, 'selector'));
+    $this->assertSame('value', $this->conditionRowField(0, 'trigger'));
+    $this->assertSame('unsaved-edit', $this->getVisibleDialogFieldValue('.webform-states-table--value input'));
+  }
+
 }
