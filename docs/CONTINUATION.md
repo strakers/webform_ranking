@@ -1251,6 +1251,40 @@ no-input fallback only ever see canonical shape. The plugin's
     already-large review-response diff much harder to review in one
     sitting.
 
+28. **GitHub issue #79: per-item condition builder losing an unsaved
+    edit across an unrelated `#webform_multiple` AJAX rebuild.** Deferred
+    out of #66's own review-response branch as "bigger/riskier" (see
+    entry 27) — traced properly here instead of guessing. Root cause:
+    `WebformRanking::form()` computed `$conditions_by_value` (the
+    server-side decomposition JS reads via `drupalSettings` to populate
+    the builder) from `$form_state->get('element_properties')['items']`
+    — a snapshot of the *saved* entity, taken once when the form object
+    is first built (`WebformElementBase::buildConfigurationForm()`) and
+    never refreshed, since `#webform_multiple`'s own add/remove-row AJAX
+    callback (`WebformMultiple::ajaxCallback()`) rebuilds and returns the
+    whole items table without rebuilding that cached form-object state.
+    Confirmed empirically, not by reading source alone: instrumented
+    `form()` with a temporary `\Drupal::logger()` dump of both
+    `$form_state->getUserInput()` and `$form_state->getValues()`,
+    reproduced the exact failure scenario live (DDEV + Playwright:
+    open an item's dialog, edit its condition, close without saving,
+    click the items table's own "Add" button, inspect the resulting
+    watchdog entries) — confirmed `$form_state->getValues()` (unlike the
+    cached `element_properties`) is *already* fully populated with the
+    live, unsaved submission during exactly this AJAX rebuild, nested at
+    `['items']['items'][$delta]` (matching `#webform_multiple`'s own
+    `#tree` shape), and empty on a genuine first page load (no
+    submission yet) — meaning it can be preferred over the stale
+    snapshot with no separate "is this an AJAX rebuild" branch needed;
+    checking `is_array($form_state->getValue(['items', 'items']))` alone
+    correctly selects the live source when present and falls back to the
+    saved-entity snapshot otherwise. Fixed with a 2-line source swap,
+    verified live in the browser (the exact repro scenario above now
+    correctly keeps the unsaved edit after the AJAX rebuild) before
+    writing the automated regression test. This generalizes beyond the
+    reported "Add row" case to any AJAX rebuild of this form — the fix
+    doesn't special-case which trigger caused the rebuild.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,

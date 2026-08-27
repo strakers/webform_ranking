@@ -161,7 +161,21 @@ class WebformRanking extends WebformElementBase {
     // represent a customized Form API #states value visually.
     $element_properties = $form_state->get('element_properties') ?? [];
     $conditions_by_value = [];
-    foreach ($element_properties['items'] ?? [] as $item) {
+    // Prefer the form's own live submitted item values — available and
+    // already fully populated during a #webform_multiple AJAX rebuild
+    // (e.g. triggered by "Add"/"Remove" elsewhere in the items table) —
+    // over $element_properties['items'], which is a snapshot of the
+    // *saved* entity taken once when the form was first built and never
+    // refreshed across AJAX rebuilds (WebformUiElementFormBase's own
+    // form-object caching). Using only the stale snapshot here silently
+    // discarded any unsaved edit an admin made via the per-item
+    // condition dialog before triggering an unrelated AJAX request
+    // elsewhere in the table (GitHub issue #79). On a genuine first page
+    // load $form_state->getValue() is empty (nothing submitted yet), so
+    // this correctly falls back to the saved-entity snapshot then.
+    $live_items = $form_state->getValue(['items', 'items']);
+    $items_source = is_array($live_items) ? $live_items : ($element_properties['items'] ?? []);
+    foreach ($items_source as $item) {
       $value = trim($item['value'] ?? '');
       if ($value === '' || empty($item['states'])) {
         continue;
