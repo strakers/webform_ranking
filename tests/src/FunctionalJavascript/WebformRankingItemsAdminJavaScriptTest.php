@@ -670,6 +670,96 @@ JS,
   }
 
   /**
+   * Tests a nested-value trigger (e.g. "less") persists correctly.
+   *
+   * Regression test (GitHub issue #83): the trigger/state classification
+   * items_admin.js uses to decide "does this trigger nest its value
+   * under a sub-key" moved from a hardcoded JS array to
+   * drupalSettings.webformRankingItemsAdmin.nestedTriggerKeys, read from
+   * WebformRanking::NESTED_TRIGGER_KEYS server-side — this exercises
+   * that the wiring actually works end-to-end (emit → save → decode),
+   * not just that the settings key exists.
+   */
+  public function testNestedTriggerPersistsWithNestedShape(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue('a')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $this->setConditionRowField(0, 'selector', ':input[name="trigger_field"]');
+    $this->setConditionRowField(0, 'trigger', 'less');
+    $this->setConditionRowField(0, 'value', '5');
+
+    $this->clickVisibleDialogButton('Done');
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () {
+      return !$this->getSession()->getPage()->find('css', '.ui-dialog')?->isVisible();
+    }));
+
+    $this->getSession()->getPage()->pressButton('Save');
+    $assert_session->statusMessageContains('has been', 'status');
+
+    \Drupal::entityTypeManager()->getStorage('webform')->resetCache(['test_ranking_items_admin']);
+    $webform = Webform::load('test_ranking_items_admin');
+    $saved_items = $webform->getElementDecoded('ranking')['#items'];
+    $item_a = current(array_filter($saved_items, static fn (array $item) => $item['value'] === 'a'));
+    $this->assertSame(
+      ['visible' => [':input[name="trigger_field"]' => ['value' => ['less' => '5']]]],
+      $item_a['states'] ?? NULL
+    );
+  }
+
+  /**
+   * Tests a no-value trigger hides the Value field, a normal one shows it.
+   *
+   * Regression test (GitHub issue #83): same classification-list move as
+   * testNestedTriggerPersistsWithNestedShape() above, for
+   * noValueTriggerKeys/updateValueFieldVisibility() specifically.
+   */
+  public function testNoValueTriggerHidesValueField(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue('a')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $this->assertTrue($this->isVisibleInDialog('.webform-states-table--value'));
+
+    $this->setConditionRowField(0, 'trigger', 'checked');
+    $this->assertFalse($this->isVisibleInDialog('.webform-states-table--value'));
+
+    $this->setConditionRowField(0, 'trigger', 'value');
+    $this->assertTrue($this->isVisibleInDialog('.webform-states-table--value'));
+  }
+
+  /**
+   * Tests a non-visibility State shows the "does nothing" warning.
+   *
+   * Regression test (GitHub issue #83): same classification-list move as
+   * the two tests above, for visibilityStateKeys/updateStateWarning()
+   * specifically.
+   */
+  public function testNonVisibilityStateShowsWarning(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue('a')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $warning = '.webform-ranking-item-condition-state-warning';
+    $this->assertFalse($this->isVisibleInDialog($warning));
+
+    $this->setVisibleDialogFieldValue('.webform-ranking-item-condition-state-cell select', 'required');
+    $this->assertTrue($this->isVisibleInDialog($warning));
+
+    $this->setVisibleDialogFieldValue('.webform-ranking-item-condition-state-cell select', 'visible');
+    $this->assertFalse($this->isVisibleInDialog($warning));
+  }
+
+  /**
    * Tests adding a second condition row with the "Any" (or) operator.
    *
    * Persists as an OR-shaped #states array.

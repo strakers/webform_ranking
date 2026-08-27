@@ -52,6 +52,47 @@ class WebformRanking extends WebformElementBase {
   ];
 
   /**
+   * The subset of self::PICKER_STATE_KEYS that actually affects item
+   * inclusion — kept as an explicit list (not derived from
+   * PICKER_STATE_KEYS by position) so it stays correct if that list's
+   * own order or membership ever changes. Sent to items_admin.js via
+   * drupalSettings (see form()) as the single source for its own
+   * VISIBILITY_STATES check, rather than a second hand-typed JS copy.
+   *
+   * Deliberately NOT the same mechanism WebformRankingVisibilityResolver
+   * ::isVisible() uses for the equivalent runtime check — that method
+   * strips a leading '!' and any '-slide'/other suffix from a state key
+   * and compares the base against ['visible', 'invisible'], which
+   * generalizes to any future suffix variant without needing this list
+   * updated too. This constant exists for enumeration (populating a
+   * dropdown, deciding whether to show a static UI warning), where the
+   * resolver's runtime-parsing approach doesn't apply — both express the
+   * same semantic set through different, equally intentional means.
+   */
+  const VISIBILITY_STATE_KEYS = [
+    'visible', 'invisible', 'visible-slide', 'invisible-slide',
+  ];
+
+  /**
+   * Trigger keys nested one level deeper by Form API convention (see
+   * decomposeCondition()'s own docblock) — shared with items_admin.js
+   * via drupalSettings (see form()) as the single source for its own
+   * NESTED_TRIGGERS classification, rather than a second hand-typed JS
+   * copy that could silently drift if Webform core ever adds/renames a
+   * trigger type.
+   */
+  const NESTED_TRIGGER_KEYS = [
+    'pattern', '!pattern', 'less', 'less_equal',
+    'greater', 'greater_equal', 'between', '!between',
+  ];
+
+  /**
+   * Trigger keys that carry a bare boolean, no comparison value — same
+   * shared-source-of-truth rationale as self::NESTED_TRIGGER_KEYS above.
+   */
+  const NO_VALUE_TRIGGER_KEYS = ['empty', 'filled', 'checked', 'unchecked'];
+
+  /**
    * {@inheritdoc}
    *
    * Overrides defineDefaultProperties() (protected), not
@@ -124,6 +165,13 @@ class WebformRanking extends WebformElementBase {
   public function form(array $form, FormStateInterface $form_state) {
     $form = parent::form($form, $form_state);
 
+    // Requires a form object with getWebform() — true for every real
+    // caller (WebformUiElementFormBase and its WebformUiElementTestForm
+    // subclass), but not guaranteed by the base class's own form()
+    // signature. A direct call with a bare FormState (no form object
+    // set) fatals here rather than failing gracefully; not defended
+    // against, since no such call path currently exists — noted so a
+    // future one doesn't hit this as a surprise.
     $webform = $form_state->getFormObject()->getWebform();
 
     $form['ranking'] = [
@@ -323,6 +371,12 @@ class WebformRanking extends WebformElementBase {
       // rather than hardcoding a 'modules/contrib/webform'-shaped guess
       // client-side, since that path isn't guaranteed for every install
       // layout.
+      // 'nestedTriggerKeys'/'noValueTriggerKeys'/'visibilityStateKeys'
+      // are self::NESTED_TRIGGER_KEYS/self::NO_VALUE_TRIGGER_KEYS/
+      // self::VISIBILITY_STATE_KEYS — sent so items_admin.js reads its
+      // trigger/state classification from this one PHP source instead
+      // of hand-typing a second, independently-maintained copy (GitHub
+      // issue #83).
       '#attached' => [
         'library' => ['webform_ranking/element.itemsAdmin'],
         'drupalSettings' => [
@@ -332,6 +386,9 @@ class WebformRanking extends WebformElementBase {
             'selectorOptions' => $webform->getElementsSelectorOptions(),
             'triggerOptions' => array_map('strval', WebformElementStates::getTriggerOptions()),
             'webformModulePath' => \Drupal::service('extension.list.module')->getPath('webform'),
+            'nestedTriggerKeys' => self::NESTED_TRIGGER_KEYS,
+            'noValueTriggerKeys' => self::NO_VALUE_TRIGGER_KEYS,
+            'visibilityStateKeys' => self::VISIBILITY_STATE_KEYS,
           ],
         ],
       ],
@@ -514,6 +571,18 @@ class WebformRanking extends WebformElementBase {
           $conditions[] = $decoded;
         }
         else {
+          // Deliberately only 'or'/'xor' here, not 'and': an indexed
+          // list with a literal 'and' token isn't valid/meaningful
+          // #states syntax at all — traced Drupal core's actual
+          // client-side evaluator (web/core/misc/states.js's
+          // verifyConstraints()) and confirmed an indexed array only
+          // ever means OR (default) or XOR (if the literal 'xor' token
+          // is present); any other string entry, including a stray
+          // 'and', is silently treated as an inert no-op condition, not
+          // an AND operator. Accepting 'and' here would let a condition
+          // decompose successfully and then silently misbehave at
+          // runtime — see docs/CONTINUATION.md entry 27 ("Reclassified,
+          // not fixed") for the full investigation this line encodes.
           if (!is_string($entry) || !in_array($entry, ['or', 'xor'], TRUE)) {
             return NULL;
           }
@@ -570,11 +639,7 @@ class WebformRanking extends WebformElementBase {
     if ($trigger === 'value' && is_array($value) && count($value) === 1) {
       $nested_trigger = key($value);
       $nested_value = reset($value);
-      $nested_triggers = [
-        'pattern', '!pattern', 'less', 'less_equal',
-        'greater', 'greater_equal', 'between', '!between',
-      ];
-      if (in_array($nested_trigger, $nested_triggers, TRUE)
+      if (in_array($nested_trigger, self::NESTED_TRIGGER_KEYS, TRUE)
         && (is_string($nested_value) || is_numeric($nested_value))) {
         return [
           'selector' => $selector,
@@ -592,7 +657,7 @@ class WebformRanking extends WebformElementBase {
       return ['selector' => $selector, 'trigger' => $trigger, 'value' => (string) $value];
     }
 
-    if (in_array($trigger, ['empty', 'filled', 'checked', 'unchecked'], TRUE) && $value === TRUE) {
+    if (in_array($trigger, self::NO_VALUE_TRIGGER_KEYS, TRUE) && $value === TRUE) {
       return ['selector' => $selector, 'trigger' => $trigger, 'value' => ''];
     }
 

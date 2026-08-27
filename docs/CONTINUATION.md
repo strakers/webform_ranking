@@ -1362,6 +1362,82 @@ no-input fallback only ever see canonical shape. The plugin's
     decisions` convention should have caught; `form()`'s new implicit
     `getFormObject()->getWebform()` precondition).
 
+30. **GitHub issues #83/#84/#85: condition-builder cleanup pass —
+    everything deferred out of entry 29, tackled together.**
+    - **#85 (docs/robustness), both items fixed as suggested**: the
+      rejected literal-`'and'` shape in `decomposeItemStatesToConditions()`
+      now has an inline comment explaining the `states.js` investigation
+      that ruled it out, pointing back to entry 27 for the full trace —
+      exactly the gap #85 itself was filed to close. `form()`'s new
+      `getFormObject()->getWebform()` precondition got an inline comment
+      noting it's satisfied by every real caller today but isn't
+      defended against, since no call path that would violate it
+      currently exists.
+    - **#84 (efficiency), all 7 items addressed**: `initConditionBuilder()`
+      is now built lazily on the trigger button's first click (memoized)
+      instead of eagerly for every item at `attach()` time — the single
+      biggest item, since it's O(items) DOM construction down to
+      O(items actually opened). Reading `drupalSettings` at click time
+      instead of attach time is also strictly more correct, not just
+      lazier: Drupal's AJAX framework merges fresh settings into the
+      global object on every response, so a later read only ever sees
+      more current data. `updateDuplicateSelectorWarning()` and
+      `emitYaml()` now share one `getConditionRowsData()` traversal
+      instead of two independent ones. The Value input's `input`
+      listener (real keystrokes) is now debounced 200ms into
+      `onBuilderChange()`; `change` (programmatic/test-driven sets)
+      stays immediate. `createSelectorSelect()`/`createTriggerSelect()`
+      build their `<option>`/`<optgroup>` DOM once per item and
+      `cloneNode(true)` per row instead of re-walking the same settings
+      object for every row. `writeYamlField()` skips its manual
+      `dispatchEvent()` calls on the CodeMirror path — traced
+      `webform.element.codemirror.js`'s own source first to confirm
+      `.save()` itself fires nothing, and the one listener the manual
+      dispatch does reach (`$input.on('change', ...)`) only re-syncs the
+      editor to the identical value already set via the CodeMirror API
+      two lines above, a genuine no-op in that branch specifically (not
+      a blind "seems redundant" removal). `addOption()`/`addOptionTo()`
+      merged into one (they were byte-identical). `renderConditions()`'s
+      initial bulk-render now does one `Drupal.attachBehaviors(tbody)`
+      after appending every saved-condition row, instead of one call per
+      row via a since-removed `addConditionRow()` wrapper that turned
+      out to have exactly one caller.
+    - **#83 (shared source of truth), 2 of 4 items fixed, 2 documented
+      as deliberately not changed**: `NESTED_TRIGGER_KEYS`/
+      `NO_VALUE_TRIGGER_KEYS`/`VISIBILITY_STATE_KEYS` are now
+      `WebformRanking` class constants, sent to `items_admin.js` via
+      `drupalSettings.webformRankingItemsAdmin` (three new keys) instead
+      of a second hand-typed copy in JS — `decomposeCondition()` also
+      switched to reading `self::NESTED_TRIGGER_KEYS`/
+      `self::NO_VALUE_TRIGGER_KEYS` instead of a local variable and an
+      inline array literal. `VISIBILITY_STATE_KEYS` deliberately does
+      **not** attempt to unify with `WebformRankingVisibilityResolver::
+      isVisible()`'s own separate `['visible', 'invisible']` check —
+      that method strips a leading `!` and any `-slide`/other suffix
+      before comparing the base, which already generalizes to future
+      suffix variants without a list update; forcing both to share one
+      literal list would mean either weakening the resolver's own
+      general-purpose parsing to match a flat enumeration, or replacing
+      a simple UI-dropdown enumeration with runtime string-parsing logic
+      it doesn't need — both worse than documenting (now done, on both
+      sides) that the two express the same semantic set through
+      different, equally intentional means. The other two #83 findings
+      (PHP's `decomposeItemStatesToConditions()` reimplementing core's
+      own `#states`-array conversion; the hand-rolled JS YAML emitter
+      not sharing logic with `WebformYaml::encode()`) are left as-is per
+      the issue's own suggested next steps — core's equivalent methods
+      are `protected static` (not callable without a core patch), and
+      no vendored client-side YAML encoder exists to swap the emitter
+      for (confirmed: Webform only ships CodeMirror's YAML *mode*, a
+      syntax highlighter, not a serializer). Real gaps, correctly not
+      urgent.
+    3 new regression tests added for the #83 settings-move specifically
+    (nested-trigger persistence, no-value-trigger field hiding,
+    non-visibility-state warning) — closing a pre-existing test gap this
+    refactor's own risk surfaced: nothing previously exercised any of
+    these three behaviors through the builder UI at all, only via
+    `decomposeCondition()`'s own PHP-level Kernel tests.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,
