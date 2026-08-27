@@ -752,6 +752,15 @@ JS,
     // the warning should now be visible.
     $this->assertTrue($this->isVisibleInDialog($warning));
 
+    // Regression check: the YAML field must NOT be updated to reflect
+    // the duplicate — emitYaml() would produce a flow-style mapping with
+    // a duplicate key, which Symfony's YAML parser throws on decode
+    // (confirmed against the real parser, not assumed) rather than
+    // silently collapsing. The field should still hold the last valid,
+    // single-condition value from before the duplicate was introduced.
+    $this->assertStringContainsString('one', $this->getOpenDialogYamlValue());
+    $this->assertStringNotContainsString('two', $this->getOpenDialogYamlValue());
+
     // Switching to "Any" resolves it — this combination has a valid,
     // lossless #states representation.
     $this->setVisibleDialogFieldValue('.webform-states-table--operator select', 'or');
@@ -765,6 +774,45 @@ JS,
     // operator.
     $this->clickConditionRowIcon(1, 'Remove');
     $this->assertFalse($this->isVisibleInDialog($warning));
+  }
+
+  /**
+   * Tests syntactically-invalid live YAML doesn't crash an AJAX rebuild.
+   *
+   * Regression test: WebformRanking::form() decodes each item's live
+   * 'states' value (via the #79 fix's $form_state->getValue() source) to
+   * compute the condition-builder's decomposition, but WebformYaml::
+   * decode() throws InvalidDataTypeException on genuinely malformed YAML
+   * — reachable by typing broken text directly into "Edit source" (the
+   * builder's own duplicate-selector case can no longer reach this path,
+   * per the fix above, but raw YAML editing bypasses the builder
+   * entirely). Uncaught, that exception used to crash the whole
+   * #webform_multiple AJAX rebuild triggered by "Add"/"Remove" elsewhere
+   * in the table, instead of gracefully falling back to the YAML view
+   * for just that one item, like any other non-decomposable value.
+   */
+  public function testMalformedLiveYamlDoesNotCrashAjaxRebuild(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue('a')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+    $this->clickVisibleDialogButton('Edit source');
+    $this->setOpenDialogYamlValue("visible: {unterminated: 'brace'");
+    $this->clickVisibleDialogButton('Done');
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () {
+      return !$this->getSession()->getPage()->find('css', '.ui-dialog')?->isVisible();
+    }));
+
+    $this->getSession()->getPage()->find('css', '#edit-properties-items-add-submit')->click();
+    $assert_session->assertWaitOnAjaxRequest();
+
+    // The rebuild must have completed normally — the page still has a
+    // working items table (one more trigger button than the 6 fixture
+    // items), not a fatal-error response.
+    $assert_session->pageTextNotContains('The website encountered an unexpected error');
+    $this->assertCount(7, $this->getSession()->getPage()->findAll('css', '.webform-ranking-item-configure-states'));
   }
 
   /**
@@ -805,6 +853,41 @@ JS,
     $this->clickConditionRowIcon(0, 'Remove');
     $this->assertSame(1, $this->conditionRowCount());
     $this->assertSame('', $this->conditionRowField(0, 'selector'));
+  }
+
+  /**
+   * Tests a newly-added condition row's Value field gets autocomplete.
+   *
+   * Regression test: addConditionRow()/the "+" button handler called
+   * Drupal.attachBehaviors(newRow), passing the just-created row itself
+   * as context. once()'s own DOM matching (context.querySelectorAll())
+   * never matches the context element itself, only descendants — and
+   * '.webform-states-table--condition' (the class webform.element.
+   * states.js's behavior looks for, to wire up value autocomplete) is
+   * set on that exact row, not a descendant of it. So the call could
+   * never find a match, and autocomplete never initialized on any
+   * row added via "+", for any item, ever — 100% reproducible, not
+   * load-order-dependent. Fixed by attaching on tbody (an ancestor of
+   * every row) instead. jQuery UI's autocomplete widget adds the
+   * 'ui-autocomplete-input' class to its target element on init — the
+   * standard way to confirm the widget actually attached, not just that
+   * markup looks right.
+   */
+  public function testNewConditionRowGetsAutocomplete(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue('a')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $this->clickConditionRowIcon(0, 'Add');
+    $this->assertSame(2, $this->conditionRowCount());
+
+    $has_autocomplete = (bool) $this->getSession()->evaluateScript(
+      "jQuery('.ui-dialog:visible .webform-ranking-item-condition-row').eq(1).find('.webform-states-table--value input').hasClass('ui-autocomplete-input')"
+    );
+    $this->assertTrue($has_autocomplete, "The second condition row's Value field never got jQuery UI autocomplete wired up.");
   }
 
   /**

@@ -261,15 +261,21 @@
     // itself carry a 'between'/'!between' range, or multiple triggers
     // nested under one condition object, neither of which this picker's
     // one-trigger-per-row model produces. Rather than inventing a shape
-    // that isn't actually valid #states syntax, this warns and — same as
-    // the real widget not saving anything for that state at all — still
-    // emits *something* (the last-condition-wins associative map) so the
-    // dialog doesn't silently look broken, but makes the data loss
-    // visible instead of silent.
+    // that isn't actually valid #states syntax, this warns AND actively
+    // withholds the write (see onBuilderChange()) — a naive "emit the
+    // collapsing associative map anyway" was tried first, but the two
+    // rows serialize to a *flow-style* YAML mapping with a duplicate key,
+    // and Symfony's flow-mapping parser (Inline.php, unlike its
+    // block-style Parser.php) unconditionally throws on that rather than
+    // silently keeping the last value — so "emit something anyway" was
+    // actually "emit something that crashes the next decode," not a
+    // harmless data-loss fallback. Leaving the field at its last valid
+    // value while this warning shows is what actually matches the real
+    // widget not saving anything for that state.
     const duplicateSelectorWarning = document.createElement('div');
     duplicateSelectorWarning.className = 'webform-ranking-item-condition-duplicate-warning messages messages--warning';
     duplicateSelectorWarning.style.display = 'none';
-    duplicateSelectorWarning.textContent = Drupal.t('Two conditions target the same Element combined with "All" — only the last one will be saved. Use "Any"/"One" instead, or a single "between"/"not between" condition for a numeric range.');
+    duplicateSelectorWarning.textContent = Drupal.t('Two conditions target the same Element combined with "All" — this can\'t be saved until it\'s resolved. Use "Any"/"One" instead, or a single "between"/"not between" condition for a numeric range.');
     fieldsetWrapper.appendChild(duplicateSelectorWarning);
 
     const table = document.createElement('table');
@@ -478,8 +484,19 @@
       const conditionRow = document.createElement('tr');
       conditionRow.className = 'webform-states-table--condition webform-ranking-item-condition-row';
 
+      // Empty placeholder — purely for column alignment under the
+      // "State" header, matching the real widget's own per-condition-row
+      // markup (WebformElementStates::buildConditionRow()); the actual
+      // State <select> lives only on the state row, above. Deliberately
+      // NOT core's own 'webform-states-table--state' class here, even
+      // though there's currently no <select> inside this cell for it to
+      // collide via (see the state row's own construction comment for
+      // the full collision this class name causes elsewhere) — using a
+      // module-scoped name closes off that landmine for good, rather
+      // than leaving a same-named cell one future edit away from
+      // reintroducing it.
       const stateTd = document.createElement('td');
-      stateTd.className = 'webform-states-table--state';
+      stateTd.className = 'webform-ranking-item-condition-row-state-placeholder';
       conditionRow.appendChild(stateTd);
 
       const selectorTd = document.createElement('td');
@@ -556,7 +573,10 @@
       addRowButton.addEventListener('click', function () {
         const newRow = createConditionRow({});
         conditionRow.after(newRow);
-        Drupal.attachBehaviors(newRow);
+        // See addConditionRow()'s own comment: attaching on the new row
+        // itself can never match once()'s own descendant-only search for
+        // the class that row carries — tbody (an ancestor) is required.
+        Drupal.attachBehaviors(tbody);
         onBuilderChange();
       });
       removeRowButton.addEventListener('click', function () {
@@ -632,7 +652,12 @@
      * Shows a note when the "All" operator is selected with two or more
      * condition rows sharing the same Element — see
      * duplicateSelectorWarning's own construction comment above for why
-     * that combination can't be losslessly saved.
+     * that combination can't be saved at all, not just losslessly.
+     *
+     * @return {boolean}
+     *   Whether the warning is currently showing — callers use this to
+     *   withhold writing emitYaml()'s output while true, rather than
+     *   handing the YAML field a value that throws on decode.
      */
     function updateDuplicateSelectorWarning() {
       const selectors = [];
@@ -647,13 +672,26 @@
         }
         selectors.push(selector);
       });
-      duplicateSelectorWarning.style.display = (operatorSelect.value === 'and' && hasDuplicate) ? '' : 'none';
+      const showWarning = operatorSelect.value === 'and' && hasDuplicate;
+      duplicateSelectorWarning.style.display = showWarning ? '' : 'none';
+      return showWarning;
     }
 
     function addConditionRow(data) {
       const conditionRow = createConditionRow(data);
       tbody.appendChild(conditionRow);
-      Drupal.attachBehaviors(conditionRow);
+      // Drupal.attachBehaviors(context) finds behaviors' target elements
+      // via context.querySelectorAll(selector) (see @drupal/once), which
+      // by DOM spec never matches context itself — only its descendants.
+      // webform.element.states.js's own behavior looks for
+      // '.webform-states-table--condition', the class this exact row
+      // carries (not a class on some child of it), so passing the row
+      // itself as context guarantees zero matches and silently leaves
+      // its value-autocomplete never wired up. tbody is an ancestor of
+      // every row (old and new), so this correctly re-scans for
+      // not-yet-processed rows via once()'s own id-tracking without
+      // re-attaching to rows already handled.
+      Drupal.attachBehaviors(tbody);
       return conditionRow;
     }
 
@@ -780,7 +818,14 @@
 
     function onBuilderChange() {
       updateStateWarning();
-      updateDuplicateSelectorWarning();
+      // Withhold the write entirely while the duplicate-selector warning
+      // is showing — emitYaml() would otherwise hand the field a YAML
+      // string that throws on decode (see duplicateSelectorWarning's own
+      // construction comment). The field simply keeps its last valid
+      // value until the admin resolves the duplicate.
+      if (updateDuplicateSelectorWarning()) {
+        return;
+      }
       writeYamlField(emitYaml());
     }
 
