@@ -2,6 +2,7 @@
 
 namespace Drupal\webform_ranking\Plugin\WebformElement;
 
+use Drupal\Component\Serialization\Exception\InvalidDataTypeException;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\webform\Element\WebformElementStates;
 use Drupal\webform\Plugin\WebformElementBase;
@@ -180,7 +181,23 @@ class WebformRanking extends WebformElementBase {
       if ($value === '' || empty($item['states'])) {
         continue;
       }
-      $states = is_string($item['states']) ? WebformYaml::decode($item['states']) : $item['states'];
+      // A live value read via $form_state->getValue() above (unlike the
+      // saved-entity snapshot it can fall back to) may be genuinely
+      // invalid YAML mid-edit — e.g. syntactically broken text typed
+      // into "Edit source," or a duplicate-selector condition the
+      // builder's own client-side check normally prevents from ever
+      // reaching this field, but nothing stops a hand-edited YAML value
+      // from producing the same shape. Decoding must not fatal the whole
+      // AJAX rebuild over one item's temporarily-invalid text; treating
+      // it the same as any other non-decomposable value (falls back to
+      // the raw YAML view for that item, same as WebformCodeMirror's own
+      // validateYaml() already does at actual save time) is correct.
+      try {
+        $states = is_string($item['states']) ? WebformYaml::decode($item['states']) : $item['states'];
+      }
+      catch (InvalidDataTypeException) {
+        continue;
+      }
       $decomposed = is_array($states) ? $this->decomposeItemStatesToConditions($states) : NULL;
       if ($decomposed !== NULL) {
         $conditions_by_value[$value] = $decomposed;

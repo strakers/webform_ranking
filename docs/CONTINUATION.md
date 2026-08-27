@@ -1285,6 +1285,83 @@ no-input fallback only ever see canonical shape. The plugin's
     reported "Add row" case to any AJAX rebuild of this form — the fix
     doesn't special-case which trigger caused the rebuild.
 
+29. **PR #82 code review response: 2 confirmed bugs + a residual
+    class-collision landmine.** #66/#65 merged into `feature/states-ui`;
+    a fresh `/code-review` run on the resulting `feature/states-ui` →
+    `dev` PR (8 parallel finder agents) found 11 findings. Two were
+    CONFIRMED by independently re-verifying against the actual vendored
+    source rather than trusting the finder agents' own claims — one of
+    which corrected a claim *this same log* had made in entry 27.
+    - **Duplicate-selector-under-"All" doesn't silently lose data — it
+      throws.** Entry 27 documented (based on checking `vendor/symfony/
+      yaml/Parser.php`) that a duplicate YAML mapping key "silently
+      keeps only the last occurrence." Wrong parser class: `emitYaml()`'s
+      AND branch produces *flow-style* YAML (`{sel: {...}, sel: {...}}`),
+      parsed by `Inline.php`, not `Parser.php` — and `Inline.php`
+      unconditionally throws `ParseException` on a duplicate key, no
+      silent/deprecated fallback (that path only exists in `Parser.php`'s
+      block-style handling). Confirmed directly against the vendored
+      source before believing it. Two compounding consequences: at
+      normal Save time, `WebformCodeMirror::validateYaml()` does catch
+      it, but surfaces a raw, unhelpful Symfony error instead of the
+      "only the last one will be saved" UX the warning message and
+      CHANGELOG both promised; during a `#webform_multiple` AJAX rebuild
+      (the #79 fix's own new code path, `form()` line ~183), the same
+      exception was **uncaught**, crashing the whole request instead of
+      falling back to the YAML view for that one item. Fixed on both
+      sides: `updateDuplicateSelectorWarning()` now returns whether it's
+      showing, and `onBuilderChange()` withholds the `writeYamlField()`
+      call entirely while true — the field simply keeps its last valid
+      value, so the throwing YAML string is never constructed in the
+      first place, not just warned about. `form()`'s decode call is now
+      wrapped in try/catch (`InvalidDataTypeException`, the exception
+      core's own `Yaml::decode()` wraps Symfony's `ParseException` in),
+      falling back to "not decomposable" the same as any other
+      non-array `$states` value — general-purpose, not specific to the
+      duplicate-selector case, since any hand-typed malformed YAML in
+      "Edit source" reaches this same live-decode path.
+    - **Condition-row autocomplete never actually initialized, for any
+      row, ever.** `addConditionRow()`/the "+" button handler called
+      `Drupal.attachBehaviors(conditionRow)`/`Drupal.attachBehaviors(
+      newRow)`, passing the just-created row *itself* as context. Per
+      `@drupal/once`'s own implementation, `context.querySelectorAll(
+      selector)` structurally can never match `context` itself, only
+      descendants — and `.webform-states-table--condition` (what
+      `webform.element.states.js`'s behavior looks for, to wire up value
+      autocomplete) is set on that same row, not a descendant of it, per
+      this module's own deliberate double-init-crash fix (entry 15/#3).
+      100% reproducible, not a load-order coincidence. Fixed by
+      attaching on `tbody` (an ancestor of every row, old and new)
+      instead — `once()`'s own id-tracking correctly re-scans only
+      not-yet-processed rows, no double-attachment risk. Verified via
+      jQuery UI's own `ui-autocomplete-input` marker class, added to an
+      element on successful widget init — a newly-added row's Value
+      field now genuinely carries it, where before this fix it never
+      did.
+    - **Residual same-named-class landmine closed off.** Entry 27's
+      Required-checkbox fix renamed the *state row's* select wrapper
+      away from core's collision-prone `webform-states-table--state`
+      class, but every condition *row* still built an empty placeholder
+      `<td class="webform-states-table--state">` (no `<select>` inside,
+      column-alignment only) using that same exact string — harmless
+      today, but one future edit away from silently reintroducing the
+      identical collision if a `<select>` ever landed inside it.
+      Renamed to a module-scoped class; purely cosmetic, no CSS/test
+      changes needed since nothing targeted this specific empty cell.
+    Deliberately NOT addressed in this branch (filed as #83/#84/#85
+    instead, per explicit scope decision): a cluster of "no shared
+    source of truth" duplication findings (trigger/state classification
+    lists, PHP's `#states` parser reimplementing core's own conversion
+    logic, the hand-rolled YAML emitter), a cluster of JS efficiency
+    findings (eager per-item DOM construction, per-keystroke non-
+    debounced rebuilds, redundant `Drupal.attachBehaviors()` calls,
+    duplicate DOM traversal, double-firing change events), and two small
+    documentation/robustness notes (the rejected literal-`'and'` shape
+    still has no in-code explanation despite entry 27's own investigation
+    — a genuine gap this project's own `feedback_flag_deferred_design_
+    decisions` convention should have caught; `form()`'s new implicit
+    `getFormObject()->getWebform()` precondition).
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,
