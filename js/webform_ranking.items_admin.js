@@ -64,15 +64,6 @@
 (function ($, Drupal, once, drupalSettings) {
   'use strict';
 
-  const NESTED_TRIGGERS = ['pattern', '!pattern', 'less', 'less_equal', 'greater', 'greater_equal', 'between', '!between'];
-  const NO_VALUE_TRIGGERS = ['empty', 'filled', 'checked', 'unchecked'];
-  // Only these actually affect item inclusion —
-  // WebformRankingVisibilityResolver::isVisible() ignores every other
-  // state. The rest are still offered (matching the real element-level
-  // builder's own full flexibility) but trigger a warning note — see
-  // updateStateWarning().
-  const VISIBILITY_STATES = ['visible', 'invisible', 'visible-slide', 'invisible-slide'];
-
   Drupal.behaviors.webformRankingItemsAdmin = {
     attach: function (context) {
       once('webform-ranking-items-admin', '.webform-ranking-item-states-wrapper', context).forEach(function (wrapper) {
@@ -99,8 +90,6 @@
       return;
     }
 
-    const builder = initConditionBuilder(wrapper, yamlField);
-
     const form = wrapper.closest('form');
     const trigger = document.createElement('button');
     trigger.type = 'button';
@@ -116,9 +105,25 @@
     // only thing visible in the row itself.
     wrapper.style.display = 'none';
 
+    let builder = null;
     let dialog = null;
 
     trigger.addEventListener('click', function () {
+      if (!builder) {
+        // Deferred to first open rather than built for every item at
+        // attach time (page load, and again on every #webform_multiple
+        // AJAX rebuild) — see GitHub issue #84. Most items' dialogs are
+        // never opened in a given admin session; building the full
+        // condition-rows DOM (fieldset, table, per-condition rows with
+        // their own selector/trigger <select> population, plus the
+        // saved-condition decomposition lookup) for every item
+        // regardless was pure discarded work at scale. Reading
+        // drupalSettings here rather than at page load is also strictly
+        // more correct, not just lazier: Drupal's AJAX framework merges
+        // fresh settings into the global drupalSettings object on every
+        // response, so a click-time read always sees the current data.
+        builder = initConditionBuilder(wrapper, yamlField);
+      }
       if (!dialog) {
         dialog = Drupal.dialog(wrapper, {
           title: Drupal.t('Item visibility condition'),
@@ -205,6 +210,17 @@
     const triggerOptions = settings.triggerOptions || {};
     const conditionsByItemValue = settings.conditionsByItemValue || {};
     const iconBaseUrl = (drupalSettings.path.baseUrl || '/') + (settings.webformModulePath || '') + '/images/icons/';
+    // Trigger/state classification read from PHP (WebformRanking::
+    // NESTED_TRIGGER_KEYS/NO_VALUE_TRIGGER_KEYS/VISIBILITY_STATE_KEYS)
+    // rather than a second hand-typed copy here — see GitHub issue #83.
+    const nestedTriggers = settings.nestedTriggerKeys || [];
+    const noValueTriggers = settings.noValueTriggerKeys || [];
+    // Only these actually affect item inclusion —
+    // WebformRankingVisibilityResolver::isVisible() ignores every other
+    // state. The rest are still offered (matching the real element-level
+    // builder's own full flexibility) but trigger a warning note — see
+    // updateStateWarning().
+    const visibilityStates = settings.visibilityStateKeys || [];
 
     const row = wrapper.closest('tr');
     const valueInput = row ? row.querySelector('input[name$="[value]"]') : null;
@@ -293,7 +309,7 @@
     table.appendChild(tbody);
     fieldsetWrapper.appendChild(table);
 
-    // State row: one per item (not repeatable — see VISIBILITY_STATES
+    // State row: one per item (not repeatable — see visibilityStates
     // above on why only a single state is offered here, unlike the real
     // builder's "Add another state").
     //
@@ -375,14 +391,7 @@
     wrapper.appendChild(yamlViewContainer);
     Drupal.attachBehaviors(wrapper);
 
-    function addOption(select, value, label) {
-      const option = document.createElement('option');
-      option.value = value;
-      option.textContent = label;
-      select.appendChild(option);
-    }
-
-    function addOptionTo(parent, value, label) {
+    function addOption(parent, value, label) {
       const option = document.createElement('option');
       option.value = value;
       option.textContent = label;
@@ -417,7 +426,11 @@
     }
 
     /**
-     * Populates the Element (selector) dropdown, including optgroups.
+     * Builds the Element (selector) <select>, including optgroups, once
+     * per item and clones it per condition row thereafter — selectorOptions
+     * is identical across every row of this item, so re-walking it and
+     * rebuilding the same <option>/<optgroup> DOM from scratch for every
+     * row (the original approach) was pure repeated work.
      *
      * $webform->getElementsSelectorOptions() mixes flat 'selector =>
      * label' entries (a single-value element) with nested 'group label
@@ -425,30 +438,52 @@
      * sub-selectors, e.g. this module's own per-item rank selectors) —
      * the same optgroup-shaped data the real "Conditional logic" tab's
      * Element dropdown renders.
+     *
+     * @return {HTMLSelectElement}
+     *   A new, independent <select> — safe to mutate (e.g. the "stray
+     *   option" fallback in createConditionRow()) without affecting the
+     *   cached template or any other row's own clone.
      */
-    function populateSelectorOptions(select) {
-      select.innerHTML = '';
-      addOption(select, '', Drupal.t('- Select -'));
-      Object.keys(selectorOptions).forEach(function (key) {
-        const value = selectorOptions[key];
-        if (typeof value === 'object' && value !== null) {
-          const optgroup = document.createElement('optgroup');
-          optgroup.label = key;
-          Object.keys(value).forEach(function (selector) {
-            addOptionTo(optgroup, selector, value[selector]);
-          });
-          select.appendChild(optgroup);
-        }
-        else {
-          addOptionTo(select, key, value);
-        }
-      });
+    let selectorSelectTemplate = null;
+    function createSelectorSelect() {
+      if (!selectorSelectTemplate) {
+        const select = createSelectElement();
+        addOption(select, '', Drupal.t('- Select -'));
+        Object.keys(selectorOptions).forEach(function (key) {
+          const value = selectorOptions[key];
+          if (typeof value === 'object' && value !== null) {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = key;
+            Object.keys(value).forEach(function (selector) {
+              addOption(optgroup, selector, value[selector]);
+            });
+            select.appendChild(optgroup);
+          }
+          else {
+            addOption(select, key, value);
+          }
+        });
+        selectorSelectTemplate = select;
+      }
+      return selectorSelectTemplate.cloneNode(true);
     }
 
-    function populateTriggerOptions(select) {
-      Object.keys(triggerOptions).forEach(function (key) {
-        addOption(select, key, triggerOptions[key]);
-      });
+    /**
+     * Builds the Trigger <select>, once per item and cloned per row —
+     * same rationale as createSelectorSelect() above.
+     *
+     * @return {HTMLSelectElement}
+     */
+    let triggerSelectTemplate = null;
+    function createTriggerSelect() {
+      if (!triggerSelectTemplate) {
+        const select = createSelectElement();
+        Object.keys(triggerOptions).forEach(function (key) {
+          addOption(select, key, triggerOptions[key]);
+        });
+        triggerSelectTemplate = select;
+      }
+      return triggerSelectTemplate.cloneNode(true);
     }
 
     /**
@@ -501,8 +536,7 @@
 
       const selectorTd = document.createElement('td');
       selectorTd.className = 'webform-states-table--selector';
-      const selectorSelect = createSelectElement();
-      populateSelectorOptions(selectorSelect);
+      const selectorSelect = createSelectorSelect();
       if (data.selector) {
         selectorSelect.value = data.selector;
         // A selector already saved against this item but not present in
@@ -517,7 +551,7 @@
         // and correctly re-emitted even though it's not a recognized
         // element.
         if (selectorSelect.value !== data.selector) {
-          addOptionTo(selectorSelect, data.selector, data.selector);
+          addOption(selectorSelect, data.selector, data.selector);
           selectorSelect.value = data.selector;
         }
       }
@@ -527,8 +561,7 @@
       const conditionTd = document.createElement('td');
       const triggerWrapper = document.createElement('div');
       triggerWrapper.className = 'webform-states-table--trigger';
-      const triggerSelect = createSelectElement();
-      populateTriggerOptions(triggerSelect);
+      const triggerSelect = createTriggerSelect();
       triggerSelect.value = data.trigger || 'value';
       triggerWrapper.appendChild(triggerSelect);
       conditionTd.appendChild(triggerWrapper);
@@ -563,19 +596,25 @@
         updateValueFieldVisibility(conditionRow, triggerSelect.value);
         onBuilderChange();
       });
-      valueInputEl.addEventListener('input', onBuilderChange);
-      // 'change' too, not just 'input': covers a value set
-      // programmatically (autofill, or a test driving the field via
-      // .val()+trigger('change')) rather than typed keystroke-by-
-      // keystroke. onBuilderChange() is idempotent, so hearing both for
-      // a single real edit is harmless.
+      // Debounced specifically for 'input' (real typing fires this once
+      // per keystroke — see debouncedBuilderChange()'s own docblock),
+      // but 'change' stays on the immediate onBuilderChange(): it covers
+      // a value set programmatically (autofill, or a test driving the
+      // field via .val()+trigger('change')) rather than typed
+      // keystroke-by-keystroke, where there's no rapid-fire sequence to
+      // coalesce and immediate feedback is actually wanted.
+      // onBuilderChange() is idempotent, so hearing both for a single
+      // real edit (a final 'change' arrives after typing stops too) is
+      // harmless.
+      valueInputEl.addEventListener('input', debouncedBuilderChange);
       valueInputEl.addEventListener('change', onBuilderChange);
       addRowButton.addEventListener('click', function () {
         const newRow = createConditionRow({});
         conditionRow.after(newRow);
-        // See addConditionRow()'s own comment: attaching on the new row
-        // itself can never match once()'s own descendant-only search for
-        // the class that row carries — tbody (an ancestor) is required.
+        // See renderConditions()'s own comment on its batched attach:
+        // attaching on the new row itself can never match once()'s own
+        // descendant-only search for the class that row carries — tbody
+        // (an ancestor) is required.
         Drupal.attachBehaviors(tbody);
         onBuilderChange();
       });
@@ -637,15 +676,15 @@
      */
     function updateValueFieldVisibility(conditionRow, trigger) {
       const valueWrapper = conditionRow.querySelector('.webform-states-table--value');
-      valueWrapper.style.display = NO_VALUE_TRIGGERS.indexOf(trigger) === -1 ? '' : 'none';
+      valueWrapper.style.display = noValueTriggers.indexOf(trigger) === -1 ? '' : 'none';
     }
 
     /**
      * Shows a note when the selected State doesn't affect item
-     * inclusion — see VISIBILITY_STATES above.
+     * inclusion — see visibilityStates above.
      */
     function updateStateWarning() {
-      stateWarning.style.display = VISIBILITY_STATES.indexOf(modeSelect.value) === -1 ? '' : 'none';
+      stateWarning.style.display = visibilityStates.indexOf(modeSelect.value) === -1 ? '' : 'none';
     }
 
     /**
@@ -654,45 +693,25 @@
      * duplicateSelectorWarning's own construction comment above for why
      * that combination can't be saved at all, not just losslessly.
      *
+     * @param {Array<{selector: string, trigger: string, value: string}>} conditions
+     *   Row data from getConditionRowsData(), reused rather than
+     *   re-queried here — see that function's own docblock.
+     *
      * @return {boolean}
      *   Whether the warning is currently showing — callers use this to
      *   withhold writing emitYaml()'s output while true, rather than
      *   handing the YAML field a value that throws on decode.
      */
-    function updateDuplicateSelectorWarning() {
-      const selectors = [];
-      let hasDuplicate = false;
-      tbody.querySelectorAll('.webform-ranking-item-condition-row').forEach(function (conditionRow) {
-        const selector = conditionRow.querySelector('.webform-states-table--selector select').value;
-        if (!selector) {
-          return;
-        }
-        if (selectors.indexOf(selector) !== -1) {
-          hasDuplicate = true;
-        }
-        selectors.push(selector);
+    function updateDuplicateSelectorWarning(conditions) {
+      const selectors = conditions.map(function (condition) {
+        return condition.selector;
+      });
+      const hasDuplicate = selectors.some(function (selector, index) {
+        return selectors.indexOf(selector) !== index;
       });
       const showWarning = operatorSelect.value === 'and' && hasDuplicate;
       duplicateSelectorWarning.style.display = showWarning ? '' : 'none';
       return showWarning;
-    }
-
-    function addConditionRow(data) {
-      const conditionRow = createConditionRow(data);
-      tbody.appendChild(conditionRow);
-      // Drupal.attachBehaviors(context) finds behaviors' target elements
-      // via context.querySelectorAll(selector) (see @drupal/once), which
-      // by DOM spec never matches context itself — only its descendants.
-      // webform.element.states.js's own behavior looks for
-      // '.webform-states-table--condition', the class this exact row
-      // carries (not a class on some child of it), so passing the row
-      // itself as context guarantees zero matches and silently leaves
-      // its value-autocomplete never wired up. tbody is an ancestor of
-      // every row (old and new), so this correctly re-scans for
-      // not-yet-processed rows via once()'s own id-tracking without
-      // re-attaching to rows already handled.
-      Drupal.attachBehaviors(tbody);
-      return conditionRow;
     }
 
     /**
@@ -708,16 +727,50 @@
         modeSelect.value = decomposed.mode;
         operatorSelect.value = decomposed.operator;
         decomposed.conditions.forEach(function (condition) {
-          addConditionRow(condition);
+          tbody.appendChild(createConditionRow(condition));
         });
       }
       else {
         modeSelect.value = 'visible';
         operatorSelect.value = 'and';
-        addConditionRow({});
+        tbody.appendChild(createConditionRow({}));
       }
+      // One batched attach for however many rows were just appended,
+      // rather than once per row (each call sweeps the *entire*
+      // Drupal.behaviors registry, not just this module's) — see GitHub
+      // issue #84. Drupal.attachBehaviors(context) finds target elements
+      // via context.querySelectorAll(selector) (see @drupal/once), which
+      // by DOM spec never matches context itself, only descendants —
+      // tbody (an ancestor of every row) is required, not a row itself;
+      // see createConditionRow()'s own docblock for the real bug that
+      // caused (autocomplete never wiring up on any row, ever).
+      Drupal.attachBehaviors(tbody);
       updateStateWarning();
-      updateDuplicateSelectorWarning();
+      updateDuplicateSelectorWarning(getConditionRowsData());
+    }
+
+    /**
+     * Reads every condition row with a selector chosen into one array,
+     * shared by updateDuplicateSelectorWarning() and emitYaml() — both
+     * used to independently re-scan and re-query the same rows on every
+     * call, doubling the DOM work onBuilderChange() does per keystroke.
+     *
+     * @return {Array<{selector: string, trigger: string, value: string}>}
+     */
+    function getConditionRowsData() {
+      const conditions = [];
+      tbody.querySelectorAll('.webform-ranking-item-condition-row').forEach(function (conditionRow) {
+        const selector = conditionRow.querySelector('.webform-states-table--selector select').value;
+        if (!selector) {
+          return;
+        }
+        conditions.push({
+          selector: selector,
+          trigger: conditionRow.querySelector('.webform-states-table--trigger select').value,
+          value: conditionRow.querySelector('.webform-states-table--value input').value
+        });
+      });
+      return conditions;
     }
 
     /**
@@ -735,7 +788,7 @@
       if (condition.trigger === 'value' || condition.trigger === '!value') {
         return '{' + yamlString(condition.trigger) + ': ' + yamlString(condition.value) + '}';
       }
-      if (NESTED_TRIGGERS.indexOf(condition.trigger) !== -1) {
+      if (nestedTriggers.indexOf(condition.trigger) !== -1) {
         return '{' + yamlString('value') + ': {' + yamlString(condition.trigger) + ': ' + yamlString(condition.value) + '}}';
       }
       // empty/filled/checked/unchecked: a bare boolean, no comparison
@@ -750,22 +803,14 @@
      * fully valid YAML with no indentation-tracking needed, which is
      * what keeps this emitter this simple and low-risk).
      *
+     * @param {Array<{selector: string, trigger: string, value: string}>} conditions
+     *   Row data from getConditionRowsData(), reused rather than
+     *   re-queried here — see that function's own docblock.
+     *
      * @return {string}
      *   YAML text, or '' if no condition row has a selector chosen yet.
      */
-    function emitYaml() {
-      const conditions = [];
-      tbody.querySelectorAll('.webform-ranking-item-condition-row').forEach(function (conditionRow) {
-        const selector = conditionRow.querySelector('.webform-states-table--selector select').value;
-        if (!selector) {
-          return;
-        }
-        conditions.push({
-          selector: selector,
-          trigger: conditionRow.querySelector('.webform-states-table--trigger select').value,
-          value: conditionRow.querySelector('.webform-states-table--value input').value
-        });
-      });
+    function emitYaml(conditions) {
       if (!conditions.length) {
         return '';
       }
@@ -808,25 +853,51 @@
       if (codeMirrorWrapper && codeMirrorWrapper.CodeMirror) {
         codeMirrorWrapper.CodeMirror.setValue(value);
         codeMirrorWrapper.CodeMirror.save();
+        // No manual dispatchEvent() needed on this path: .save() already
+        // writes `value` into yamlField.value directly, and
+        // webform.element.codemirror.js's own '$input.on(\'change\', ...)'
+        // listener (confirmed by reading its source) only re-syncs the
+        // editor's content FROM the textarea — since we just set both
+        // sides to the same `value` via the CodeMirror API above, firing
+        // 'change' here would only trigger a no-op resync, not anything
+        // load-bearing.
       }
       else {
         yamlField.value = value;
+        yamlField.dispatchEvent(new Event('input', {bubbles: true}));
+        yamlField.dispatchEvent(new Event('change', {bubbles: true}));
       }
-      yamlField.dispatchEvent(new Event('input', {bubbles: true}));
-      yamlField.dispatchEvent(new Event('change', {bubbles: true}));
     }
 
     function onBuilderChange() {
       updateStateWarning();
+      const conditions = getConditionRowsData();
       // Withhold the write entirely while the duplicate-selector warning
       // is showing — emitYaml() would otherwise hand the field a YAML
       // string that throws on decode (see duplicateSelectorWarning's own
       // construction comment). The field simply keeps its last valid
       // value until the admin resolves the duplicate.
-      if (updateDuplicateSelectorWarning()) {
+      if (updateDuplicateSelectorWarning(conditions)) {
         return;
       }
-      writeYamlField(emitYaml());
+      writeYamlField(emitYaml(conditions));
+    }
+
+    /**
+     * Debounced wrapper around onBuilderChange(), for the Value input's
+     * 'input' listener specifically. Real typing fires 'input' once per
+     * keystroke, each of which walks every condition row, rebuilds the
+     * YAML string, and (when CodeMirror is attached) re-parses/re-
+     * highlights the whole editor — coalescing rapid-fire keystrokes
+     * into one rebuild after typing pauses avoids doing that full cycle
+     * on every character. One shared timer per dialog (not per row) is
+     * correct here: only one field is ever being typed into within a
+     * single open dialog at a time.
+     */
+    let builderChangeDebounceTimer = null;
+    function debouncedBuilderChange() {
+      clearTimeout(builderChangeDebounceTimer);
+      builderChangeDebounceTimer = setTimeout(onBuilderChange, 200);
     }
 
     modeSelect.addEventListener('change', onBuilderChange);
