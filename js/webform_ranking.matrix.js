@@ -2,22 +2,14 @@
  * @file
  * Webform Ranking: matrix (radio grid) behavior.
  *
- * Enforces "each rank used at most once" client-side by reassigning a
- * rank away from whichever row currently holds it ("stealing") when a
- * different row selects it, and marking already-taken cells with a
- * visual hint. This is a UX convenience only —
- * WebformRanking::validateWebformRanking() re-checks the same rule
- * server-side regardless, since client-side state is trivially
- * bypassable (devtools, JS-off, direct POST).
- *
- * Earlier versions of this file disabled a rank's radio in every other
- * row once it was selected, rather than reassigning it. That's what a
- * native disabled <input> can never support: once every item held a
- * distinct rank, every "swap" needed two simultaneous changes that
- * permanently, mutually blocked each other via disabled inputs a user
- * could no longer click at all — a fully-ranked matrix could never be
- * rearranged again without an N/A escape hatch (and not at all if
- * #allow_na was off). Reassignment removes that lockout entirely.
+ * Enforces "each rank used at most once" client-side (a UX convenience
+ * only — WebformRanking::validateWebformRanking() re-checks server-side
+ * regardless) by reassigning ("stealing") a rank from whichever row
+ * currently holds it, rather than disabling already-taken radios —
+ * disabling caused a permanent rearrange lockout once every item held a
+ * distinct rank. See docs/adr/0011-matrix-rank-reassignment.md. Also
+ * keeps conditionally-hidden items' rows/rank-columns in sync — see
+ * docs/adr/0012-matrix-conditional-item-visibility-sync.md.
  */
 (function (Drupal, once, $) {
   'use strict';
@@ -45,20 +37,9 @@
         }
       });
       // Seeds `visible` from each row's *already-applied* states.js
-      // result, not just from events caught from here on. Both
-      // Drupal.behaviors.states (core/drupal.states, a declared
-      // dependency of this library — see webform_ranking.libraries.yml)
-      // and this behavior run during the same page-load attach pass,
-      // states.js first; by the time this runs, a conditionally-hidden
-      // row's cells are already hidden, but the 'state:visible' event
-      // that announced it fired *before* the listener below existed to
-      // catch it. Needed here so both toggleRow() (GitHub issue #59)
-      // and updateRankColumns() (GitHub issue #60) get their own very
-      // first render right, not just later live changes. `offsetParent
-      // === null` is a plain, well-supported way to ask "is this
-      // currently hidden" after the fact — same technique
-      // webform_ranking.dragdrop.js's own position-numbering already
-      // relies on for the same reason.
+      // result (states.js attaches first, before this behavior's own
+      // 'state:visible' listener exists to catch that first event) —
+      // see docs/adr/0012-matrix-conditional-item-visibility-sync.md.
       var firstInput = groups[name][0];
       if (firstInput && firstInput.offsetParent === null) {
         visible[name] = false;
@@ -76,10 +57,9 @@
             return;
           }
 
-          // Reassign ("steal") rather than block: if another row
-          // currently holds this exact rank, it loses it — 'na' is
-          // exempt, since multiple items can be marked N/A at once
-          // and it isn't a shared, exhaustible resource.
+          // Reassign ("steal") rather than block — see
+          // docs/adr/0011-matrix-rank-reassignment.md. 'na' is exempt:
+          // multiple items can be marked N/A at once.
           var rank = input.value;
           var bumpedLabel = null;
           if (rank !== 'na') {
@@ -96,20 +76,11 @@
               })[0];
               if (otherInput) {
                 otherInput.checked = false;
-                // A plain property assignment fires no DOM event of
-                // its own, but states.js only re-evaluates a 'value'
-                // trigger condition on 'change'/'keyup' (see
-                // web/core/misc/states.js, Trigger.states.value) — the
-                // row that *wins* the rank gets this for free from the
-                // user's real click, but the row that *loses* it is
-                // only ever mutated programmatically. Without this,
-                // any #states condition elsewhere on the form watching
-                // specifically for this item's rank (e.g. "show X when
-                // Pizza is ranked 1st") never re-evaluates once Pizza
-                // is bumped, and stays stuck showing/hiding whatever
-                // was last true. Mirrors the same dispatch
-                // webform_ranking.dragdrop.js's sync() already does
-                // for its own hidden inputs, for the same reason.
+                // A plain property assignment fires no 'change' event,
+                // but states.js only re-evaluates a 'value' trigger on
+                // 'change'/'keyup' — without this, a #states condition
+                // watching the bumped item's rank would stay stale. See
+                // docs/adr/0011-matrix-rank-reassignment.md.
                 otherInput.dispatchEvent(new Event('change', {bubbles: true}));
                 bumpedLabel = rowLabel(otherInput);
               }
@@ -122,16 +93,9 @@
           announce(table, buildAnnouncement(table, input, bumpedLabel));
         });
 
-        // buildMatrix() applies each conditionally-visible item's own
-        // #states to every radio in its row, so states.js fires this
-        // event on every one of them when the condition's live value
-        // changes (see web/core/misc/states.js, Dependent#reevaluate()
-        // and #defaultTrigger()). Without this, a rank "used" by a
-        // now-hidden item stayed disabled everywhere else even after
-        // the item hiding it — a stale client-side block the server
-        // itself doesn't enforce, since validateWebformRanking()
-        // already drops a hidden item's selection before checking
-        // rank uniqueness (see WebformRankingVisibilityResolver).
+        // Keeps 'taken' hints and row/column visibility in sync with
+        // this item's own live condition — see
+        // docs/adr/0012-matrix-conditional-item-visibility-sync.md.
         $(input).on('state:visible', function (e) {
           visible[name] = e.value;
           markTakenRanks(groups, groupNames, selected, visible);
@@ -157,25 +121,11 @@
   }
 
   /**
-   * Recomputes the "taken" visual hint for every radio from scratch
-   * based on current selections. A full reset-then-reapply on every
-   * change is simpler and less error-prone than incrementally diffing
-   * old vs. new state, and the item counts involved here are always
-   * small.
-   *
-   * Purely informational — every radio stays enabled and clickable
-   * regardless. This is what makes reassignment ("stealing", see the
-   * 'change' handler above) possible at all: a genuinely disabled
-   * input can't be clicked to steal its rank back, which is exactly
-   * the lockout this replaced (see file docblock).
-   *
-   * N/A is deliberately excluded — multiple items can be marked N/A at
-   * once, only numeric ranks are a shared, exhaustible resource.
-   *
-   * A currently-hidden row (visible[name] === false) is also excluded
-   * from "taken" ranks — its own rank is unreachable/unsubmittable
-   * while hidden (see WebformRankingVisibilityResolver), so it must
-   * not keep marking that rank as taken for every other, visible item.
+   * Recomputes the "taken" visual hint for every radio from scratch —
+   * simpler than incrementally diffing, and item counts here are small.
+   * Purely informational (every radio stays enabled — see ADR-0011).
+   * N/A is excluded (not exhaustible); a currently-hidden row's rank is
+   * also excluded, since it's unreachable/unsubmittable while hidden.
    */
   function markTakenRanks(groups, groupNames, selected, visible) {
     groupNames.forEach(function (name) {
@@ -212,27 +162,11 @@
   }
 
   /**
-   * Hides/shows an item's entire <tr>, not just its label/radio cells.
-   *
-   * GitHub issue #59: buildMatrix() applies a conditionally-visible
-   * item's own '#states' to each cell's *content* individually (the
-   * label div, each radio) — states.js has nothing to attach to on the
-   * row itself (Table::preRenderTable()'s row-attributes-to-<tr> merge
-   * happens during #pre_render, before #states processing adds
-   * 'data-drupal-states' — the same timing constraint buildMatrix()'s
-   * own docblock documents for why the label needed a 'container'
-   * wrapper). Left alone, a hidden item's <tr>/<td> stays in the DOM:
-   * empty-looking, but present and taking up a table row. This is a
-   * pure display fix — server-side validation already discards a
-   * hidden item's stale selection regardless of what the row looks
-   * like (see WebformRankingVisibilityResolver).
-   *
-   * The native `hidden` IDL attribute, not a CSS class or inline
-   * `display`: equivalent to states.js's own plain 'visible'/'invisible'
-   * hiding (not the 'slide' variants — this element's own admin UI only
-   * ever offers 'visible'/'invisible', see WebformRanking::form()'s
-   * condition picker), and one property rather than a stylesheet
-   * dependency.
+   * Hides/shows an item's entire <tr>, not just its label/radio cells
+   * (GitHub issue #59 — buildMatrix() can't attach #states to the <tr>
+   * itself). Native `hidden` attribute, matching states.js's own plain
+   * visible/invisible hiding. See
+   * docs/adr/0012-matrix-conditional-item-visibility-sync.md.
    */
   function toggleRow(input, isVisible) {
     var row = input && input.closest('tr');
@@ -242,36 +176,12 @@
   }
 
   /**
-   * Hides rank columns beyond what the currently-visible items need.
-   *
-   * GitHub issue #60: rank columns (1st, 2nd, 3rd, ... + N/A) are built
-   * server-side from the *full configured* item count and never
-   * recomputed — hiding one item via its own '#states' condition still
-   * left every other, still-visible item offering the full original
-   * set of rank positions (e.g. 3 configured items, one hidden, leaves
-   * 2 visible items each still offering "1st/2nd/3rd" instead of just
-   * "1st/2nd"). Purely presentational: rank-exclusivity
-   * (markTakenRanks()) and server-side validation
-   * (WebformRankingConverter::matrixRanksAreSequential()) already
-   * operate on the visible item set only, so narrowing what's *offered*
-   * here doesn't change what's *valid* — a stale rank beyond the
-   * visible count is already dropped server-side regardless of what
-   * the client displays.
-   *
-   * Hides (native `hidden` attribute, matching the same technique
-   * GitHub issue #59 uses for whole rows) rather than merely disabling:
-   * consistent with how a conditionally-hidden item itself is already
-   * handled, and avoids leaving a selectable-looking but meaningless
-   * "3rd" column visible when only 2 items could ever hold it.
-   *
-   * The N/A column, when present, is never affected — N/A isn't a
-   * rank position tied to the visible item count, any number of
-   * visible items can be marked N/A at once.
-   *
-   * At least one rank column always stays available even if every item
-   * is currently hidden (nothing meaningful to rank, but an entirely
-   * columnless table is worse) — an edge case, not a scenario this
-   * element's own validation otherwise needs to specially handle.
+   * Hides rank columns beyond what the currently-visible items need
+   * (GitHub issue #60 — columns are built from the full configured
+   * count and never recomputed). Purely presentational; the N/A column
+   * is unaffected; at least one rank column always stays available even
+   * with every item hidden. See
+   * docs/adr/0012-matrix-conditional-item-visibility-sync.md.
    */
   function updateRankColumns(table, groups, groupNames, visible) {
     if (!groupNames.length) {
