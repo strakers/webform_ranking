@@ -1,61 +1,12 @@
 /**
  * @file
  * Per-item "conditional visibility" field on the Ranking element's config
- * form: presented in a dialog rather than inline in the items table, so
- * the table itself stays compact regardless of how many items have a
- * condition configured.
- *
- * History: an earlier version used a per-row checkbox to inline
- * show/hide the YAML field (progressive disclosure), scoped to "this
- * row" via a structure-agnostic DOM walk-up (findRowContainer()). That
- * checkbox/toggle never actually worked (GitHub issue #4) — the walk-up
- * heuristic scoped checkboxes to the wrong row's wrapper against
- * webform_multiple's real markup. Rather than debug that heuristic
- * further, this was redesigned per-item to a dialog: even inline-and-
- * expanded, a raw YAML field per row was still real, permanent visual
- * clutter once more than a couple of items had a condition — see GitHub
- * issue #4's discussion. A dialog also sidesteps the row-scoping problem
- * entirely, since the trigger button is inserted immediately next to its
- * own item's wrapper, not matched up to it via a separate DOM search.
- *
- * GitHub issue #65 (redo of #13): the dialog's contents were originally
- * always a raw #states YAML textarea. This file now also builds a visual
- * condition-rows picker — a <fieldset> containing a <table> with the same
- * State/Element/Trigger-Value columns and 'webform-states-table*' classes
- * the real element-level "Conditional logic" tab's own builder uses — as
- * an ADDITIONAL client-side view layered over that SAME textarea, not a
- * replacement field. WebformRanking::form() (PHP) is unchanged for this
- * field beyond attaching drupalSettings the builder reads; the textarea
- * itself keeps its exact original #type/#wrapper_attributes/position, on
- * purpose — an earlier attempt at issue #65 (closed PR #64) added a new
- * wrapping container here and incidentally broke the trigger button's
- * own markup as a side effect. See initConditionBuilder() below for how
- * the builder avoids that: it only ever inserts *new* sibling content
- * inside the wrapper this file already finds, never restructures what
- * PHP rendered.
- *
- * Deliberately not using Drupal's States API for the *trigger button*
- * itself, for the same reason as before: the previous conditional-UI
- * attempt here (webform_element_states nested inside a #webform_multiple
- * row) crashed in production, and this avoids leaning on another
- * not-fully-verified Drupal-internals mechanism inside the same
- * nested-widget context. (The condition-rows *builder* below reuses
- * Webform's own 'webform/webform.element.states' library for value
- * autocomplete — that library is pure DOM-class-based JS with no
- * comparable nesting risk, unlike re-using the webform_element_states
- * Form API element itself.)
- *
- * Dialog + form-submission note: jQuery UI's dialog widget, by default,
- * appends its wrapper to <body>. If the wrapped element's own form isn't
- * itself a descendant of <body> in a way that keeps it inside <form>
- * (typical for an admin page's layout), moving the YAML field's wrapper
- * there would silently drop it out of the submitted form. `appendTo` is
- * explicitly set to the closest <form> below to guarantee the field
- * stays a form descendant regardless of dialog visual positioning
- * (dialogs are CSS-positioned as an overlay, so this doesn't affect
- * where it appears on screen). Verified via a real submission in
- * WebformRankingItemsAdminJavaScriptTest: reopening the saved element's
- * config form after using the dialog shows the condition persisted.
+ * form: a dialog (not inline in the items table), holding both a raw
+ * #states YAML textarea and a visual condition-rows picker layered over
+ * the same textarea. See docs/adr/0014-items-admin-dialog-architecture.md
+ * for the dialog's own design (non-destructive DOM relocation, form-safe
+ * appendTo) and docs/adr/0015-condition-builder-markup-parity-and-collisions.md
+ * for the picker's markup choices.
  *
  * Uses const/let, unlike this module's other JS files (still var as of
  * writing) — see the module's tracked refactor issue to bring those in
@@ -176,20 +127,10 @@
               }
             }
           ],
-          // Overrides Drupal core's default dialog close handler
-          // (drupalSettings.dialog.close), which calls
-          // Drupal.detachBehaviors(event.target, null, 'unload') — built
-          // for disposable AJAX-loaded dialog content that's discarded
-          // after closing. This dialog wraps a permanent, reusable part
-          // of the same form, reopened on every click, so that default
-          // handler is actively harmful here: detaching behaviors for
-          // 'unload' tore down the wrapped field entirely, discovered
-          // via a real form-submission test
-          // (WebformRankingItemsAdminJavaScriptTest::
-          // testConditionPersistsThroughSubmission) where the edited
-          // item's <textarea> was simply gone from the DOM after
-          // closing the dialog once. A no-op keeps the same DOM nodes
-          // alive and reusable across opens.
+          // Overrides core's default close handler (which detaches
+          // behaviors for 'unload', built for disposable AJAX content) —
+          // this dialog is reused across opens, and that default tore
+          // the wrapped field down entirely (a no-op keeps it alive).
           close: function () {}
         });
       }
@@ -216,20 +157,12 @@
    * Builds the visual condition-rows picker for one item's dialog.
    *
    * Inserts two new sibling containers as the FIRST children of
-   * `wrapper` (ahead of the server-rendered YAML field's own markup,
-   * which is left completely untouched in place) — one holding the
-   * visual builder, one a plain "Edit source" toggle link that
-   * shows/hides the original YAML field. Only one of the two is ever
-   * visible at a time.
-   *
-   * The condition-rows DOM *is* the state — there's no separate JS data
-   * object mirroring it. Toggling to the YAML view never destroys the
-   * rows, just hides them, so toggling back shows exactly what was
-   * there before (see file-level docblock's note on this being a
-   * deliberate, documented one-way-per-session choice: hand-edited YAML
-   * typed while in that view is not re-parsed back into rows without
-   * closing and reopening the dialog, which re-reads the server-computed
-   * decomposition fresh).
+   * `wrapper`, ahead of the server-rendered YAML field's own untouched
+   * markup — one holding the visual builder, one an "Edit source"
+   * toggle. The condition-rows DOM *is* the state, no separate JS data
+   * object mirrors it. See docs/adr/0014-items-admin-dialog-architecture.md
+   * and, for what happens when the YAML view's text diverges from it,
+   * docs/adr/0017-hand-typed-yaml-safety-nets.md.
    *
    * @return {{clear: function()}}
    *   An object exposing clear(), for the dialog's "Clear condition"
@@ -263,19 +196,10 @@
     // silently fall back to the raw YAML view instead.
     const itemValue = valueInput ? valueInput.value.trim() : '';
 
-    // <fieldset> + <table class="webform-states-table"> — the same
-    // wrapping element and table classes the real element-level
-    // "Conditional logic" tab's own builder uses, so this inherits the
-    // admin theme's existing table/fieldset styling for free rather
-    // than looking like a bespoke, different-looking widget.
-    //
-    // The fieldset/legend/label class list and the legend's own
-    // <span class="fieldset__label"> wrapper are copied verbatim from
-    // that same tab's real, server-rendered markup (confirmed by
-    // inspecting a live admin form: #edit-conditional-logic) — Drupal's
-    // admin theme styles fieldsets via these specific classes, not the
-    // bare <fieldset>/<legend> tags, so matching them exactly (not just
-    // approximately) is what actually gets the same visual treatment.
+    // Fieldset/table classes copied verbatim from the real "Conditional
+    // logic" tab's own server-rendered markup, so this inherits the
+    // admin theme's styling for free. See
+    // docs/adr/0015-condition-builder-markup-parity-and-collisions.md.
     const fieldset = document.createElement('fieldset');
     fieldset.className = 'webform-ranking-item-condition-builder js-webform-type-fieldset webform-type-fieldset fieldset js-form-item form-item js-form-wrapper form-wrapper';
     const legend = document.createElement('legend');
@@ -287,9 +211,7 @@
     fieldset.appendChild(legend);
 
     // Real fieldsets wrap their content (everything but the legend) in
-    // this div — also confirmed against the same live markup — which
-    // is what the admin theme's fieldset CSS actually targets for
-    // padding/spacing, not the fieldset element directly.
+    // this div — what the admin theme's fieldset CSS actually targets.
     const fieldsetWrapper = document.createElement('div');
     fieldsetWrapper.className = 'fieldset__wrapper';
     fieldset.appendChild(fieldsetWrapper);
@@ -300,46 +222,20 @@
     stateWarning.textContent = Drupal.t('This state does not affect whether the item is ranked or hidden — only Visible/Hidden (and their Slide variants) do.');
     fieldsetWrapper.appendChild(stateWarning);
 
-    // Two "All" (AND) conditions on the same Element have no lossless
-    // #states representation: the real widget's own equivalent case
-    // (WebformElementStates::convertElementValueToFormApiStates()) hard-
-    // errors on a duplicate selector under AND rather than emitting
-    // anything, since Drupal's #states shape has no "AND of two triggers
-    // via two separate rows" form — only a single row's trigger/value can
-    // itself carry a 'between'/'!between' range, or multiple triggers
-    // nested under one condition object, neither of which this picker's
-    // one-trigger-per-row model produces. Rather than inventing a shape
-    // that isn't actually valid #states syntax, this warns AND actively
-    // withholds the write (see onBuilderChange()) — a naive "emit the
-    // collapsing associative map anyway" was tried first, but the two
-    // rows serialize to a *flow-style* YAML mapping with a duplicate key,
-    // and Symfony's flow-mapping parser (Inline.php, unlike its
-    // block-style Parser.php) unconditionally throws on that rather than
-    // silently keeping the last value — so "emit something anyway" was
-    // actually "emit something that crashes the next decode," not a
-    // harmless data-loss fallback. Leaving the field at its last valid
-    // value while this warning shows is what actually matches the real
-    // widget not saving anything for that state.
+    // Two "All" conditions on the same Element have no lossless #states
+    // representation — warns and withholds the write rather than
+    // emitting YAML that would throw on next decode. See
+    // docs/adr/0016-duplicate-selector-and-no-lossless-representation.md.
     const duplicateSelectorWarning = document.createElement('div');
     duplicateSelectorWarning.className = 'webform-ranking-item-condition-duplicate-warning messages messages--warning';
     duplicateSelectorWarning.style.display = 'none';
     duplicateSelectorWarning.textContent = Drupal.t('Two conditions target the same Element combined with "All" — this can\'t be saved until it\'s resolved. Use "Any"/"One" instead, or a single "between"/"not between" condition for a numeric range.');
     fieldsetWrapper.appendChild(duplicateSelectorWarning);
 
-    // GitHub issue #88: "Back to condition builder" only ever toggled
-    // which view was showing — it never re-read the YAML textarea, so an
-    // admin who hand-typed something in "Edit source" and switched back
-    // saw the builder's own (unrelated, possibly stale) rows with no
-    // indication anything was different, and the very next builder
-    // interaction (even a no-op one, like re-selecting an already-chosen
-    // option) silently overwrote their typed text via onBuilderChange().
-    // A full re-parse of arbitrary hand-typed YAML back into rows isn't
-    // attempted here — no YAML parser is vendored client-side for this
-    // (see GitHub issue #83's own note on that same gap) and hand-rolling
-    // one just for this warning would be a much bigger, riskier change
-    // than the problem warrants. This warns instead, so the data loss
-    // stops being silent — see showBuilder()/onBuilderChange() below for
-    // where it's shown/cleared.
+    // GitHub issue #88: warns when the YAML field has diverged from what
+    // the builder last wrote, instead of silently overwriting hand-typed
+    // text on the next builder interaction. See
+    // docs/adr/0017-hand-typed-yaml-safety-nets.md.
     const staleEditWarning = document.createElement('div');
     staleEditWarning.className = 'webform-ranking-item-condition-stale-warning messages messages--warning';
     staleEditWarning.style.display = 'none';
@@ -361,22 +257,10 @@
     table.appendChild(tbody);
     fieldsetWrapper.appendChild(table);
 
-    // State row: one per item (not repeatable — see visibilityStates
-    // above on why only a single state is offered here, unlike the real
-    // builder's "Add another state").
-    //
-    // Deliberately NOT the real widget's own 'webform-states-table--state'
-    // class here (only the visual '.webform-states-table' on the table
-    // itself, above, is shared) — that exact class is also core's own
-    // *unscoped* jQuery selector for toggleRequiredCheckbox() in
-    // webform.element.states.js, which force-checks/disables this
-    // element's entirely unrelated top-level "Required" property
-    // whenever ANY matching <select> anywhere on the page (not just this
-    // dialog) is set to Required/Optional — and PICKER_STATE_KEYS below
-    // allows exactly those values. A module-scoped class name plus the
-    // equivalent cosmetic rules copied into this module's own CSS (see
-    // webform_ranking.items_admin.css) keeps the identical visual result
-    // without that cross-behavior collision.
+    // State row: one per item, not repeatable (unlike the real builder's
+    // "Add another state" — see visibilityStates above). Module-scoped
+    // class, not the real widget's own 'webform-states-table--state' —
+    // see docs/adr/0015-condition-builder-markup-parity-and-collisions.md.
     const stateRow = document.createElement('tr');
     stateRow.className = 'webform-ranking-item-condition-state-row';
     const stateCell = document.createElement('td');
@@ -431,15 +315,9 @@
     const yamlViewContainer = document.createElement('div');
     yamlViewContainer.className = 'webform-ranking-item-yaml-view';
 
-    // GitHub issue #88: hand-typing here bypasses two checks the visual
-    // builder itself enforces (the same-Element-under-"All" warning, and
-    // — implicitly, no dedicated check exists — the 'between'/'!between'
-    // `min:max` format, see updateValueFieldVisibility()'s own comment).
-    // Neither is validated for raw text (no client-side YAML parser is
-    // vendored to check the first; the second only applies to the
-    // builder's own dedicated Value input in the first place). Rather
-    // than silently letting either through until a confusing failure at
-    // Save, this tells the admin up front, before they hit either one.
+    // GitHub issue #88: neither footgun below is validated for raw text —
+    // tells the admin up front rather than a confusing failure at Save.
+    // See docs/adr/0017-hand-typed-yaml-safety-nets.md.
     const editSourceNote = document.createElement('div');
     editSourceNote.className = 'webform-ranking-item-edit-source-note description';
     editSourceNote.textContent = Drupal.t('Editing here directly skips a couple of checks the visual builder performs — avoid two conditions on the same Element combined with "All" (it can\'t be saved), and remember "between"/"not between" needs a min:max value (e.g. 1:5).');
@@ -493,17 +371,10 @@
 
     /**
      * Builds the Element (selector) <select>, including optgroups, once
-     * per item and clones it per condition row thereafter — selectorOptions
-     * is identical across every row of this item, so re-walking it and
-     * rebuilding the same <option>/<optgroup> DOM from scratch for every
-     * row (the original approach) was pure repeated work.
-     *
-     * $webform->getElementsSelectorOptions() mixes flat 'selector =>
-     * label' entries (a single-value element) with nested 'group label
-     * => {selector => label}' entries (a composite element's own
-     * sub-selectors, e.g. this module's own per-item rank selectors) —
-     * the same optgroup-shaped data the real "Conditional logic" tab's
-     * Element dropdown renders.
+     * per item and clones it per condition row — selectorOptions is
+     * identical across every row, so rebuilding it per row was pure
+     * repeated work. Mixes flat and optgroup-nested entries, same
+     * shape the real "Conditional logic" tab's own dropdown uses.
      *
      * @return {HTMLSelectElement}
      *   A new, independent <select> — safe to mutate (e.g. the "stray
@@ -555,30 +426,12 @@
     /**
      * Builds one condition <tr>: element/trigger/value + remove button.
      *
-     * Classes match the real element-level builder's own
-     * ('webform-states-table--condition'/'--selector'/'--trigger'/
-     * '--value'), so 'webform/webform.element.states' (already loaded
-     * page-wide via the element-level "Conditional logic" tab, since
-     * every element edit form has one) wires up value autocomplete on
-     * these rows exactly as it does the real ones — no JS of this
-     * module's own needed for that part.
-     *
-     * 'webform-states-table--condition' lives on the <tr> ONLY, not
-     * also on the inner cell wrapping trigger+value — that library's
-     * own behavior scopes itself via jQuery's find() from whichever
-     * element carries this class (web/modules/contrib/webform/js/
-     * webform.element.states.js), which only locates the Element
-     * dropdown as a descendant from the *row*, since it's a sibling
-     * <td> of the trigger/value cell, not nested inside it. A real bug
-     * caught by a live browser test, not guessed: the real widget's own
-     * server-rendered markup puts this same class on both the <tr> AND
-     * the condition cell (see WebformElementStates::buildConditionRow()),
-     * which duplicating here caused a genuine
-     * `TypeError: this.source is not a function` from jQuery UI's
-     * autocomplete widget — the cell-level match's empty-selector
-     * `.find()` still re-ran `.autocomplete({minLength: 0})` on the
-     * same value input a second time, corrupting the widget instance
-     * the row-level match had already correctly initialized.
+     * Classes match the real builder's own, so 'webform.element.states'
+     * (already loaded page-wide) wires up value autocomplete with no JS
+     * of this module's own needed. 'webform-states-table--condition'
+     * lives on the <tr> ONLY, not also the inner trigger/value cell —
+     * see docs/adr/0015-condition-builder-markup-parity-and-collisions.md
+     * for the autocomplete-corrupting bug that deviation avoids.
      */
     function createConditionRow(data) {
       data = Object.assign({}, BLANK_CONDITION, data);
