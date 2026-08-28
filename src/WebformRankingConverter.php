@@ -179,34 +179,14 @@ class WebformRankingConverter {
   }
 
   /**
-   * Checks whether raw matrix input's numeric ranks are sequential from 1.
+   * Checks whether raw matrix input's numeric ranks are sequential from 1
+   * (no skipped rank) — enforced at validation time to keep a #states
+   * condition's live DOM check ("is item X ranked 1st") from diverging
+   * from the eventual stored/canonical meaning once ranks coalesce; see
+   * docs/adr/0002-sequential-rank-validation.md for the full reasoning.
    *
-   * "Sequential from 1" means: if any items are ranked at all, the
-   * distinct rank numbers in use must be exactly {1, 2, ..., N}, where
-   * N is how many distinct ranks are in use — no skipped rank. An item
-   * ranked '2' while nothing is ranked '1' is exactly the case this
-   * rejects.
-   *
-   * This matters because matrixToCanonical()'s output only preserves
-   * *relative order*, not the literal rank numbers a user picked — a
-   * skipped rank is silently "coalesced" away once canonical (ranks
-   * 2,3 become canonical positions 0,1, i.e. 1st,2nd, once stored;
-   * see WebformRankingConverter's class docblock). That's fine for
-   * the *stored* meaning, but while the form is still live, any
-   * #states condition on another element keyed to "is item X ranked
-   * 1st" checks the live DOM value directly — if the user picked '2'
-   * for item X, nothing is live-checked as '1' anywhere, so the
-   * condition never fires client-side, even though after submission
-   * item X would be recorded as 1st. Enforcing this at validation
-   * time (see WebformRanking::validateWebformRanking()) keeps the
-   * live form state and the eventual stored meaning from ever
-   * diverging.
-   *
-   * N/A entries and unranked items are irrelevant here — only the
-   * distinct *numeric* ranks in use matter. Duplicate ranks (two
-   * items both '2') collapse to one distinct value here; that's a
-   * separate rule validateWebformRanking() already enforces
-   * independently, not this method's concern.
+   * N/A entries, unranked items, and duplicate ranks (a separate rule
+   * validateWebformRanking() enforces independently) are irrelevant here.
    *
    * @param array $raw
    *   Raw submitted matrix input, item value => rank string — same
