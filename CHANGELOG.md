@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Per-item conditional visibility now offers a visual condition builder
+  — a fieldset with a `State`/`Element`/`Trigger-Value` table, the same
+  states (Visible, Hidden, Visible (Slide), Hidden (Slide), Enabled,
+  Disabled, Required, Optional) and All/Any/One combining — matching
+  the look and feel of this element's own element-level "Conditional
+  logic" tab, as the primary way to configure a condition. The builder
+  writes directly into the same `#states` YAML field that already
+  existed; raw YAML ("Edit source") remains available for anything the
+  builder can't represent (#13, #65).
+
+### Fixed
+
+- Per-item condition builder: an unsaved condition edit on one item
+  could be silently discarded and reverted to whatever was last saved,
+  if the admin then added or removed a different item row (or triggered
+  any other AJAX rebuild elsewhere on the form) before saving (#79).
+
 ## [0.2.2] - 2026-08-24
 
 ### Added

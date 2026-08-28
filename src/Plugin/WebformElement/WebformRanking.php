@@ -2,7 +2,10 @@
 
 namespace Drupal\webform_ranking\Plugin\WebformElement;
 
+use Drupal\Component\Serialization\Exception\InvalidDataTypeException;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Form\OptGroup;
+use Drupal\webform\Element\WebformElementStates;
 use Drupal\webform\Plugin\WebformElementBase;
 use Drupal\webform\Utility\WebformYaml;
 use Drupal\webform\WebformInterface;
@@ -24,6 +27,71 @@ use Drupal\webform_ranking\WebformRankingConverter;
  * )
  */
 class WebformRanking extends WebformElementBase {
+
+  /**
+   * State keys the per-item condition picker's dropdown offers.
+   *
+   * A subset of \Drupal\webform\Element\WebformElementStates
+   * ::getStateOptions()'s full list — excludes states aimed at form
+   * *inputs* (Read-only/Expanded/Collapsed/Checked/Unchecked), which
+   * don't read sensibly for an item-inclusion condition. Only
+   * 'visible'/'invisible' (and their '-slide' variants) actually affect
+   * whether an item is included —
+   * WebformRankingVisibilityResolver::isVisible() only acts on those —
+   * the rest (enabled/disabled/required/optional) are accepted and
+   * stored like any other #states value, matching the real widget's own
+   * flexibility, but are a no-op for this element specifically; the
+   * picker surfaces a note when one is selected (see items_admin.js)
+   * rather than hiding them outright. Shared between form() (building
+   * the dropdown's options) and decomposeItemStatesToConditions()
+   * (validating an already-saved condition's state is one the picker
+   * can represent).
+   */
+  const PICKER_STATE_KEYS = [
+    'visible', 'invisible', 'visible-slide', 'invisible-slide',
+    'enabled', 'disabled', 'required', 'optional',
+  ];
+
+  /**
+   * The subset of self::PICKER_STATE_KEYS that actually affects item
+   * inclusion — kept as an explicit list (not derived from
+   * PICKER_STATE_KEYS by position) so it stays correct if that list's
+   * own order or membership ever changes. Sent to items_admin.js via
+   * drupalSettings (see form()) as the single source for its own
+   * VISIBILITY_STATES check, rather than a second hand-typed JS copy.
+   *
+   * Deliberately NOT the same mechanism WebformRankingVisibilityResolver
+   * ::isVisible() uses for the equivalent runtime check — that method
+   * strips a leading '!' and any '-slide'/other suffix from a state key
+   * and compares the base against ['visible', 'invisible'], which
+   * generalizes to any future suffix variant without needing this list
+   * updated too. This constant exists for enumeration (populating a
+   * dropdown, deciding whether to show a static UI warning), where the
+   * resolver's runtime-parsing approach doesn't apply — both express the
+   * same semantic set through different, equally intentional means.
+   */
+  const VISIBILITY_STATE_KEYS = [
+    'visible', 'invisible', 'visible-slide', 'invisible-slide',
+  ];
+
+  /**
+   * Trigger keys nested one level deeper by Form API convention (see
+   * decomposeCondition()'s own docblock) — shared with items_admin.js
+   * via drupalSettings (see form()) as the single source for its own
+   * NESTED_TRIGGERS classification, rather than a second hand-typed JS
+   * copy that could silently drift if Webform core ever adds/renames a
+   * trigger type.
+   */
+  const NESTED_TRIGGER_KEYS = [
+    'pattern', '!pattern', 'less', 'less_equal',
+    'greater', 'greater_equal', 'between', '!between',
+  ];
+
+  /**
+   * Trigger keys that carry a bare boolean, no comparison value — same
+   * shared-source-of-truth rationale as self::NESTED_TRIGGER_KEYS above.
+   */
+  const NO_VALUE_TRIGGER_KEYS = ['empty', 'filled', 'checked', 'unchecked'];
 
   /**
    * {@inheritdoc}
@@ -98,12 +166,105 @@ class WebformRanking extends WebformElementBase {
   public function form(array $form, FormStateInterface $form_state) {
     $form = parent::form($form, $form_state);
 
+    // Requires a form object with getWebform() — true for every real
+    // caller (WebformUiElementFormBase and its WebformUiElementTestForm
+    // subclass), but not guaranteed by the base class's own form()
+    // signature. A direct call with a bare FormState (no form object
+    // set) fatals here rather than failing gracefully; not defended
+    // against, since no such call path currently exists — noted so a
+    // future one doesn't hit this as a surprise.
+    $webform = $form_state->getFormObject()->getWebform();
+
     $form['ranking'] = [
       '#type' => 'details',
       '#title' => $this->t('Ranking settings'),
       '#open' => TRUE,
       '#weight' => -10,
     ];
+
+    // GitHub issue #13/#65: precomputed, per-item decomposition of each
+    // already-saved item's 'states' YAML into the picker's row/condition
+    // shape, keyed by the item's own 'value' (the stable identity used
+    // throughout this codebase — labels/order can change, but 'value'
+    // cannot once submissions exist). Attached below as drupalSettings
+    // rather than a per-row #default_value/#attributes, deliberately:
+    // #webform_multiple's '#element' is a single shared template
+    // deep-copied per row, and only '#default_value' is known to vary
+    // per row through its own generic population mechanism
+    // (setConfigurationFormDefaultValueRecursive(), called by the base
+    // class's buildConfigurationForm() after this method returns) — an
+    // '#attributes' value baked into the shared template would be
+    // identical across every row. A single, item-value-keyed lookup
+    // table sidesteps that entirely: the JS reads the CURRENT row's own
+    // 'Value' field content (already how items_admin.js's own test
+    // helpers identify a row) and looks itself up, with no per-row
+    // template trickery needed. A brand-new, not-yet-saved row simply
+    // has no entry — correctly starting the dialog with one empty
+    // condition row.
+    //
+    // Only single-state, single-or-multi-condition shapes decompose —
+    // see decomposeItemStatesToConditions(). Anything more exotic
+    // (multiple states, unrecognized triggers, malformed structure) is
+    // omitted from the lookup table entirely; the dialog then falls
+    // back to showing the raw YAML view for that item, same as the real
+    // webform_element_states widget's own behavior when it can't
+    // represent a customized Form API #states value visually.
+    $element_properties = $form_state->get('element_properties') ?? [];
+    $conditions_by_value = [];
+    // Prefer the form's own live submitted item values — available and
+    // already fully populated during a #webform_multiple AJAX rebuild
+    // (e.g. triggered by "Add"/"Remove" elsewhere in the items table) —
+    // over $element_properties['items'], which is a snapshot of the
+    // *saved* entity taken once when the form was first built and never
+    // refreshed across AJAX rebuilds (WebformUiElementFormBase's own
+    // form-object caching). Using only the stale snapshot here silently
+    // discarded any unsaved edit an admin made via the per-item
+    // condition dialog before triggering an unrelated AJAX request
+    // elsewhere in the table (GitHub issue #79). On a genuine first page
+    // load $form_state->getValue() is empty (nothing submitted yet), so
+    // this correctly falls back to the saved-entity snapshot then.
+    $live_items = $form_state->getValue(['items', 'items']);
+    $items_source = is_array($live_items) ? $live_items : ($element_properties['items'] ?? []);
+    foreach ($items_source as $item) {
+      $value = trim($item['value'] ?? '');
+      if ($value === '' || empty($item['states'])) {
+        continue;
+      }
+      // A live value read via $form_state->getValue() above (unlike the
+      // saved-entity snapshot it can fall back to) may be genuinely
+      // invalid YAML mid-edit — e.g. syntactically broken text typed
+      // into "Edit source," or a duplicate-selector condition the
+      // builder's own client-side check normally prevents from ever
+      // reaching this field, but nothing stops a hand-edited YAML value
+      // from producing the same shape. Decoding must not fatal the whole
+      // AJAX rebuild over one item's temporarily-invalid text; treating
+      // it the same as any other non-decomposable value (falls back to
+      // the raw YAML view for that item, same as WebformCodeMirror's own
+      // validateYaml() already does at actual save time) is correct.
+      try {
+        $states = is_string($item['states']) ? WebformYaml::decode($item['states']) : $item['states'];
+      }
+      catch (InvalidDataTypeException) {
+        continue;
+      }
+      $decomposed = is_array($states) ? $this->decomposeItemStatesToConditions($states) : NULL;
+      if ($decomposed !== NULL) {
+        $conditions_by_value[$value] = $decomposed;
+      }
+    }
+
+    // The picker's "State" dropdown — see self::PICKER_STATE_KEYS.
+    // getStateOptions() returns its options grouped by optgroup label
+    // (Visibility/State/Validation/Value); OptGroup::flattenOptions()
+    // (the same core helper Form API's own <select> processing uses to
+    // resolve a submitted value against a grouped '#options' array)
+    // collapses that down to a single flat key => label array first, then
+    // array_intersect_key() keeps only the picker's own subset in that
+    // same (already correctly ordered) flattened array.
+    $state_options = array_intersect_key(
+      array_map('strval', OptGroup::flattenOptions(WebformElementStates::getStateOptions())),
+      array_flip(self::PICKER_STATE_KEYS)
+    );
 
     // Admin-managed list of items to rank. Reuses Webform's own
     // "table of rows" widget pattern (as used for Options element sets)
@@ -129,44 +290,35 @@ class WebformRanking extends WebformElementBase {
         ],
         // Per-item conditional inclusion. This was originally
         // 'webform_element_states' — Webform's own #states
-        // condition-builder widget — which would have given admins the
-        // exact same UI they already use for element-level conditions.
-        // Flagged at the time as unconfirmed: "Nested one level inside
-        // a #webform_multiple table row is not a configuration I've
-        // confirmed works cleanly out of the box." That risk
-        // materialized — adding a second item row crashed with a
-        // TypeError inside WebformCodeMirror::validateWebformCodeMirror(),
-        // an array reaching a YAML validator expecting a string,
-        // strongly suggesting webform_element_states (which appears to
-        // use a codemirror YAML view internally for advanced-mode
-        // editing) doesn't handle being embedded inside another
-        // #tree-based multiple-value widget correctly.
+        // condition-builder widget — nested directly inside this
+        // #webform_multiple row, which crashed in production (TypeError
+        // inside WebformCodeMirror::validateWebformCodeMirror(), an
+        // array reaching a YAML validator expecting a string): see
+        // GitHub issue #13's investigation. That's still true today —
+        // this field's own '#type'/'#mode'/'#decode_value'/
+        // '#wrapper_attributes'/position are UNCHANGED from that
+        // fallback, deliberately: items_admin.js's dialog-relocation
+        // logic (and its "skip a wrapper nested inside another
+        // wrapper" duplicate-guard) depends on this exact DOM depth —
+        // see that file's own docblock for the regression this caused
+        // once already (GitHub issue #65) when an earlier attempt added
+        // a wrapping container here.
         //
-        // Using the flagged fallback instead: a plain YAML-mode
-        // codemirror field. Real cost to admin UX (raw YAML instead of
-        // a visual conditions builder), but functional and confirmed
-        // by the same production error to at least avoid that specific
-        // nesting failure mode. WebformCodeMirror's YAML mode decodes
-        // the submitted string into an array for the element's value,
-        // which is the same #states-shaped array structure
-        // WebformRankingVisibilityResolver and the client-side #states
-        // attachment in buildMatrix()/buildDragDrop() already expect —
-        // no changes needed on that side.
         // Most items won't need a condition at all, so this field is
         // presented in a dialog (see element.itemsAdmin library, attached
         // below) rather than inline in the row — a raw per-item YAML
         // field left inline, even collapsed behind a checkbox, was still
         // real visual clutter once more than a couple of items had a
-        // condition (GitHub issue #4). An earlier version used a
-        // 'use_states' checkbox for inline progressive disclosure, but
-        // that toggle never actually worked — its row-scoping heuristic
-        // matched the wrong row against webform_multiple's real markup —
-        // and was removed rather than debugged further in favor of this
-        // redesign, which has no equivalent row-matching step (the
-        // dialog's trigger button is inserted directly next to its own
-        // item's wrapper). The field's own content (empty or not) is the
-        // single source of truth on the backend either way; nothing
-        // about that changed.
+        // condition (GitHub issue #4). Within that dialog,
+        // items_admin.js now renders a visual condition-rows builder
+        // (GitHub issue #65) that reads/writes this SAME textarea's YAML
+        // text directly — there is no separate field or storage path for
+        // the visual builder; whatever's in this textarea at submit time
+        // is what's saved, exactly as when hand-typed. The builder is
+        // pure UI on top of the same value, so nothing below this field
+        // definition (prepare(), buildMatrix()/buildDragDrop(),
+        // WebformRankingVisibilityResolver, validateConfigurationForm())
+        // needed any changes for issue #65.
         // '#decode_value' => TRUE is load-bearing, not decorative: it's
         // what makes WebformCodeMirror::validateWebformCodeMirror()
         // (the element's own #element_validate, registered by
@@ -204,7 +356,46 @@ class WebformRanking extends WebformElementBase {
       // Uniqueness of 'value' across rows is enforced in
       // validateConfigurationForm() below — #webform_multiple doesn't
       // do this on its own.
-      '#attached' => ['library' => ['webform_ranking/element.itemsAdmin']],
+      //
+      // drupalSettings feeds items_admin.js's condition-rows builder:
+      // 'conditionsByItemValue' is the per-item lookup table built
+      // above; 'stateOptions' (built above), 'selectorOptions'
+      // ($webform->getElementsSelectorOptions(), already plain
+      // strings/nested arrays — the same optgroup-shaped data the real
+      // "Conditional logic" tab's own Element dropdown uses), and
+      // 'triggerOptions' (WebformElementStates::getTriggerOptions(),
+      // cast to plain strings — these are TranslatableMarkup by
+      // default, which drupalSettings' JSON encoding won't stringify on
+      // its own) populate the picker's dropdowns when JS builds rows
+      // client-side, since rows aren't server-rendered per-row here.
+      // 'webformModulePath' is the same
+      // \Drupal::service('extension.list.module')->getPath('webform')
+      // the real WebformElementStates::buildOperations() itself calls
+      // to locate its plus.svg/minus.svg icons — computed server-side
+      // rather than hardcoding a 'modules/contrib/webform'-shaped guess
+      // client-side, since that path isn't guaranteed for every install
+      // layout.
+      // 'nestedTriggerKeys'/'noValueTriggerKeys'/'visibilityStateKeys'
+      // are self::NESTED_TRIGGER_KEYS/self::NO_VALUE_TRIGGER_KEYS/
+      // self::VISIBILITY_STATE_KEYS — sent so items_admin.js reads its
+      // trigger/state classification from this one PHP source instead
+      // of hand-typing a second, independently-maintained copy (GitHub
+      // issue #83).
+      '#attached' => [
+        'library' => ['webform_ranking/element.itemsAdmin'],
+        'drupalSettings' => [
+          'webformRankingItemsAdmin' => [
+            'conditionsByItemValue' => $conditions_by_value,
+            'stateOptions' => $state_options,
+            'selectorOptions' => $webform->getElementsSelectorOptions(),
+            'triggerOptions' => array_map('strval', WebformElementStates::getTriggerOptions()),
+            'webformModulePath' => \Drupal::service('extension.list.module')->getPath('webform'),
+            'nestedTriggerKeys' => self::NESTED_TRIGGER_KEYS,
+            'noValueTriggerKeys' => self::NO_VALUE_TRIGGER_KEYS,
+            'visibilityStateKeys' => self::VISIBILITY_STATE_KEYS,
+          ],
+        ],
+      ],
     ];
 
     $form['ranking']['ranking_style'] = [
@@ -299,6 +490,182 @@ class WebformRanking extends WebformElementBase {
     ];
 
     return $form;
+  }
+
+  /**
+   * Decomposes a #states array into the condition picker's row shape.
+   *
+   * GitHub issue #65: feeds the per-item condition-rows builder's
+   * initial display for an already-saved condition. Only a single state
+   * (one of self::PICKER_STATE_KEYS) with one or more conditions
+   * decomposes; anything else (multiple states, an unrecognized
+   * trigger, mixed AND/OR/XOR operators, malformed structure) returns
+   * NULL, and the picker falls back to showing the raw YAML view — same
+   * role \Drupal\webform\Element\WebformElementStates
+   * ::isDefaultValueCustomizedFormApiStates() plays for the real
+   * widget.
+   *
+   * Mirrors (in reverse) the shape conventions
+   * \Drupal\webform\Element\WebformElementStates
+   * ::convertElementValueToFormApiStates() produces:
+   * - A single condition, or 2+ ANDed conditions: an associative array,
+   *   `[$selector => [$trigger => $value]]` per condition.
+   * - 2+ ORed/XORed conditions: a numerically-indexed array alternating
+   *   a single-key `[$selector => [$trigger => $value]]` wrapper with
+   *   the literal string `'or'`/`'xor'` between each pair.
+   *
+   * @param array $states
+   *   A decoded #states array, e.g. ['visible' => [...]].
+   *
+   * @return array|null
+   *   ['mode' => one of self::PICKER_STATE_KEYS, 'operator' =>
+   *   'and'|'or'|'xor', 'conditions' => [['selector' => ..., 'trigger'
+   *   => ..., 'value' => ...], ...]], or NULL if not decomposable.
+   */
+  protected function decomposeItemStatesToConditions(array $states): ?array {
+    if (count($states) !== 1) {
+      return NULL;
+    }
+    $mode = key($states);
+    if (!in_array($mode, self::PICKER_STATE_KEYS, TRUE)) {
+      return NULL;
+    }
+    $conditions_raw = reset($states);
+    if (!is_array($conditions_raw) || empty($conditions_raw)) {
+      return NULL;
+    }
+
+    $is_indexed = array_is_list($conditions_raw);
+
+    $conditions = [];
+    $operator = 'and';
+
+    if (!$is_indexed) {
+      // AND shape (or a single condition): selector => condition.
+      foreach ($conditions_raw as $selector => $condition) {
+        if (!is_string($selector) || !is_array($condition)) {
+          return NULL;
+        }
+        $decoded = $this->decomposeCondition($selector, $condition);
+        if ($decoded === NULL) {
+          return NULL;
+        }
+        $conditions[] = $decoded;
+      }
+    }
+    else {
+      // OR/XOR shape: alternating [selector => condition] wrapper and
+      // the literal operator string, always starting and ending on a
+      // wrapper.
+      $expect_condition = TRUE;
+      foreach ($conditions_raw as $entry) {
+        if ($expect_condition) {
+          if (!is_array($entry) || count($entry) !== 1) {
+            return NULL;
+          }
+          $selector = key($entry);
+          $condition = reset($entry);
+          if (!is_string($selector) || !is_array($condition)) {
+            return NULL;
+          }
+          $decoded = $this->decomposeCondition($selector, $condition);
+          if ($decoded === NULL) {
+            return NULL;
+          }
+          $conditions[] = $decoded;
+        }
+        else {
+          // Deliberately only 'or'/'xor' here, not 'and': an indexed
+          // list with a literal 'and' token isn't valid/meaningful
+          // #states syntax at all — traced Drupal core's actual
+          // client-side evaluator (web/core/misc/states.js's
+          // verifyConstraints()) and confirmed an indexed array only
+          // ever means OR (default) or XOR (if the literal 'xor' token
+          // is present); any other string entry, including a stray
+          // 'and', is silently treated as an inert no-op condition, not
+          // an AND operator. Accepting 'and' here would let a condition
+          // decompose successfully and then silently misbehave at
+          // runtime — see docs/CONTINUATION.md entry 27 ("Reclassified,
+          // not fixed") for the full investigation this line encodes.
+          if (!is_string($entry) || !in_array($entry, ['or', 'xor'], TRUE)) {
+            return NULL;
+          }
+          // Mixed operators (some 'or', some 'xor') within one state
+          // aren't representable by the picker's single operator
+          // dropdown.
+          if (count($conditions) > 1 && $entry !== $operator) {
+            return NULL;
+          }
+          $operator = $entry;
+        }
+        $expect_condition = !$expect_condition;
+      }
+      // A valid list always ends on a condition, meaning the NEXT
+      // expected entry (had the list continued) would be an operator —
+      // i.e. $expect_condition is FALSE here. A trailing operator with
+      // nothing after it ($expect_condition still TRUE) isn't a valid
+      // OR/XOR shape, nor is fewer than 2 conditions.
+      if ($expect_condition || count($conditions) < 2) {
+        return NULL;
+      }
+    }
+
+    return [
+      'mode' => $mode,
+      'operator' => $operator,
+      'conditions' => $conditions,
+    ];
+  }
+
+  /**
+   * Decomposes one selector => condition pair for the picker's rows.
+   *
+   * @param string $selector
+   *   A `:input[name="..."]`-style selector.
+   * @param array $condition
+   *   The single-key `[$trigger => $value]` condition array.
+   *
+   * @return array|null
+   *   ['selector' => ..., 'trigger' => ..., 'value' => ...], or NULL if
+   *   $condition isn't a shape the picker can represent.
+   */
+  protected function decomposeCondition(string $selector, array $condition): ?array {
+    if (count($condition) !== 1) {
+      return NULL;
+    }
+    $trigger = key($condition);
+    $value = reset($condition);
+
+    // pattern/less/less_equal/greater/greater_equal/between/!between are
+    // nested one level deeper by Form API convention: $trigger is
+    // always literally 'value', with the real comparison type as the
+    // nested array's own key.
+    if ($trigger === 'value' && is_array($value) && count($value) === 1) {
+      $nested_trigger = key($value);
+      $nested_value = reset($value);
+      if (in_array($nested_trigger, self::NESTED_TRIGGER_KEYS, TRUE)
+        && (is_string($nested_value) || is_numeric($nested_value))) {
+        return [
+          'selector' => $selector,
+          'trigger' => $nested_trigger,
+          'value' => (string) $nested_value,
+        ];
+      }
+      return NULL;
+    }
+
+    if (in_array($trigger, ['value', '!value'], TRUE)) {
+      if (!is_string($value) && !is_numeric($value)) {
+        return NULL;
+      }
+      return ['selector' => $selector, 'trigger' => $trigger, 'value' => (string) $value];
+    }
+
+    if (in_array($trigger, self::NO_VALUE_TRIGGER_KEYS, TRUE) && $value === TRUE) {
+      return ['selector' => $selector, 'trigger' => $trigger, 'value' => ''];
+    }
+
+    return NULL;
   }
 
   /**

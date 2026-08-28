@@ -40,8 +40,11 @@ ddev drush en webform_ranking
   (rank-exclusivity, live announcements), `webform_ranking.dragdrop.js`
   (the pointer-based reorder engine), `webform_ranking.items_admin.js`
   (the per-item conditional-visibility dialog on the admin config form).
-- `css/` — structural/layout styles only; see Known Gaps in
+- `css/` — mostly structural/layout styles; see Known Gaps in
   [CONTINUATION.md](CONTINUATION.md) regarding visual design.
+  `webform_ranking.items_admin.css` is the one exception — the per-item
+  condition builder's +/- icon buttons are genuine visual styling
+  (mirroring core Webform's own equivalent controls), not layout.
 - `tests/` — see [TESTING.md](TESTING.md).
 
 ## Architecture, design rationale, and known gaps
