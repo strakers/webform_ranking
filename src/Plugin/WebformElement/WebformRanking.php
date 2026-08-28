@@ -4,6 +4,7 @@ namespace Drupal\webform_ranking\Plugin\WebformElement;
 
 use Drupal\Component\Serialization\Exception\InvalidDataTypeException;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Form\OptGroup;
 use Drupal\webform\Element\WebformElementStates;
 use Drupal\webform\Plugin\WebformElementBase;
 use Drupal\webform\Utility\WebformYaml;
@@ -253,14 +254,17 @@ class WebformRanking extends WebformElementBase {
     }
 
     // The picker's "State" dropdown — see self::PICKER_STATE_KEYS.
-    $state_options = [];
-    foreach (WebformElementStates::getStateOptions() as $group_options) {
-      foreach ($group_options as $key => $label) {
-        if (in_array($key, self::PICKER_STATE_KEYS, TRUE)) {
-          $state_options[$key] = (string) $label;
-        }
-      }
-    }
+    // getStateOptions() returns its options grouped by optgroup label
+    // (Visibility/State/Validation/Value); OptGroup::flattenOptions()
+    // (the same core helper Form API's own <select> processing uses to
+    // resolve a submitted value against a grouped '#options' array)
+    // collapses that down to a single flat key => label array first, then
+    // array_intersect_key() keeps only the picker's own subset in that
+    // same (already correctly ordered) flattened array.
+    $state_options = array_intersect_key(
+      array_map('strval', OptGroup::flattenOptions(WebformElementStates::getStateOptions())),
+      array_flip(self::PICKER_STATE_KEYS)
+    );
 
     // Admin-managed list of items to rank. Reuses Webform's own
     // "table of rows" widget pattern (as used for Options element sets)
@@ -531,7 +535,7 @@ class WebformRanking extends WebformElementBase {
       return NULL;
     }
 
-    $is_indexed = array_keys($conditions_raw) === range(0, count($conditions_raw) - 1);
+    $is_indexed = array_is_list($conditions_raw);
 
     $conditions = [];
     $operator = 'and';

@@ -128,6 +128,27 @@ class WebformRankingItemsAdminJavaScriptTest extends WebDriverTestBase {
                 ],
               ],
             ],
+            // A condition saved against a selector that IS a real DOM
+            // input on this same config form — this element's own
+            // "Allow abstaining" checkbox, a sibling settings field, not
+            // a deleted/renamed one like item 'f' above — but still
+            // isn't one of getElementsSelectorOptions()'s own choices
+            // (that list only offers other webform elements, never this
+            // element's own config-form fields). GitHub issue #94: this
+            // specific "real field, just not a valid target" variation
+            // of the "stray option" fallback lost its only test coverage
+            // when item 'b' (above) was switched to a real, listed
+            // selector instead — restored here as its own dedicated
+            // case, alongside 'f''s fully-nonexistent-selector variation.
+            [
+              'value' => 'g',
+              'label' => 'Item G',
+              'states' => [
+                'visible' => [
+                  ':input[name="properties[allow_na]"]' => ['checked' => TRUE],
+                ],
+              ],
+            ],
           ],
         ],
       ]),
@@ -397,7 +418,7 @@ JS,
     $triggers_a = $this->getSession()->getPage()->findAll('css', '.webform-ranking-item-configure-states');
     // Each item gets exactly one trigger button — see this method's
     // docblock for the duplicate-wrapper bug this guards against.
-    $this->assertCount(6, $triggers_a);
+    $this->assertCount(7, $triggers_a);
 
     $trigger_a = $this->triggerForItemValue('a');
     $this->assertSame('Conditions', $trigger_a->getText());
@@ -546,6 +567,32 @@ JS,
     $this->assertTrue($this->isVisibleInDialog('.webform-ranking-item-condition-builder'));
     $this->assertSame(':input[name="no_longer_exists"]', $this->conditionRowField(0, 'selector'));
     $this->assertSame('value', $this->conditionRowField(0, 'trigger'));
+  }
+
+  /**
+   * Tests a saved condition targeting a selector that's a real DOM input
+   * on this same config form, but not one of the Element dropdown's own
+   * choices, still decomposes and stays selected via the "stray option"
+   * fallback — a different flavor of "unlisted selector" than the fully-
+   * nonexistent one covered above.
+   *
+   * GitHub issue #94: item 'b' originally exercised exactly this case
+   * (via this element's own "Allow abstaining" checkbox) before being
+   * switched to a real, listed selector for an unrelated reason — this
+   * specific variation went untested until item 'g' was added to restore
+   * it, alongside 'f''s already-restored "deleted selector" variation.
+   */
+  public function testConditionBuilderPreservesRealButUnlistedSelector(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue('g')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $this->assertTrue($this->isVisibleInDialog('.webform-ranking-item-condition-builder'));
+    $this->assertSame(':input[name="properties[allow_na]"]', $this->conditionRowField(0, 'selector'));
+    $this->assertSame('checked', $this->conditionRowField(0, 'trigger'));
   }
 
   /**
@@ -899,10 +946,10 @@ JS,
     $assert_session->assertWaitOnAjaxRequest();
 
     // The rebuild must have completed normally — the page still has a
-    // working items table (one more trigger button than the 6 fixture
+    // working items table (one more trigger button than the 7 fixture
     // items), not a fatal-error response.
     $assert_session->pageTextNotContains('The website encountered an unexpected error');
-    $this->assertCount(7, $this->getSession()->getPage()->findAll('css', '.webform-ranking-item-configure-states'));
+    $this->assertCount(8, $this->getSession()->getPage()->findAll('css', '.webform-ranking-item-configure-states'));
   }
 
   /**
@@ -1050,6 +1097,116 @@ JS,
     $this->assertTrue($this->isVisibleInDialog('.webform-ranking-item-condition-builder'));
     // Switching back didn't lose the original row's data.
     $this->assertSame(':input[name="trigger_field"]', $this->conditionRowField(0, 'selector'));
+  }
+
+  /**
+   * Tests "Edit source" shows a plain-language note about the checks it
+   * skips, up front, before an admin can run into either one.
+   *
+   * GitHub issue #88: hand-typing YAML bypasses the duplicate-selector
+   * warning and has no dedicated hint about the "between"/"not between"
+   * value format — this note is the (deliberately non-blocking, since no
+   * client-side YAML parser exists to actually validate raw text) warning
+   * up front instead.
+   */
+  public function testEditSourceShowsSafetyNote(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue('a')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $this->assertFalse($this->isVisibleInDialog('.webform-ranking-item-edit-source-note'), 'Sanity check: the note is scoped to "Edit source", not shown in the builder view.');
+
+    $this->clickVisibleDialogButton('Edit source');
+    $this->assertTrue($this->isVisibleInDialog('.webform-ranking-item-edit-source-note'));
+  }
+
+  /**
+   * Tests that returning to the builder after a no-op trip through "Edit
+   * source" (no raw edits made) shows no stale-data warning.
+   *
+   * Sanity check alongside testReturningToBuilderAfterRawEditShowsStaleWarning()
+   * below — the warning should only ever appear when the YAML field's
+   * text has actually diverged from what the builder itself last wrote.
+   */
+  public function testReturningToBuilderWithoutRawEditShowsNoStaleWarning(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue('b')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $this->clickVisibleDialogButton('Edit source');
+    $this->clickVisibleDialogButton('Back to condition builder');
+
+    $this->assertFalse($this->isVisibleInDialog('.webform-ranking-item-condition-stale-warning'));
+  }
+
+  /**
+   * Tests returning to the builder after hand-editing the raw YAML shows
+   * a warning that the builder's own rows are now stale, instead of
+   * silently overwriting the typed text on the next builder interaction.
+   *
+   * Regression test for GitHub issue #88: "Back to condition builder"
+   * never re-read the YAML textarea, so a hand-typed edit was silently
+   * discarded the moment any builder field changed afterward, with no
+   * indication anything had happened. No re-parse is attempted here (no
+   * client-side YAML parser exists — see the fix's own comment in
+   * items_admin.js) — just a warning, so the loss stops being silent.
+   */
+  public function testReturningToBuilderAfterRawEditShowsStaleWarning(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue('b')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $this->clickVisibleDialogButton('Edit source');
+    $this->setOpenDialogYamlValue("visible:\n  ':input[name=\"trigger_field\"]': {value: 'hand-typed'}\n");
+    $this->clickVisibleDialogButton('Back to condition builder');
+
+    $this->assertTrue($this->isVisibleInDialog('.webform-ranking-item-condition-stale-warning'));
+
+    // A real builder interaction overwrites the field (existing
+    // behavior, unchanged by this fix) — and once it does, the field and
+    // the builder agree again, so the warning clears.
+    $this->setConditionRowField(0, 'value', 'go');
+    $this->assertFalse($this->isVisibleInDialog('.webform-ranking-item-condition-stale-warning'));
+  }
+
+  /**
+   * Tests the Value input's placeholder hints at the `min:max` format
+   * specifically for "between"/"not between", and falls back to the
+   * generic hint for every other trigger.
+   *
+   * Regression test for GitHub issue #92: this field's placeholder was a
+   * single, unconditional string regardless of trigger — nothing
+   * indicated "between" needed a specific two-number format, and a
+   * wrong-format value simply saved and silently never matched.
+   */
+  public function testBetweenTriggerShowsFormatHintPlaceholder(): void {
+    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
+    $assert_session = $this->assertSession();
+    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
+
+    $this->triggerForItemValue('a')->click();
+    $assert_session->waitForElementVisible('css', '.ui-dialog');
+
+    $default_placeholder = $this->getSession()->evaluateScript(
+      "jQuery('.ui-dialog:visible .webform-states-table--value input').attr('placeholder')"
+    );
+    $this->assertSame('Enter value…', $default_placeholder);
+
+    $this->setConditionRowField(0, 'trigger', 'between');
+    $between_placeholder = $this->getSession()->evaluateScript(
+      "jQuery('.ui-dialog:visible .webform-states-table--value input').attr('placeholder')"
+    );
+    $this->assertStringContainsString(':', $between_placeholder);
+    $this->assertNotSame($default_placeholder, $between_placeholder);
   }
 
   /**

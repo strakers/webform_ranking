@@ -1438,6 +1438,86 @@ no-input fallback only ever see canonical shape. The plugin's
     these three behaviors through the builder UI at all, only via
     `decomposeCondition()`'s own PHP-level Kernel tests.
 
+    **Correction (see entry 31): the "protected static, not callable
+    without a core patch" claim two paragraphs up, about
+    `decomposeItemStatesToConditions()`/`decomposeCondition()` not
+    reusing core's own `#states`-array conversion, is only half right.**
+    The methods genuinely are `protected static` — but that only blocks
+    an unrelated class from calling them directly, not a subclass. A
+    small adapter class extending `\Drupal\webform\Element\
+    WebformElementStates` specifically (not this module's own class
+    hierarchy) could call them without any core patch. Filed as GitHub
+    issue #91 (a documentation-accuracy issue, not a functional bug —
+    this reimplementation isn't broken, just not confirmed-impossible to
+    avoid); left as a documented future option rather than implemented
+    here, to keep entry 31's own fix appropriately scoped.
+
+31. **GitHub issues #88/#91/#92/#93/#94: second-wave cleanup pass, from
+    the final `/code-review` on PR #82 itself** (post-#87 merge review;
+    all filed as lower-priority/unmilestoned — see project memory for the
+    full review context). Tackled together as one bundled, low-risk pass.
+    - **#88 (hand-typed YAML skips builder safety checks), both problems
+      addressed without a client-side YAML parser** (none is vendored —
+      see #83's own note on that gap, still true): "Back to condition
+      builder" now compares the YAML field's current text against what
+      the builder itself last wrote there, and shows a non-blocking
+      warning (`.webform-ranking-item-condition-stale-warning`) when they
+      differ — the very next builder interaction still overwrites the
+      hand-typed text exactly as before, but the admin now sees it
+      coming instead of it happening silently. "Edit source" also gained
+      a plain-language note up front
+      (`.webform-ranking-item-edit-source-note`) naming both footguns
+      (the same-Element-under-"All" restriction, and #92's `min:max`
+      format) before an admin can run into either one. A full re-parse
+      of arbitrary hand-typed YAML back into builder rows was considered
+      and deliberately not attempted — hand-rolling a YAML parser just
+      for this warning would be a much larger, riskier change than the
+      problem (a lower-priority UX rough edge, not a data-integrity bug)
+      warrants.
+    - **#91 (inaccurate reuse-impossibility claim)**: this entry's own
+      correction above, plus the same correction on entry 30. The
+      suggested adapter-class reuse itself is left as a documented future
+      option, not implemented now — a separate, larger, riskier
+      refactor than "correct the paperwork," deliberately out of scope
+      for this bundled pass.
+    - **#92 (no format hint for "between")**: the condition builder's
+      Value input's placeholder now reads `e.g. 1:5 (min:max)` for
+      `between`/`!between` specifically (`BETWEEN_TRIGGERS` in
+      items_admin.js), the generic `Enter value…` for every other
+      trigger — set inside `updateValueFieldVisibility()`, which already
+      ran on every trigger change.
+    - **#93 (5 small cleanup items), all 5 done**: the no-op
+      `Drupal.attachBehaviors(wrapper)` call (nothing in `wrapper` needed
+      it at that point — the real one, on `tbody` inside
+      `renderConditions()`, already covered every condition row) is
+      removed outright. A condition row's "blank" defaults
+      (`BLANK_CONDITION`) are now defined once and shared by
+      `createConditionRow()` and `resetConditionRow()`. The
+      CodeMirror-instance lookup (`yamlField.nextElementSibling.
+      CodeMirror`), previously repeated at three call sites, is now one
+      shared `getCodeMirrorInstance()` helper. `WebformRanking::form()`'s
+      state-options flattening now uses core's own
+      `\Drupal\Core\Form\OptGroup::flattenOptions()` instead of a
+      hand-rolled nested loop; `decomposeItemStatesToConditions()`'s
+      "is this an indexed list" check now uses PHP's own
+      `array_is_list()` instead of an equivalent `range()` comparison.
+      `renderConditions()` no longer re-queries the DOM for data it had
+      literally just built the rows from a few lines above — it reuses
+      the same `decomposed.conditions`/`[]` array for
+      `updateDuplicateSelectorWarning()` instead.
+    - **#94 (test coverage gap)**: a new fixture item ('g', using this
+      element's own "Allow abstaining" checkbox selector — the exact
+      selector item 'b' used before PR #66 switched it to a real, listed
+      one) and a dedicated test
+      (`testConditionBuilderPreservesRealButUnlistedSelector`) restore
+      coverage for "a real DOM input on this form that just isn't a
+      valid choice for this feature," distinct from item 'f''s existing
+      "selector doesn't exist at all" coverage.
+    5 new regression tests added in total (2 for #88, 1 for #92, 1 for
+    #94, plus the #88 safety-note visibility check) — #93's items are
+    pure refactors with no behavior change, so no new tests needed there
+    beyond the full existing suite passing unchanged.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,
