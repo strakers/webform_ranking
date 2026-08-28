@@ -64,6 +64,38 @@
 (function ($, Drupal, once, drupalSettings) {
   'use strict';
 
+  /**
+   * A condition row's blank/default field values — shared by
+   * createConditionRow()'s own default and resetConditionRow(), so
+   * "blank" only has one definition to keep in sync (GitHub issue #93).
+   */
+  const BLANK_CONDITION = {selector: '', trigger: 'value', value: ''};
+
+  /**
+   * Trigger keys whose Value input takes a `min:max` range rather than a
+   * single comparison value — see updateValueFieldVisibility()'s
+   * placeholder hint (GitHub issue #92).
+   */
+  const BETWEEN_TRIGGERS = ['between', '!between'];
+
+  /**
+   * Returns the CodeMirror instance wired onto `yamlField` by
+   * webform.element.codemirror.js, if attached — see
+   * CodeMirror.fromTextArea()'s own documented DOM shape (hides the
+   * original <textarea>, inserts its generated wrapper as the next
+   * sibling, which exposes the live instance via a '.CodeMirror'
+   * property). Shared by every place that needs to read/write the editor
+   * instance directly instead of the underlying <textarea> (GitHub issue
+   * #93 — this lookup was previously repeated at three separate call
+   * sites).
+   *
+   * @return {?object}
+   */
+  function getCodeMirrorInstance(yamlField) {
+    const codeMirrorWrapper = yamlField.nextElementSibling;
+    return (codeMirrorWrapper && codeMirrorWrapper.CodeMirror) ? codeMirrorWrapper.CodeMirror : null;
+  }
+
   Drupal.behaviors.webformRankingItemsAdmin = {
     attach: function (context) {
       once('webform-ranking-items-admin', '.webform-ranking-item-states-wrapper', context).forEach(function (wrapper) {
@@ -173,9 +205,9 @@
       // inserts its generated wrapper as the very next sibling, which
       // itself exposes the live editor instance via a '.CodeMirror'
       // property — see CodeMirror's own fromTextArea() documentation.
-      const codeMirrorWrapper = yamlField.nextElementSibling;
-      if (codeMirrorWrapper && codeMirrorWrapper.CodeMirror) {
-        codeMirrorWrapper.CodeMirror.refresh();
+      const codeMirror = getCodeMirrorInstance(yamlField);
+      if (codeMirror) {
+        codeMirror.refresh();
       }
     });
   }
@@ -294,6 +326,26 @@
     duplicateSelectorWarning.textContent = Drupal.t('Two conditions target the same Element combined with "All" — this can\'t be saved until it\'s resolved. Use "Any"/"One" instead, or a single "between"/"not between" condition for a numeric range.');
     fieldsetWrapper.appendChild(duplicateSelectorWarning);
 
+    // GitHub issue #88: "Back to condition builder" only ever toggled
+    // which view was showing — it never re-read the YAML textarea, so an
+    // admin who hand-typed something in "Edit source" and switched back
+    // saw the builder's own (unrelated, possibly stale) rows with no
+    // indication anything was different, and the very next builder
+    // interaction (even a no-op one, like re-selecting an already-chosen
+    // option) silently overwrote their typed text via onBuilderChange().
+    // A full re-parse of arbitrary hand-typed YAML back into rows isn't
+    // attempted here — no YAML parser is vendored client-side for this
+    // (see GitHub issue #83's own note on that same gap) and hand-rolling
+    // one just for this warning would be a much bigger, riskier change
+    // than the problem warrants. This warns instead, so the data loss
+    // stops being silent — see showBuilder()/onBuilderChange() below for
+    // where it's shown/cleared.
+    const staleEditWarning = document.createElement('div');
+    staleEditWarning.className = 'webform-ranking-item-condition-stale-warning messages messages--warning';
+    staleEditWarning.style.display = 'none';
+    staleEditWarning.textContent = Drupal.t('The builder below still shows its own earlier state, not what you just typed under "Edit source" — any change you make here will overwrite that typed text.');
+    fieldsetWrapper.appendChild(staleEditWarning);
+
     const table = document.createElement('table');
     table.className = 'webform-states-table';
     const thead = document.createElement('thead');
@@ -378,6 +430,21 @@
     // internal structure at all.
     const yamlViewContainer = document.createElement('div');
     yamlViewContainer.className = 'webform-ranking-item-yaml-view';
+
+    // GitHub issue #88: hand-typing here bypasses two checks the visual
+    // builder itself enforces (the same-Element-under-"All" warning, and
+    // — implicitly, no dedicated check exists — the 'between'/'!between'
+    // `min:max` format, see updateValueFieldVisibility()'s own comment).
+    // Neither is validated for raw text (no client-side YAML parser is
+    // vendored to check the first; the second only applies to the
+    // builder's own dedicated Value input in the first place). Rather
+    // than silently letting either through until a confusing failure at
+    // Save, this tells the admin up front, before they hit either one.
+    const editSourceNote = document.createElement('div');
+    editSourceNote.className = 'webform-ranking-item-edit-source-note description';
+    editSourceNote.textContent = Drupal.t('Editing here directly skips a couple of checks the visual builder performs — avoid two conditions on the same Element combined with "All" (it can\'t be saved), and remember "between"/"not between" needs a min:max value (e.g. 1:5).');
+    yamlViewContainer.appendChild(editSourceNote);
+
     while (wrapper.firstChild) {
       yamlViewContainer.appendChild(wrapper.firstChild);
     }
@@ -389,7 +456,6 @@
 
     wrapper.appendChild(fieldset);
     wrapper.appendChild(yamlViewContainer);
-    Drupal.attachBehaviors(wrapper);
 
     function addOption(parent, value, label) {
       const option = document.createElement('option');
@@ -515,7 +581,7 @@
      * the row-level match had already correctly initialized.
      */
     function createConditionRow(data) {
-      data = data || {};
+      data = Object.assign({}, BLANK_CONDITION, data);
       const conditionRow = document.createElement('tr');
       conditionRow.className = 'webform-states-table--condition webform-ranking-item-condition-row';
 
@@ -562,15 +628,14 @@
       const triggerWrapper = document.createElement('div');
       triggerWrapper.className = 'webform-states-table--trigger';
       const triggerSelect = createTriggerSelect();
-      triggerSelect.value = data.trigger || 'value';
+      triggerSelect.value = data.trigger;
       triggerWrapper.appendChild(triggerSelect);
       conditionTd.appendChild(triggerWrapper);
 
       const valueWrapper = document.createElement('div');
       valueWrapper.className = 'webform-states-table--value';
       const valueInputEl = createTextInputElement();
-      valueInputEl.placeholder = Drupal.t('Enter value…');
-      valueInputEl.value = data.value || '';
+      valueInputEl.value = data.value;
       valueWrapper.appendChild(valueInputEl);
       conditionTd.appendChild(valueWrapper);
       conditionRow.appendChild(conditionTd);
@@ -659,10 +724,10 @@
      */
     function resetConditionRow(conditionRow) {
       const selectorSelect = conditionRow.querySelector('.webform-states-table--selector select');
-      selectorSelect.value = '';
+      selectorSelect.value = BLANK_CONDITION.selector;
       const triggerSelect = conditionRow.querySelector('.webform-states-table--trigger select');
-      triggerSelect.value = 'value';
-      conditionRow.querySelector('.webform-states-table--value input').value = '';
+      triggerSelect.value = BLANK_CONDITION.trigger;
+      conditionRow.querySelector('.webform-states-table--value input').value = BLANK_CONDITION.value;
       updateValueFieldVisibility(conditionRow, triggerSelect.value);
     }
 
@@ -673,10 +738,25 @@
      * for the same purpose, which doesn't apply here since these rows
      * are built/cloned client-side, not tied to a specific server-known
      * row index.
+     *
+     * Also sets the Value input's placeholder — GitHub issue #92:
+     * 'between'/'!between' are the only triggers that need a specific
+     * text format (a `min:max` range, per Form API's own #states
+     * convention for those two triggers), but the field gave no hint of
+     * that; a wrong-format value simply saved and silently never
+     * matched, with nothing anywhere indicating why. Real
+     * "Conditional logic" tab shows the same kind of per-trigger hint via
+     * server-rendered per-row #states rather than a single shared
+     * placeholder string; this is this module's lighter-weight
+     * equivalent for the same trigger pair.
      */
     function updateValueFieldVisibility(conditionRow, trigger) {
       const valueWrapper = conditionRow.querySelector('.webform-states-table--value');
       valueWrapper.style.display = noValueTriggers.indexOf(trigger) === -1 ? '' : 'none';
+      const valueInputEl = valueWrapper.querySelector('input');
+      valueInputEl.placeholder = BETWEEN_TRIGGERS.indexOf(trigger) !== -1
+        ? Drupal.t('e.g. 1:5 (min:max)')
+        : Drupal.t('Enter value…');
     }
 
     /**
@@ -723,17 +803,20 @@
       tbody.querySelectorAll('.webform-ranking-item-condition-row').forEach(function (conditionRow) {
         conditionRow.remove();
       });
+      let conditions;
       if (decomposed && decomposed.conditions && decomposed.conditions.length) {
         modeSelect.value = decomposed.mode;
         operatorSelect.value = decomposed.operator;
         decomposed.conditions.forEach(function (condition) {
           tbody.appendChild(createConditionRow(condition));
         });
+        conditions = decomposed.conditions;
       }
       else {
         modeSelect.value = 'visible';
         operatorSelect.value = 'and';
         tbody.appendChild(createConditionRow({}));
+        conditions = [];
       }
       // One batched attach for however many rows were just appended,
       // rather than once per row (each call sweeps the *entire*
@@ -746,7 +829,12 @@
       // caused (autocomplete never wiring up on any row, ever).
       Drupal.attachBehaviors(tbody);
       updateStateWarning();
-      updateDuplicateSelectorWarning(getConditionRowsData());
+      // `conditions` (built above from the exact same data the rows were
+      // just created from) is already what getConditionRowsData() would
+      // read straight back out of those same rows — re-querying the DOM
+      // here for data just written from this same array a few lines
+      // above was pure repeated work (GitHub issue #93).
+      updateDuplicateSelectorWarning(conditions);
     }
 
     /**
@@ -849,10 +937,10 @@
      * directly and saving immediately avoids it.
      */
     function writeYamlField(value) {
-      const codeMirrorWrapper = yamlField.nextElementSibling;
-      if (codeMirrorWrapper && codeMirrorWrapper.CodeMirror) {
-        codeMirrorWrapper.CodeMirror.setValue(value);
-        codeMirrorWrapper.CodeMirror.save();
+      const codeMirror = getCodeMirrorInstance(yamlField);
+      if (codeMirror) {
+        codeMirror.setValue(value);
+        codeMirror.save();
         // No manual dispatchEvent() needed on this path: .save() already
         // writes `value` into yamlField.value directly, and
         // webform.element.codemirror.js's own '$input.on(\'change\', ...)'
@@ -867,7 +955,33 @@
         yamlField.dispatchEvent(new Event('input', {bubbles: true}));
         yamlField.dispatchEvent(new Event('change', {bubbles: true}));
       }
+      // The builder's own output is now what the field holds — see
+      // showBuilder()'s own comment for what this is compared against.
+      lastWrittenYaml = value;
+      staleEditWarning.style.display = 'none';
     }
+
+    /**
+     * Reads the YAML field's current text, through CodeMirror's own API
+     * when attached (its editor content is the actual live value —
+     * webform.element.codemirror.js only flushes it back into the
+     * underlying <textarea>'s own .value on its own 500ms-debounced
+     * timer or an explicit .save(), so reading yamlField.value directly
+     * here could see stale content for up to 500ms after a real
+     * keystroke).
+     *
+     * @return {string}
+     */
+    function getYamlFieldValue() {
+      const codeMirror = getCodeMirrorInstance(yamlField);
+      return codeMirror ? codeMirror.getValue() : yamlField.value;
+    }
+
+    // The YAML field's own current text, as of the last time
+    // writeYamlField() wrote it (or, before any write, the item's
+    // initial server-rendered value) — see showBuilder()'s own comment
+    // for what comparing against this catches (GitHub issue #88).
+    let lastWrittenYaml = getYamlFieldValue();
 
     function onBuilderChange() {
       updateStateWarning();
@@ -904,6 +1018,16 @@
     operatorSelect.addEventListener('change', onBuilderChange);
 
     function showBuilder() {
+      // GitHub issue #88: switching back to the builder does NOT re-parse
+      // whatever's currently in the YAML field — see staleEditWarning's
+      // own construction comment for why (no client-side YAML parser
+      // exists to do that safely). If the field's text no longer matches
+      // what the builder itself last wrote there, the rows about to be
+      // shown are stale relative to it; flag that now, before the next
+      // builder interaction silently overwrites the hand-typed text (see
+      // writeYamlField(), which clears this once the builder's output and
+      // the field agree again).
+      staleEditWarning.style.display = (getYamlFieldValue() !== lastWrittenYaml) ? '' : 'none';
       fieldset.style.display = '';
       yamlViewContainer.style.display = 'none';
     }
@@ -911,9 +1035,9 @@
     function showYamlView() {
       fieldset.style.display = 'none';
       yamlViewContainer.style.display = '';
-      const codeMirrorWrapper = yamlField.nextElementSibling;
-      if (codeMirrorWrapper && codeMirrorWrapper.CodeMirror) {
-        codeMirrorWrapper.CodeMirror.refresh();
+      const codeMirror = getCodeMirrorInstance(yamlField);
+      if (codeMirror) {
+        codeMirror.refresh();
       }
     }
 
