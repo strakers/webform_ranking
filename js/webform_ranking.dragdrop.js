@@ -2,28 +2,13 @@
  * @file
  * Webform Ranking: drag/drop reorder engine.
  *
- * Deliberately built on the Pointer Events API (pointerdown/move/up),
- * not the native HTML5 Drag and Drop API. HTML5 DnD behaves
- * inconsistently across browsers and has no touch support at all,
- * which works against the "consistent cross-device behavior"
- * requirement this element was built for. Pointer Events already unify
- * mouse, touch, and pen into one event model — one implementation,
- * no per-input-type branching.
- *
- * Accessibility model: the move-up/move-down buttons (server-rendered,
- * always present — see WebformRanking::buildDragDrop()) are the
- * primary, fully-equivalent interaction, not a fallback bolted on
- * after the fact. Pointer-dragging is a convenience layered on top for
- * mouse/touch users who want it. Arrow keys are a shortcut on top of
- * the buttons. All three paths funnel through the same sync()
- * function, so there's no risk of drag-reorder and keyboard-reorder
- * drifting out of sync with each other.
- *
- * Known gap: without JavaScript, there is no mechanism to reorder
- * items at all — there's no plain-HTML way to persist a drag reorder
- * short of a full-page round trip per move. A true no-JS fallback
- * isn't meaningfully achievable for this style; sites with a hard
- * no-JS requirement should use the matrix style instead.
+ * Built on the Pointer Events API, not HTML5 Drag and Drop (inconsistent
+ * cross-browser, no touch support). The move-up/move-down buttons are
+ * the primary, fully-equivalent interaction (not a fallback); pointer
+ * drag and arrow keys are conveniences layered on the same sync() path.
+ * No true no-JS fallback exists for this style — an accepted gap; the
+ * matrix style is the no-JS-safe alternative. See
+ * docs/adr/0013-dragdrop-pointer-events-and-accessibility-model.md.
  */
 (function (Drupal, once, $) {
   'use strict';
@@ -35,32 +20,17 @@
   };
 
   function initDragdrop(container) {
-    // 'container' (matched by '.webform-ranking-dragdrop', role="list")
-    // holds only the listitem elements as direct children — a
-    // role="list" element's owned children must all be
-    // role="listitem". The hidden order/na/rank inputs and the
-    // live-region live in the wrapper one level up instead (see
-    // WebformRanking::buildDragDrop()), so they're looked up from
-    // there rather than from 'container' itself. Every item-focused
-    // lookup/DOM manipulation below (allItems(), insertBefore(), etc.)
-    // still operates on 'container' directly, unaffected.
+    // 'container' (role="list") holds only listitem elements as direct
+    // children — the hidden order/na/rank inputs and live-region live
+    // in the wrapper one level up instead (see buildDragDrop()).
     var wrapper = container.parentElement;
     var orderInput = wrapper.querySelector('.webform-ranking-dragdrop__order');
     var naInput = wrapper.querySelector('.webform-ranking-dragdrop__na');
     var liveRegion = wrapper.querySelector('.webform-ranking-dragdrop__live-region');
 
-    // Per-item rank echo inputs (see WebformRanking::buildDragDrop()) —
-    // the only reason these exist is to give #states a real per-item
-    // selector, since 'order' bundles every item into one CSV that
-    // #states can't index into. Looked up via data-webform-ranking-
-    // rank-for, deliberately a different attribute than the item
-    // container's own data-webform-ranking-value (config-time-
-    // enforced unique per item, see validateConfigurationForm()'s
-    // values_seen check) — a generic query for the latter would
-    // otherwise match whichever of the two happens to come first in
-    // DOM order. Do NOT write these inputs anywhere else — a second
-    // write path is exactly how this channel would end up stale
-    // relative to the actually-submitted order/na.
+    // Per-item rank echo inputs — non-authoritative, exist only so
+    // #states has a real per-item selector. Do NOT write these inputs
+    // anywhere else — see docs/adr/0008-dragdrop-rank-echo-channel.md.
     var rankInputsByValue = {};
     Array.prototype.slice.call(wrapper.querySelectorAll('.webform-ranking-dragdrop__rank')).forEach(function (input) {
       rankInputsByValue[input.getAttribute('data-webform-ranking-rank-for')] = input;
@@ -76,15 +46,10 @@
       return item.getAttribute('data-webform-ranking-na') === 'true';
     }
 
-    // Only counts items states.js currently shows — this is what keeps
-    // rank *numbering* (the visible "N of M" position indicator)
-    // correct as conditional items (#states) come and go, per the
-    // "dynamic ranks" decision: the alternative (fixed ranks regardless
-    // of visible count) was rejected earlier as confusing. Note this
-    // affects the position indicator and button disabled-state only —
-    // the actual submitted order/na values always include every
-    // present item; validateWebformRanking() is what authoritatively
-    // strips anything not currently visible, server-side.
+    // Dynamic rank numbering: only counts items states.js currently
+    // shows, affecting the position indicator/button state only — the
+    // submitted order/na always includes every present item. See
+    // docs/adr/0013-dragdrop-pointer-events-and-accessibility-model.md.
     function isCurrentlyVisible(item) {
       return item.offsetParent !== null;
     }
@@ -156,16 +121,11 @@
     }
 
     /**
-     * Writes current DOM order into the hidden order/na inputs and
-     * fires a change event. The change event is what lets client-side
-     * #states react live to a reorder elsewhere on the form — states.js
-     * only watches real field values, it has no idea a plain DOM
-     * mutation just happened.
-     *
-     * Also writes each item's own rank echo input (see
-     * rankInputsByValue above) in the same pass, for the same reason —
-     * this is the ONLY place any of these inputs are ever written, by
-     * design, so order/na and the per-item echoes can never disagree.
+     * Writes current DOM order into the hidden order/na inputs (firing
+     * 'change' so #states reacts — states.js only watches real field
+     * values) and each rank echo input, in the same pass. The ONLY
+     * place any of these inputs are ever written — see
+     * docs/adr/0008-dragdrop-rank-echo-channel.md.
      */
     function sync() {
       var order = rankedItems().map(function (item) {
@@ -204,14 +164,10 @@
 
     /**
      * @param {HTMLElement} [focusTarget]
-     *   What to focus after the move. Defaults to the item itself
-     *   (correct for arrow-key reordering, where the item already has
-     *   focus — a no-op refocus). Move-up/move-down button clicks pass
-     *   the button explicitly: unconditionally focusing the item here
-     *   used to steal focus off the button the user just activated, so
-     *   a keyboard user pressing Enter on "Move up" repeatedly got
-     *   exactly one move — the second press landed on the item
-     *   container, which has no Enter handler.
+     *   What to focus after the move — defaults to the item itself
+     *   (correct for arrow keys). Button clicks pass the button
+     *   explicitly: unconditionally refocusing the item stole focus off
+     *   it, breaking repeated Enter presses after the first move.
      */
     function moveItem(item, delta, focusTarget) {
       var ranked = rankedItems().filter(isCurrentlyVisible);
@@ -341,15 +297,10 @@
         var before = event.clientY < (rect.top + rect.height / 2);
         container.insertBefore(item, before ? targetItem : targetItem.nextSibling);
 
-        // Reparenting the captured element mid-gesture silently breaks
-        // pointer capture in Chromium (no error, no lostpointercapture
-        // event — subsequent pointermove events for this pointerId
-        // simply stop arriving at all). Confirmed via an isolated
-        // pointermove counter in a FunctionalJavascript test: a second,
-        // later move in the same drag never fired after the first
-        // insertBefore(), even though its coordinates should have
-        // resolved to a different item. Re-capturing immediately after
-        // every reorder keeps the rest of the same drag gesture alive.
+        // Reparenting mid-gesture silently breaks pointer capture in
+        // Chromium (no error/event — later pointermove events simply
+        // stop arriving), confirmed via a FunctionalJavascript test.
+        // Re-capturing immediately keeps the rest of the drag alive.
         item.setPointerCapture(pointerId);
       });
 
@@ -372,19 +323,10 @@
       item.addEventListener('pointercancel', endDrag);
     });
 
-    // Re-renumber whenever a states.js visibility change happens
-    // anywhere in the document, so the dynamic-rank position indicator
-    // stays correct as conditional items show/hide, without requiring
-    // a reorder to trigger the recompute.
-    //
-    // Drupal core's states.js (web/core/misc/states.js) triggers
-    // 'state:visible' as a jQuery event via $(element).trigger(...),
-    // not a native DOM CustomEvent — plain addEventListener can't
-    // observe it. core/drupal.states is now a declared dependency of
-    // this library specifically so jQuery is guaranteed present here
-    // (see webform_ranking.libraries.yml), matching the same
-    // confirmed-safe pattern webform_ranking.matrix.js already uses
-    // for the same event.
+    // Re-renumber on any states.js visibility change, so the dynamic-
+    // rank indicator stays correct without needing a reorder. jQuery
+    // event (states.js triggers via $(element).trigger()), not a
+    // native DOM event — plain addEventListener can't observe it.
     $(document).on('state:visible', function () {
       renumber();
     });
