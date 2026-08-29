@@ -825,7 +825,8 @@ class WebformRanking extends FormElementBase {
     // writes 'data-drupal-states' to '#attributes', so states.js had
     // nothing to bind to. Fixed the same way — call processStates() for
     // its canonical encoding, copy the result onto '#wrapper_attributes'
-    // instead. See docs/adr/0009-prerender-attributes-states-and-error-display.md.
+    // instead. See
+    // docs/adr/0009-prerender-attributes-states-and-error-display.md.
     if (!empty($element['#states'])) {
       FormHelper::processStates($element);
       if (isset($element['#attributes']['data-drupal-states'])) {
@@ -878,7 +879,8 @@ class WebformRanking extends FormElementBase {
       // would add real complexity (two paths to keep in sync) for that.
       // REVISIT if either template's error markup ever diverges further
       // (e.g. 'inline_form_errors' adds its own icon/ARIA treatment).
-      // Full reasoning: docs/adr/0009-prerender-attributes-states-and-error-display.md.
+      // Full reasoning:
+      // docs/adr/0009-prerender-attributes-states-and-error-display.md.
       $element['#error_no_message'] = TRUE;
     }
 

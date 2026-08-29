@@ -179,10 +179,11 @@ class WebformRankingConverter {
   }
 
   /**
-   * Checks whether raw matrix input's numeric ranks are sequential from 1
-   * (no skipped rank) — enforced at validation time to keep a #states
-   * condition's live DOM check ("is item X ranked 1st") from diverging
-   * from the eventual stored/canonical meaning once ranks coalesce; see
+   * Checks whether raw matrix input's numeric ranks are sequential from 1.
+   *
+   * Enforced at validation time to keep a #states condition's live DOM
+   * check ("is item X ranked 1st") from diverging from the eventual
+   * stored/canonical meaning once ranks coalesce; see
    * docs/adr/0002-sequential-rank-validation.md for the full reasoning.
    *
    * N/A entries, unranked items, and duplicate ranks (a separate rule

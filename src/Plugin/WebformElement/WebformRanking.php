@@ -46,11 +46,12 @@ class WebformRanking extends WebformElementBase {
   ];
 
   /**
-   * The subset of self::PICKER_STATE_KEYS that actually affects item
-   * inclusion — an explicit list, not derived from PICKER_STATE_KEYS by
-   * position, so it stays correct if that list's order/membership ever
-   * changes. Sent to items_admin.js via drupalSettings as the single
-   * source for its own visibility-state check.
+   * The subset of self::PICKER_STATE_KEYS that affects item inclusion.
+   *
+   * An explicit list, not derived from PICKER_STATE_KEYS by position, so
+   * it stays correct if that list's order/membership ever changes. Sent
+   * to items_admin.js via drupalSettings as the single source for its
+   * own visibility-state check.
    *
    * Deliberately NOT unified with WebformRankingVisibilityResolver
    * ::isVisible()'s own runtime check, which strips '!'/'-slide'
@@ -64,8 +65,9 @@ class WebformRanking extends WebformElementBase {
   ];
 
   /**
-   * Trigger keys nested one level deeper by Form API convention (see
-   * decomposeCondition()'s own docblock) — shared with items_admin.js
+   * Trigger keys nested one level deeper by Form API convention.
+   *
+   * See decomposeCondition()'s own docblock. Shared with items_admin.js
    * via drupalSettings (see form()) as the single source for its own
    * NESTED_TRIGGERS classification, rather than a second hand-typed JS
    * copy that could silently drift if Webform core ever adds/renames a
@@ -77,8 +79,10 @@ class WebformRanking extends WebformElementBase {
   ];
 
   /**
-   * Trigger keys that carry a bare boolean, no comparison value — same
-   * shared-source-of-truth rationale as self::NESTED_TRIGGER_KEYS above.
+   * Trigger keys that carry a bare boolean, no comparison value.
+   *
+   * Same shared-source-of-truth rationale as self::NESTED_TRIGGER_KEYS
+   * above.
    */
   const NO_VALUE_TRIGGER_KEYS = ['empty', 'filled', 'checked', 'unchecked'];
 
