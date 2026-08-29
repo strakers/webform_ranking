@@ -10,6 +10,7 @@
  * matrix style is the no-JS-safe alternative. See
  * docs/adr/0013-dragdrop-pointer-events-and-accessibility-model.md.
  */
+
 (function (Drupal, once, $) {
   'use strict';
 
@@ -163,6 +164,12 @@
     }
 
     /**
+     * Moves an item up or down among currently-ranked, visible items.
+     *
+     * @param {HTMLElement} item
+     *   The item to move.
+     * @param {number} delta
+     *   -1 to move up, 1 to move down.
      * @param {HTMLElement} [focusTarget]
      *   What to focus after the move — defaults to the item itself
      *   (correct for arrow keys). Button clicks pass the button

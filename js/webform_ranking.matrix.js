@@ -11,6 +11,7 @@
  * keeps conditionally-hidden items' rows/rank-columns in sync — see
  * docs/adr/0012-matrix-conditional-item-visibility-sync.md.
  */
+
 (function (Drupal, once, $) {
   'use strict';
 
@@ -109,6 +110,12 @@
   /**
    * Groups every radio input in the table by its `name` attribute, i.e.
    * one group per item row.
+   *
+   * @param {HTMLTableElement} table
+   *   The matrix table.
+   *
+   * @return {Object<string, HTMLInputElement[]>}
+   *   Radio inputs keyed by their shared `name` attribute.
    */
   function getRadioGroups(table) {
     var groups = {};
@@ -126,6 +133,16 @@
    * Purely informational (every radio stays enabled — see ADR-0011).
    * N/A is excluded (not exhaustible); a currently-hidden row's rank is
    * also excluded, since it's unreachable/unsubmittable while hidden.
+   *
+   * @param {Object<string, HTMLInputElement[]>} groups
+   *   Radio inputs keyed by row name, from getRadioGroups().
+   * @param {string[]} groupNames
+   *   `Object.keys(groups)`, passed in rather than recomputed.
+   * @param {Object<string, string>} selected
+   *   Row name -> currently selected rank value.
+   * @param {Object<string, boolean>} visible
+   *   Row name -> whether that row is currently visible (absent means
+   *   visible; only an explicit `false` excludes it).
    */
   function markTakenRanks(groups, groupNames, selected, visible) {
     groupNames.forEach(function (name) {
@@ -167,6 +184,11 @@
    * itself). Native `hidden` attribute, matching states.js's own plain
    * visible/invisible hiding. See
    * docs/adr/0012-matrix-conditional-item-visibility-sync.md.
+   *
+   * @param {HTMLInputElement} input
+   *   Any radio input belonging to the row.
+   * @param {boolean} isVisible
+   *   Whether the row should be shown.
    */
   function toggleRow(input, isVisible) {
     var row = input && input.closest('tr');
@@ -182,6 +204,15 @@
    * is unaffected; at least one rank column always stays available even
    * with every item hidden. See
    * docs/adr/0012-matrix-conditional-item-visibility-sync.md.
+   *
+   * @param {HTMLTableElement} table
+   *   The matrix table.
+   * @param {Object<string, HTMLInputElement[]>} groups
+   *   Radio inputs keyed by row name, from getRadioGroups().
+   * @param {string[]} groupNames
+   *   `Object.keys(groups)`, passed in rather than recomputed.
+   * @param {Object<string, boolean>} visible
+   *   Row name -> whether that row is currently visible.
    */
   function updateRankColumns(table, groups, groupNames, visible) {
     if (!groupNames.length) {
@@ -230,6 +261,12 @@
 
   /**
    * Reads back an input's row's item label, for announcements.
+   *
+   * @param {HTMLInputElement} input
+   *   Any radio input belonging to the row.
+   *
+   * @return {string}
+   *   The row's item label text, or '' if it can't be found.
    */
   function rowLabel(input) {
     var row = input.closest('tr');
@@ -238,9 +275,18 @@
   }
 
   /**
+   * Builds the live-region announcement text for a rank selection.
+   *
+   * @param {HTMLTableElement} table
+   *   The matrix table.
+   * @param {HTMLInputElement} input
+   *   The radio input the respondent just selected.
    * @param {string|null} bumpedLabel
    *   The label of another row's item that lost its rank to this
    *   selection (a "steal"), or null if nothing was bumped.
+   *
+   * @return {string}
+   *   The announcement text.
    */
   function buildAnnouncement(table, input, bumpedLabel) {
     var itemLabel = rowLabel(input);

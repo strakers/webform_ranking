@@ -12,6 +12,7 @@
  * writing) — see the module's tracked refactor issue to bring those in
  * line.
  */
+
 (function ($, Drupal, once, drupalSettings) {
   'use strict';
 
@@ -40,7 +41,11 @@
    * #93 — this lookup was previously repeated at three separate call
    * sites).
    *
+   * @param {HTMLTextAreaElement} yamlField
+   *   The original, possibly CodeMirror-replaced, YAML textarea.
+   *
    * @return {?object}
+   *   The live CodeMirror instance, or null if not attached.
    */
   function getCodeMirrorInstance(yamlField) {
     const codeMirrorWrapper = yamlField.nextElementSibling;
@@ -163,6 +168,11 @@
    * object mirrors it. See docs/adr/0014-items-admin-dialog-architecture.md
    * and, for what happens when the YAML view's text diverges from it,
    * docs/adr/0017-hand-typed-yaml-safety-nets.md.
+   *
+   * @param {HTMLElement} wrapper
+   *   The item's '.webform-ranking-item-states-wrapper' element.
+   * @param {HTMLTextAreaElement} yamlField
+   *   The item's raw YAML textarea, inside `wrapper`.
    *
    * @return {{clear: function()}}
    *   An object exposing clear(), for the dialog's "Clear condition"
@@ -432,6 +442,12 @@
      * lives on the <tr> ONLY, not also the inner trigger/value cell —
      * see docs/adr/0015-condition-builder-markup-parity-and-collisions.md
      * for the autocomplete-corrupting bug that deviation avoids.
+     *
+     * @param {{selector: string, trigger: string, value: string}} [data]
+     *   The row's initial values, defaulting to BLANK_CONDITION.
+     *
+     * @return {HTMLTableRowElement}
+     *   The new condition row.
      */
     function createConditionRow(data) {
       data = Object.assign({}, BLANK_CONDITION, data);
@@ -557,6 +573,14 @@
      * 'input[type="image"]' rules, reapplied to a <button type="button">
      * here — see this library's own CSS file docblock for why not a
      * real `<input type="image">`).
+     *
+     * @param {string} iconName
+     *   'plus' or 'minus' — the icon's SVG filename, without extension.
+     * @param {string} label
+     *   Accessible label and title text for the button.
+     *
+     * @return {HTMLButtonElement}
+     *   The new icon button.
      */
     function createIconButton(iconName, label) {
       const button = document.createElement('button');
@@ -574,6 +598,9 @@
      * Used when "-" is clicked on the sole remaining row — see
      * createConditionRow()'s own note on why that resets rather than
      * removes.
+     *
+     * @param {HTMLTableRowElement} conditionRow
+     *   The row to reset.
      */
     function resetConditionRow(conditionRow) {
       const selectorSelect = conditionRow.querySelector('.webform-states-table--selector select');
@@ -602,6 +629,11 @@
      * server-rendered per-row #states rather than a single shared
      * placeholder string; this is this module's lighter-weight
      * equivalent for the same trigger pair.
+     *
+     * @param {HTMLTableRowElement} conditionRow
+     *   The condition row to update.
+     * @param {string} trigger
+     *   The row's currently-selected trigger key.
      */
     function updateValueFieldVisibility(conditionRow, trigger) {
       const valueWrapper = conditionRow.querySelector('.webform-states-table--value');
@@ -651,6 +683,9 @@
      * Renders the builder from a decomposeItemStatesToConditions()-shaped
      * object (see the PHP method of the same purpose), or a single empty
      * row when there's nothing to show yet.
+     *
+     * @param {?{mode: string, operator: string, conditions: Array}} decomposed
+     *   The item's decomposed saved condition, or null/empty for none.
      */
     function renderConditions(decomposed) {
       tbody.querySelectorAll('.webform-ranking-item-condition-row').forEach(function (conditionRow) {
@@ -697,6 +732,7 @@
      * call, doubling the DOM work onBuilderChange() does per keystroke.
      *
      * @return {Array<{selector: string, trigger: string, value: string}>}
+     *   One entry per condition row that has a selector chosen.
      */
     function getConditionRowsData() {
       const conditions = [];
@@ -720,6 +756,12 @@
      * colons, double quotes, or brackets specially, which is what makes
      * this safe for selectors like `:input[name="x"]` without a general
      * YAML-escaping implementation.
+     *
+     * @param {*} value
+     *   The value to encode. Coerced to a string first.
+     *
+     * @return {string}
+     *   A single-quoted YAML scalar.
      */
     function yamlString(value) {
       return '\'' + String(value).replace(/'/g, '\'\'') + '\'';
@@ -788,6 +830,9 @@
      * into its own editor by 500ms, so a direct textarea write can lose
      * a race against that stale timer. Writing through CodeMirror
      * directly and saving immediately avoids it.
+     *
+     * @param {string} value
+     *   The YAML text to write.
      */
     function writeYamlField(value) {
       const codeMirror = getCodeMirrorInstance(yamlField);
@@ -824,6 +869,7 @@
      * keystroke).
      *
      * @return {string}
+     *   The YAML field's current text.
      */
     function getYamlFieldValue() {
       const codeMirror = getCodeMirrorInstance(yamlField);
