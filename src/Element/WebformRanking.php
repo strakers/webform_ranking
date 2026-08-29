@@ -151,37 +151,16 @@ class WebformRanking extends FormElementBase {
   /**
    * Resolves cross-page item conditions statically, server-side.
    *
-   * GitHub issue #61: an item's own '#states' condition (distinct from
-   * this element's own top-level '#states' — see #57) never worked when
-   * its trigger lives on an earlier wizard page. Root cause: Webform's
-   * own cross-page condition handling
-   * (`WebformSubmissionConditionsValidator::buildForm()`, which rewrites
-   * a cross-page trigger's selector so states.js has something live to
-   * bind to, or pre-resolves it statically when it can't) walks the
-   * *configured* element tree before `\Drupal::formBuilder()` even starts
-   * processing `#process` callbacks — before this method's own caller
-   * (`processWebformRanking()`) has expanded `#items` into real,
-   * independently-discoverable sub-elements at all. An item's condition
-   * is invisible to that walk no matter what, so it never gets the same
-   * cross-page treatment this element's own top-level '#states' does.
-   *
-   * Fix: replicate that treatment ourselves, narrowly, for items whose
-   * condition is cross-page. Confirmed empirically that `$complete_form`
-   * already has each non-current wizard page's '#access' correctly set
-   * to FALSE by the time this `#process` callback runs (verified via a
-   * live reproduction, not just inferred) — so a cross-page trigger can
-   * be detected by walking `$complete_form` for the referenced
-   * element's accessibility. Once detected, the condition is resolved
-   * *once*, using the same `WebformRankingVisibilityResolver` server-side
-   * validation already trusts (never the client), and applied
-   * statically — there is nothing on the current page that could ever
-   * change the trigger's value anyway, so live '#states'/JS reactivity
-   * for that item would be meaningless.
-   *
-   * Same-page conditions (or no condition at all) are left completely
-   * untouched — this only ever narrows behavior for the specific
-   * cross-page case, matching the issue's own request not to regress
-   * anything already working.
+   * An item's own '#states' condition never worked when its trigger
+   * lives on an earlier wizard page — Webform's own cross-page handling
+   * walks the configured element tree before #items is expanded into
+   * real sub-elements, so an item's condition is invisible to it. This
+   * replicates that treatment narrowly: detect a cross-page trigger,
+   * resolve it once via WebformRankingVisibilityResolver, and apply the
+   * result statically (clearing 'states', setting '_cross_page_hidden'
+   * if not visible) rather than a live binding nothing could react to
+   * anyway. Same-page conditions are left completely untouched. See
+   * docs/adr/0006-cross-page-item-condition-resolution.md.
    *
    * @param array $items
    *   The element's configured items (value/label/states each).
@@ -382,44 +361,19 @@ class WebformRanking extends FormElementBase {
 
     foreach ($items as $item) {
       $row_key = $item['value'];
-      // '#type' => 'container' (not a bare '#markup' array, and not
-      // 'html_tag' either): a plain '#markup' element has no
-      // #attributes-bearing wrapper, so when this row later gets
-      // '#states' applied below (for a conditionally-visible item),
-      // Renderer::doRender()'s 'data-drupal-states' attribute has
-      // nothing to attach to and states.js has nothing to hide —
-      // leaving the label visibly orphaned above an otherwise-hidden
-      // row of radios. 'html_tag' doesn't fix this either: its
-      // #pre_render (HtmlTag::preRenderHtmlTag()) bakes #attributes
-      // into a fixed markup string, and #pre_render callbacks run
-      // BEFORE Renderer::doRender() processes #states
-      // (Renderer.php: #pre_render at ~line 445, #states at ~line
-      // 472) — by the time 'data-drupal-states' is added, the tag
-      // markup is already finalized without it. 'container' instead
-      // uses '#theme_wrappers' (container.html.twig), which reads
-      // #attributes at theme-render time, *after* #states processing
-      // — the same pattern Container's own class docblock shows as
-      // the canonical way to combine '#states' with a wrapper
-      // element. The radio cells below never had this problem since
-      // '#type' => 'radio' is itself a themed form input, not a
-      // #pre_render-baked one.
+      // '#type' => 'container', not 'html_tag': the latter's #pre_render
+      // bakes #attributes before #states processing ever runs, leaving
+      // a conditionally-hidden row's label with nothing to hide by.
+      // See docs/adr/0007-matrix-radio-cell-rendering.md.
       $row_parents = array_merge($element['#parents'], ['matrix', $row_key]);
       $label_id = Html::getUniqueId('edit-' . implode('-', $row_parents) . '-label');
       $label_classes = ['webform-ranking-matrix__label'];
 
-      // #required_all indication (GitHub issue #46): 'form-item__label'
-      // + 'form-required' (+ 'js-form-required', included purely for
-      // parity — see form-element-label.html.twig, which sets all
-      // three together on every core required field's own <label>) is
-      // the real convention a standard required field's label already
-      // uses — the asterisk itself is a CSS '::after' on
-      // '.form-item__label.form-required', not literal text content,
-      // so no nested marker element/glyph is needed here at all.
-      // Plus 'role="radiogroup"'/'aria-labelledby' on the row so a
-      // screen reader announces this row the same way a standalone
-      // required radio group already is. A <fieldset> can't substitute
-      // for a <tr> here (per the issue's researched markup spec), so
-      // the row-level ARIA role/label is the correct substitute.
+      // #required_all indication (GitHub issue #46): 'form-required'
+      // matches the standard convention every core required field's
+      // <label> uses (the asterisk is a CSS '::after', no glyph markup
+      // needed). 'role="radiogroup"'/'aria-labelledby' substitutes for
+      // the <fieldset> a <tr> can't be, per the issue's markup spec.
       if ($required_all) {
         $label_classes = array_merge($label_classes, ['form-item__label', 'js-form-required', 'form-required']);
         $element['matrix'][$row_key]['#attributes'] = [
@@ -436,57 +390,22 @@ class WebformRanking extends FormElementBase {
         ],
       ];
 
-      // One real 'radio' input per rank column, each its own cell — NOT
-      // a single 'radios' bundle in one cell. #type 'radios' renders
-      // all its options together inside one wrapper, which was exactly
-      // the bug this replaces: every option landed stacked in the
-      // row's single cell instead of spreading out under each rank's
-      // own header column. Table::preRenderTable() turns each of a
-      // row's *direct* child elements into its own <td>, in insertion
-      // order — so building one bare 'radio' element per column here,
-      // each keyed separately, is what actually lines each button up
-      // under its header, matching #header's column order.
-      //
-      // Mirrors core's own Radios::processRadios() (same
-      // #return_value/#default_value/#parents/#id pattern — every
-      // option sharing the row's #parents is what makes them one
-      // mutually-exclusive native radio group despite living in
-      // separate cells) rather than reinventing that mechanism; the
-      // only difference is *where* each resulting radio element ends
-      // up in the render tree. element.matrix library (rank-exclusivity
-      // JS, aria-live announcements) queries radios by `name` and by
-      // DOM order, not by cell structure, so it needs no changes for
-      // this.
+      // One real 'radio' input per rank column, each its own cell — not
+      // a 'radios' bundle (which stacks every option in one cell instead
+      // of spreading across columns). Table::preRenderTable() turns each
+      // direct child into its own <td> in insertion order; mirrors core's
+      // Radios::processRadios() #return_value/#parents/#id pattern for
+      // the mutually-exclusive-group mechanism. See ADR-0007.
       $current_value = $defaults[$row_key] ?? NULL;
       $cell_keys = ['label'];
 
-      // Native 'required' vs. a same-page conditional row (GitHub issue
-      // #68): a row hidden by this item's own '#states' (applied below)
-      // is only hidden client-side (states.js toggling display) — a
-      // 'required' attribute baked in unconditionally would still sit
-      // on a now-hidden, unfocusable control, which the browser can
-      // never let the user satisfy and silently refuses to submit
-      // against (no Drupal error, no visible one — just a console
-      // warning). Fix: don't bake the attribute in statically for these
-      // rows at all. Instead, mirror the item's own visible/invisible
-      // condition onto 'required'/'optional' in the *same* '#states'
-      // array these cells already get below — 'optional' is core's own
-      // alias for '!required', exactly parallel to 'invisible' being
-      // '!visible' (Drupal.states.State.aliases, core/misc/states.js)
-      // — so states.js's existing state:required handler adds/removes
-      // the attribute itself, in lockstep with visibility, both on page
-      // load and on every live change. A row with no live per-page
-      // condition (including one already resolved and excluded via
-      // '#access' for the cross-page case, GitHub issue #61) is never
-      // hidden by JS, so it keeps the plain static attribute below —
-      // nothing there to ever desync from.
-      // Gated on $required_all: with it off, there's no static
-      // 'required' attribute anywhere on this row to begin with, so
-      // mirroring anything into '#states' here would only add a
-      // pointless 'optional'/'required' key nothing ever reads —
-      // confirmed by WebformRankingCrossPageItemStatesTest's own
-      // same-page-item-condition case, which expects a non-required_all
-      // item's '#states' to pass through completely untouched.
+      // GitHub issue #68: a static 'required' attribute on a row hidden
+      // by its own live '#states' left an unfocusable required control
+      // the browser silently refused to submit against. Mirrored into
+      // 'required'/'optional' on the same '#states' array instead
+      // ('optional' is core's own '!required' alias), so states.js's
+      // existing handler keeps it in lockstep with visibility. See
+      // docs/adr/0007-matrix-radio-cell-rendering.md.
       $has_live_states = $required_all && !empty($item['states']) && empty($item['_cross_page_hidden']);
       $required_states = [];
       if ($has_live_states) {
@@ -514,17 +433,12 @@ class WebformRanking extends FormElementBase {
           '#default_value' => $current_value,
           '#parents' => $row_parents,
           '#id' => Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, [$return_value]))),
-          // GitHub issue #69: FormState::getError() matches on the
-          // *first* #parents prefix hit, so every one of these radios
-          // (whose #parents all start with this element's own) inherits
-          // the exact same '#errors' value as the composite element
-          // itself. With 'inline_form_errors' enabled, that means the
-          // message would print once per radio on top of the one copy
-          // this element's own preRenderWebformRanking() already
-          // renders (GitHub issue #48) — suppressed here the same way
-          // Webform's own composite elements (WebformElementComposite,
-          // WebformEmailConfirm, etc.) suppress it for their own
-          // sub-elements.
+          // GitHub issue #69: every radio inherits this element's own
+          // '#errors' (FormState::getError() matches the first #parents
+          // prefix hit), which would duplicate preRenderWebformRanking()'s
+          // own error message under 'inline_form_errors' — suppressed
+          // the same way Webform's own composite elements suppress it
+          // for their sub-elements.
           '#error_no_message' => TRUE,
         ];
         if ($required_all) {
@@ -562,29 +476,15 @@ class WebformRanking extends FormElementBase {
         }
       }
 
-      // Conditional item inclusion: applying the item's own #states
-      // condition to every cell in the row is what makes states.js
-      // hide the row client-side. This is purely a display
-      // convenience — the authoritative check is
-      // WebformRankingVisibilityResolver, run server-side in
-      // validateWebformRanking(), which is what a user can't bypass by
-      // disabling JS or editing the DOM.
-      //
-      // '_cross_page_hidden' (set by resolveCrossPageItemStates(), GitHub
-      // issue #61) takes precedence: a cross-page condition has already
-      // been resolved statically by this point, and 'states' cleared to
-      // empty — there is nothing left on this page that could ever
-      // change the trigger's value, so '#access' (excluding the cell
-      // from rendering/submission entirely) is used instead of a live
-      // '#states' attachment that would never react to anything anyway.
-      //
-      // Rank *columns* are still always built here from the full
-      // configured item count, regardless of any item's '#states' —
-      // hiding surplus columns once fewer are needed (GitHub issue #60)
-      // is a client-side JS concern (updateRankColumns(), reacting to
-      // the same 'state:visible' event this docblock's own condition
-      // triggers), not something this server-side render pass needs to
-      // account for.
+      // Applying the item's own #states to every cell is purely a
+      // display convenience — WebformRankingVisibilityResolver in
+      // validateWebformRanking() is the authoritative, unbypassable
+      // check. '_cross_page_hidden' takes precedence (see ADR-0006):
+      // already statically resolved, so '#access' excludes the cell
+      // instead of a live binding that could never react to anything.
+      // Rank *columns* are still always built from the full item count;
+      // hiding surplus ones (GitHub issue #60) is a client-side concern
+      // (updateRankColumns()), not this render pass's.
       if (!empty($item['_cross_page_hidden'])) {
         foreach ($cell_keys as $cell_key) {
           $element['matrix'][$row_key][$cell_key]['#access'] = FALSE;
@@ -676,25 +576,13 @@ class WebformRanking extends FormElementBase {
       '#parents' => array_merge($element['#parents'], ['dragdrop', 'na']),
     ];
 
-    // Per-item rank echo — a *second*, purely-derived data channel that
-    // exists only so #states has a real per-item selector to point at
-    // (mirrors buildMatrix()'s one-radio-per-item selectors; see
-    // WebformRanking plugin's getElementSelectorOptions()). NOT
-    // authoritative: dragdropToCanonical() only ever reads 'order'/'na'
-    // above, this is never consulted for storage or validation. It
-    // exists solely because 'order' bundles every item's position into
-    // one CSV string, which #states's trigger vocabulary (value/
-    // pattern/etc.) has no way to index into — see docs/CONTINUATION.md
-    // for the full rationale.
-    //
-    // CRITICAL: kept in sync ONLY by element.dragdrop's sync()
-    // function, in lockstep with the order/na writes above. Any new
-    // code path that mutates order/na without going through sync()
-    // will desync this channel — #states would then show a stale rank
-    // while the actually-submitted order/na stays correct, since
-    // storage never reads this. Flagged explicitly so a future edit
-    // doesn't reintroduce a source of stale #states data the way the
-    // matrix Array-to-string bug did for a different reason.
+    // Per-item rank echo — a *second*, purely-derived, non-authoritative
+    // data channel giving #states a real per-item selector to target
+    // (dragdropToCanonical() never reads it). CRITICAL: kept in sync
+    // ONLY by element.dragdrop's sync() function — any code path that
+    // mutates order/na without going through sync() silently desyncs
+    // #states from the real submitted state. See
+    // docs/adr/0008-dragdrop-rank-echo-channel.md.
     $rank_by_value = [];
     foreach ($order_list as $position => $value) {
       $rank_by_value[$value] = (string) ($position + 1);
@@ -708,36 +596,21 @@ class WebformRanking extends FormElementBase {
         '#default_value' => $rank_by_value[$item['value']] ?? '',
         '#attributes' => [
           'class' => ['webform-ranking-dragdrop__rank'],
-          // Deliberately a *different* attribute name than the item
-          // container's own data-webform-ranking-value (not just a
-          // different element) — a generic
-          // `[data-webform-ranking-value="x"]` query would otherwise
-          // match whichever of the two happens to come first in DOM
-          // order, silently picking the wrong node. Real bug hit while
-          // browser-testing this feature: a querySelector meant for
-          // the item container instead matched this hidden input
-          // (which renders earlier in the tree) and failed on a null
-          // move-up button.
+          // Deliberately a different attribute name than the item
+          // container's own data-webform-ranking-value — a shared name
+          // caused a real selector-ambiguity bug once already; see
+          // docs/adr/0008-dragdrop-rank-echo-channel.md.
           'data-webform-ranking-rank-for' => $item['value'],
         ],
         '#parents' => array_merge($element['#parents'], ['dragdrop', 'rank', $item['value']]),
       ];
     }
 
-    // #required_all indication (GitHub issue #46), drag/drop side: per
-    // the issue's own follow-up clarification, a visual asterisk isn't
-    // appropriate here (an item's placement in the ordered list already
-    // denotes its rank — there's no "blank" visual state the way an
-    // un-clicked matrix radio has), but screen readers still need to
-    // know each item is required. Not aria-required — the item
-    // container's role="listitem" (below) doesn't support it per the
-    // WAI-ARIA role table, so 'aria-required="true"' there would be an
-    // invalid-attribute violation. A shared, visually-hidden
-    // description referenced via aria-describedby on every item
-    // container is the ARIA-valid equivalent the issue's discussion
-    // explicitly allowed for. One shared node (not one per item): the
-    // text is generic ("this item"), not item-specific, so duplicating
-    // it per item would be pure waste.
+    // #required_all indication (GitHub issue #46), drag/drop side: no
+    // visual asterisk (placement in the list already denotes rank), but
+    // screen readers need to know. Not aria-required — role="listitem"
+    // doesn't support it per WAI-ARIA — so one shared, visually-hidden
+    // description via aria-describedby on every item container instead.
     $required_all = !empty($element['#required_all']);
     $required_description_id = NULL;
     if ($required_all) {
@@ -932,71 +805,28 @@ class WebformRanking extends FormElementBase {
    * Pre-render callback: sets validation-failure attributes/inline text.
    *
    * Also relocates element-level '#states' the same way — see the
-   * '#states' block below for why. FormElementBase (unlike every native
-   * form element, e.g.
-   * Radio::preRenderRadio(), and unlike Webform's own
-   * WebformCompositeBase::preRenderCompositeFormElement() — this class
-   * deliberately extends FormElementBase directly rather than
-   * WebformCompositeBase, per the class docblock's storage-boundary
-   * rationale) does neither of these on its own (GitHub issue #47).
-   *
-   * NOT RenderElementBase::setAttributes(): that method is hardcoded to
-   * write '#attributes', which for THIS element's
-   * '#theme_wrappers' => ['form_element'] is never actually rendered
-   * anywhere — '#attributes' normally becomes an actual `<input>` tag's
-   * own attributes (e.g. Textfield's), which this composite element
-   * doesn't have one of at the top level. The wrapping `<div>`
-   * form-element.html.twig renders instead reads '#wrapper_attributes'
-   * exclusively (see FormPreprocess::preprocessFormElement(), confirmed
-   * directly — `$variables['attributes'] = $element['#wrapper_attributes'];`,
-   * '#attributes' referenced nowhere else in that method except the
-   * unrelated 'disabled' variable). Webform's own composite elements
-   * sidestep this entirely by defaulting to '#theme_wrappers' =>
-   * ['fieldset'] instead (where '#attributes' DOES map onto the
-   * `<fieldset>` tag) — deliberately not adopted here, since issue #47
-   * itself flags that fieldset/legend semantic change as a separate,
-   * deferred decision, not something to bundle into this fix.
-   *
-   * Separately: core's own form-element.html.twig template DOES support
-   * rendering an 'errors' variable inline ('form-item--error-message',
-   * right after the field's own children) — but
-   * FormPreprocess::preprocessFormElement() unconditionally sets that
-   * variable to NULL ("Suppress error messages"), for every field on
-   * every form, regardless of the 'inline_form_errors' module's status
-   * (confirmed by reading that method directly — the assignment isn't
-   * gated on anything). Injecting the message as an ordinary descendant
-   * render item here, instead of relying on the 'errors' theme variable,
-   * bypasses that suppressed path entirely (GitHub issue #48). A high
-   * '#weight' keeps it last among this element's own children
-   * (matrix/dragdrop's build output, both #weight-less) regardless of
-   * #ranking_style, without needing to know which style built them.
+   * '#states' block below. FormElementBase gets neither for free
+   * (GitHub issue #47), unlike native elements or Webform's own
+   * WebformCompositeBase (not used here — see class docblock). NOT
+   * RenderElementBase::setAttributes(): '#attributes' is never actually
+   * rendered for this element's '#theme_wrappers' => ['form_element']
+   * (only '#wrapper_attributes' is — confirmed directly in
+   * FormPreprocess::preprocessFormElement()); Webform's own composites
+   * sidestep this via '#theme_wrappers' => ['fieldset'] instead,
+   * deliberately not adopted here (issue #47's own deferred decision).
+   * Inline error text is injected as an ordinary descendant render item
+   * (GitHub issue #48) since core's 'errors' template variable is
+   * unconditionally suppressed. See
+   * docs/adr/0009-prerender-attributes-states-and-error-display.md.
    */
   public static function preRenderWebformRanking(array $element) {
-    // Element-level '#states' (e.g. "show/hide this whole ranking field
-    // when some other element has a certain value", configured via this
-    // element's own admin "Conditional logic" tab — NOT the per-item
-    // '#states' buildMatrix()/buildDragDrop() already handle correctly)
-    // silently never worked: Renderer::doRender() calls
-    // FormHelper::processStates() for any element with '#states' set,
-    // which writes the 'data-drupal-states' attribute states.js actually
-    // reads to '#attributes' for this element (its own targeting
-    // condition — #markup === '' && #input === TRUE — doesn't match
-    // ours), and per this method's own docblock, '#attributes' is never
-    // rendered anywhere for a '#theme_wrappers' => ['form_element']
-    // element like this one. The result: states.js has no
-    // 'data-drupal-states' attribute anywhere in the DOM to bind to, so
-    // the field never reacts to the trigger changing — confirmed live
-    // (the only visible trace was Webform's own no-JS-fallback
-    // 'js-webform-states-hidden' class, computed server-side from the
-    // condition's current value, but frozen there forever with nothing
-    // to update it client-side). Fixed the same way as the
-    // aria-invalid/error-class gap above: call processStates() to get
-    // its canonical JSON-encoded output (not reimplemented here, so this
-    // can't drift from core's own encoding), then copy the result onto
-    // '#wrapper_attributes' ourselves, where it's actually rendered.
-    // processStates() still runs again later, in Renderer::doRender()
-    // itself — redundant but harmless, since '#states' is still set and
-    // JSON-encoding it twice produces the same string both times.
+    // Element-level '#states' silently never worked either, for the
+    // same '#attributes'-never-rendered reason above: processStates()
+    // writes 'data-drupal-states' to '#attributes', so states.js had
+    // nothing to bind to. Fixed the same way — call processStates() for
+    // its canonical encoding, copy the result onto '#wrapper_attributes'
+    // instead. See
+    // docs/adr/0009-prerender-attributes-states-and-error-display.md.
     if (!empty($element['#states'])) {
       FormHelper::processStates($element);
       if (isset($element['#attributes']['data-drupal-states'])) {
@@ -1036,38 +866,21 @@ class WebformRanking extends FormElementBase {
         ],
       ];
 
-      // GitHub issue #69: this element's own '#theme_wrappers' =>
-      // ['form_element'] means 'inline_form_errors' hook_preprocess_
-      // form_element() targets THIS element too, not just its
-      // sub-radios (already suppressed in buildMatrix()) — its
-      // core-preprocess-suppressed 'errors' template variable (see this
-      // method's own docblock above) gets restored right back by that
-      // hook once the module is enabled, duplicating the 'ranking_errors'
-      // child just added above. '#error_no_message' is core's own
-      // convention for opting an element out of that hook entirely.
+      // GitHub issue #69: 'inline_form_errors' would otherwise restore
+      // its own suppressed 'errors' variable and duplicate
+      // 'ranking_errors' above. '#error_no_message' opts out entirely.
       //
       // *** DELIBERATE DESIGN DECISION — FLAG FOR FUTURE RE-REVIEW ***
-      // Chose to always suppress 'inline_form_errors' and keep this
-      // element's own rendering as the single, unconditional code path,
-      // rather than detecting the module (e.g. via
-      // \Drupal::moduleHandler()->moduleExists('inline_form_errors'))
-      // and deferring to its rendering instead when active. Reasoning
-      // at the time: functionally there's nothing to gain from
-      // deferring — form-element.html.twig renders the restored
-      // 'errors' variable as
-      // `<div class="form-item--error-message">{{ errors }}</div>`,
-      // which is markup-for-markup what 'ranking_errors' above already
-      // produces (`<div class="webform-ranking__errors
-      // form-item--error-message">...</div>`), just missing the
-      // 'webform-ranking__errors' class this module's own CSS/tests
-      // (e.g. WebformRankingErrorDisplayJavaScriptTest) key off. A
-      // module-detection branch would add real complexity (two rendering
-      // paths to keep in sync, a hard dependency on another module's
-      // internal behavior) for a visually identical result. Revisit
-      // this if either template's error markup ever diverges in a way
-      // that would make deferring to 'inline_form_errors' meaningfully
-      // better — e.g. if it starts adding its own error icon/ARIA
-      // treatment beyond what {{ errors }} does today.
+      // Always suppress 'inline_form_errors' unconditionally, rather
+      // than detecting the module and deferring to its own rendering
+      // when active — chosen because the two outputs are markup-for-
+      // markup identical today except for the 'webform-ranking__errors'
+      // class this module's own CSS/tests key off, and module-detection
+      // would add real complexity (two paths to keep in sync) for that.
+      // REVISIT if either template's error markup ever diverges further
+      // (e.g. 'inline_form_errors' adds its own icon/ARIA treatment).
+      // Full reasoning:
+      // docs/adr/0009-prerender-attributes-states-and-error-display.md.
       $element['#error_no_message'] = TRUE;
     }
 
@@ -1077,26 +890,14 @@ class WebformRanking extends FormElementBase {
   /**
    * Validation callback.
    *
-   * Runs entirely against the canonical #value (already normalized by
-   * valueCallback() regardless of which UI produced it), so this logic
-   * is identical for matrix and drag/drop — one set of rules, two
-   * front-ends.
-   *
-   * Now closes the conditional-inclusion gap flagged in the earlier
-   * pass: the visible-item set is recomputed server-side via
-   * WebformRankingVisibilityResolver, from the submitted value of
-   * whatever trigger element(s) each item's #states condition
-   * references — not from anything the client claims about DOM
-   * visibility.
-   *
-   * Note on ordering: the unknown-item tamper check runs against the
-   * *full configured* item set, and is a hard error — a key that was
-   * never configured at all indicates a forged request. Items that
-   * are configured but not currently visible are handled differently:
-   * silently dropped rather than errored, since a stale rank in a
-   * hidden input (e.g. the user changed a trigger element and client
-   * JS hadn't yet cleared the now-invalid row) is an expected,
-   * harmless case — not tampering — and shouldn't block submission.
+   * Runs against the canonical #value (already normalized by
+   * valueCallback() regardless of which UI produced it) — one set of
+   * rules for both display styles. The visible-item set is recomputed
+   * server-side via WebformRankingVisibilityResolver, never trusting
+   * client-claimed DOM visibility. An unconfigured item key is a hard
+   * tamper error; a configured-but-currently-invisible one (e.g. a
+   * stale rank from a trigger change client JS hadn't cleared yet) is
+   * silently dropped instead — expected, not tampering.
    */
   public static function validateWebformRanking(&$element, FormStateInterface $form_state, &$complete_form) {
     $value = $element['#value'] ?? ['values' => [], 'na' => []];
@@ -1125,24 +926,11 @@ class WebformRanking extends FormElementBase {
     // given the submitted value of any trigger element(s) — never
     // trust client-reported visibility.
     //
-    // buildEntity(), not getEntity(): getEntity() returns whatever
-    // entity object is currently attached to the form state, which at
-    // validation time has NOT yet been synced with this request's
-    // submitted field values (that copy happens later, in submit/
-    // build-entity handling) — its data can be entirely stale/empty
-    // for fields the resolver needs to evaluate a #states condition
-    // against (e.g. a text field this item's visibility depends on).
-    // buildEntity($complete_form, $form_state) builds a fresh entity
-    // from the CURRENT $form_state values instead, exactly matching
-    // the pattern Webform's own generic element validator uses for
-    // this same purpose (see
-    // WebformSubmissionConditionsValidator::elementValidate()).
-    // Without this, a conditional item's #states condition could
-    // evaluate against a submission that doesn't yet reflect a
-    // same-request trigger field change, incorrectly treating a truly
-    // visible item as invisible and silently dropping its rank —
-    // most visible during a webform_computed_twig #ajax recompute,
-    // which validates the whole form on every change elsewhere.
+    // buildEntity(), not getEntity(): the cached entity isn't yet synced
+    // with this request's submitted values at validation time, which
+    // could evaluate a #states condition against stale data (most
+    // visible during a webform_computed_twig #ajax recompute). See
+    // docs/adr/0010-validation-live-entity-and-unconditional-writeback.md.
     $webform_submission = NULL;
     $form_object = $form_state->getFormObject();
     if ($form_object instanceof WebformSubmissionForm) {
@@ -1168,31 +956,20 @@ class WebformRanking extends FormElementBase {
         ?? $translation->translate('@title field is required.', ['@title' => $title]));
     }
 
-    // Ranks must be assigned starting from 1st place with no gaps —
-    // e.g. 2nd/3rd can't be used unless 1st is also used. Matrix-only:
-    // dragdrop's ordering is inherently gapless by construction (see
-    // WebformRankingConverter::matrixRanksAreSequential()'s docblock
-    // for why this matters — a skipped rank is invisible in the
-    // canonical $values/$na this method otherwise works with, so this
-    // checks the raw per-item input stashed by valueCallback()
-    // instead). Filtered to currently-visible items first, same as
-    // $values/$na above, so a stale rank on a conditionally-hidden
-    // item can't cause a false-positive gap, and can't mask a real
-    // one among visible items either.
+    // Ranks must start from 1st with no gaps (matrix-only — dragdrop is
+    // gapless by construction; see matrixRanksAreSequential()'s docblock,
+    // ADR-0002). Checks the raw per-item input stashed by valueCallback()
+    // (a skipped rank is invisible in canonical $values/$na), filtered to
+    // currently-visible items first so a stale hidden-item rank can't
+    // cause or mask a gap.
     $raw_matrix_input = array_intersect_key(
       $element['#_matrix_raw_input'] ?? [],
       array_flip($visible_item_values)
     );
     if (!WebformRankingConverter::matrixRanksAreSequential($raw_matrix_input)) {
-      // GitHub issue #74: the default message here is plain-language,
-      // end-user-appropriate wording (not the earlier, more technical
-      // "starting from the top, with no gaps" phrasing), and — unlike
-      // every other message in this method except #require_first_place_error
-      // — admin-overridable via '#sequential_ranks_error', following that
-      // property's exact pattern ('!empty()', not '??': its own default
-      // is '' via defineDefaultProperties(), not NULL, so '??' would
-      // treat an unset-by-admin empty string as "customized" and never
-      // fall back to the translated default below).
+      // '#sequential_ranks_error' uses '!empty()' not '??' — its default
+      // is '' (defineDefaultProperties()), not NULL, so '??' would treat
+      // an admin-unset empty string as "customized."
       $default_message = !empty($element['#allow_na'])
         ? $translation->translate('Items in @title must be ranked in order (1st, 2nd, 3rd, etc.), without skipping any positions. Where available, you may select N/A for items you do not wish to rank.', ['@title' => $title])
         : $translation->translate('Items in @title must be ranked in order (1st, 2nd, 3rd, etc.), without skipping any positions.', ['@title' => $title]);
@@ -1231,20 +1008,12 @@ class WebformRanking extends FormElementBase {
         : $translation->translate('@title requires at least one item to be ranked 1st.', ['@title' => $title]));
     }
 
-    // Note on array structure: $values was already reindexed via
-    // array_values() a few lines up (dropping stale/invisible entries),
-    // which means it's *always* a proper 0-indexed sequential list by
-    // this point — there is no remaining code path where a gappy or
-    // associative array could reach here. An earlier version of this
-    // method had a separate check for exactly that, which turned out to
-    // be both dead code (the reindex above already made it unreachable)
-    // and solving a non-problem: even a genuinely forged non-sequential
-    // #value poses no real harm once reindexed, since rank is derived
-    // from iteration order, not literal array keys — array_values()
-    // preserves that order regardless of the original keys. The actual
-    // risk worth guarding — WebformRankingConverter::canonicalToMatrix()
-    // deriving each item's rank from array *position* — is exactly what
-    // this reindexing step guarantees stays correct.
+    // $values is always a proper 0-indexed list here (array_values()'d
+    // above when stale/invisible entries were dropped) — rank is derived
+    // from iteration order, not literal keys, so a forged non-sequential
+    // #value poses no risk once reindexed. (A separate explicit check for
+    // this was removed as unreachable dead code — the reindex above
+    // already guarantees it.)
     if (!empty($element['#required_all'])) {
       $accounted_for = WebformRankingConverter::accountedFor(['values' => $values, 'na' => $na]);
       $missing = array_diff($visible_item_values, $accounted_for);
@@ -1256,35 +1025,13 @@ class WebformRanking extends FormElementBase {
       }
     }
 
-    // Write the filtered (stale entries dropped) value back — but in
-    // the flat item-value => rank shape, not canonical {values, na}.
-    // Webform's submission storage (a composite element, per the
-    // plugin's annotation) only knows how to persist a flat map of
-    // scalar-valued properties; handing it the canonical shape here
-    // would silently corrupt to the literal string "Array" when saved
-    // (both 'values' and 'na' are themselves arrays). See this class's
-    // and WebformRankingConverter's docblocks for the full rationale.
-    // WebformRanking::prepare() is the mirror-image conversion back to
-    // canonical shape when editing an existing submission.
-    //
-    // Unconditional — every check above sets an error (if any) without
-    // returning, specifically so this line is always reached, even on
-    // a failed validation pass. This matters beyond the failing
-    // submission itself: a webform_computed_twig element configured
-    // for live AJAX recompute triggers a full (non-#limit_validation_errors)
-    // validation pass on every keystroke/change elsewhere on the form,
-    // then reads $form_state->getValues() directly via
-    // WebformSubmissionForm::copyFormValuesToEntity() to build a
-    // throwaway WebformSubmission for its Twig template —
-    // bypassing this element's plugin entirely, with no shape
-    // conversion of its own. If a `return` here had skipped this
-    // write-back (the previous behaviour on most checks above), that
-    // temporary submission — and therefore the Twig template — would
-    // see this element still in canonical {values, na} shape instead
-    // of the flat map every consumer (including a Twig token like
-    // `data.ranking.pizza`) expects, for as long as the ranking
-    // element was in any invalid, not-yet-fully-resolved interim
-    // state (e.g. mid-click, 2nd place picked before 1st).
+    // Write the filtered value back in the flat item-value => rank
+    // shape (storage can't persist canonical {values, na} — see
+    // WebformRankingConverter's docblock). Unconditional — no check
+    // above returns early — so this is always reached even on a failed
+    // pass; a webform_computed_twig live recompute reads this mid-
+    // validation, and needs the flat shape regardless. See
+    // docs/adr/0010-validation-live-entity-and-unconditional-writeback.md.
     $form_state->setValueForElement($element, WebformRankingConverter::canonicalToMatrix([
       'values' => $values,
       'na' => $na,
