@@ -2,7 +2,10 @@
 
 namespace Drupal\webform_ranking\Plugin\WebformElement;
 
+use Drupal\Component\Serialization\Exception\InvalidDataTypeException;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Form\OptGroup;
+use Drupal\webform\Element\WebformElementStates;
 use Drupal\webform\Plugin\WebformElementBase;
 use Drupal\webform\Utility\WebformYaml;
 use Drupal\webform\WebformInterface;
@@ -26,20 +29,72 @@ use Drupal\webform_ranking\WebformRankingConverter;
 class WebformRanking extends WebformElementBase {
 
   /**
+   * State keys the per-item condition picker's dropdown offers.
+   *
+   * A subset of WebformElementStates::getStateOptions()'s full list —
+   * excludes states aimed at form *inputs* (Read-only/Expanded/
+   * Collapsed/Checked/Unchecked), which don't read sensibly for an
+   * item-inclusion condition. Only visible/invisible actually affect
+   * inclusion (see self::VISIBILITY_STATE_KEYS); the rest are accepted
+   * like any other #states value, matching the real widget's own
+   * flexibility, but are a no-op here — the picker surfaces a note when
+   * one is selected rather than hiding them outright.
+   */
+  const PICKER_STATE_KEYS = [
+    'visible', 'invisible', 'visible-slide', 'invisible-slide',
+    'enabled', 'disabled', 'required', 'optional',
+  ];
+
+  /**
+   * The subset of self::PICKER_STATE_KEYS that affects item inclusion.
+   *
+   * An explicit list, not derived from PICKER_STATE_KEYS by position, so
+   * it stays correct if that list's order/membership ever changes. Sent
+   * to items_admin.js via drupalSettings as the single source for its
+   * own visibility-state check.
+   *
+   * Deliberately NOT unified with WebformRankingVisibilityResolver
+   * ::isVisible()'s own runtime check, which strips '!'/'-slide'
+   * suffixes and compares the base instead — that generalizes to future
+   * suffix variants without a list update, which this enumeration-only
+   * use case (populating a dropdown) doesn't need. Two equally
+   * intentional ways of expressing the same semantic set, not a gap.
+   */
+  const VISIBILITY_STATE_KEYS = [
+    'visible', 'invisible', 'visible-slide', 'invisible-slide',
+  ];
+
+  /**
+   * Trigger keys nested one level deeper by Form API convention.
+   *
+   * See decomposeCondition()'s own docblock. Shared with items_admin.js
+   * via drupalSettings (see form()) as the single source for its own
+   * NESTED_TRIGGERS classification, rather than a second hand-typed JS
+   * copy that could silently drift if Webform core ever adds/renames a
+   * trigger type.
+   */
+  const NESTED_TRIGGER_KEYS = [
+    'pattern', '!pattern', 'less', 'less_equal',
+    'greater', 'greater_equal', 'between', '!between',
+  ];
+
+  /**
+   * Trigger keys that carry a bare boolean, no comparison value.
+   *
+   * Same shared-source-of-truth rationale as self::NESTED_TRIGGER_KEYS
+   * above.
+   */
+  const NO_VALUE_TRIGGER_KEYS = ['empty', 'filled', 'checked', 'unchecked'];
+
+  /**
    * {@inheritdoc}
    *
    * Overrides defineDefaultProperties() (protected), not
-   * getDefaultProperties() directly — the base class's public
-   * getDefaultProperties() wraps this with caching and the
-   * hook_webform_element_default_properties_alter() hook. An earlier
-   * version of this class overrode getDefaultProperties() (and
-   * getDefaultProperty(), and defineDefaultProperties() all at once,
-   * redundantly) directly instead; that still technically works per
-   * Webform's own deprecation notice, but silently bypasses that
-   * caching/alter layer, and having three overlapping overrides was a
-   * mess in its own right. Confirmed against Details, BooleanBase,
-   * Address, and WebformAttachmentBase, which all consistently use
-   * this pattern in current Webform.
+   * getDefaultProperties() directly — the public getter wraps this with
+   * caching and hook_webform_element_default_properties_alter(), which
+   * an earlier version's direct getDefaultProperties() override
+   * silently bypassed. Confirmed as the consistent pattern against
+   * Details, BooleanBase, Address, and WebformAttachmentBase.
    */
   protected function defineDefaultProperties() {
     $properties = [
@@ -98,12 +153,68 @@ class WebformRanking extends WebformElementBase {
   public function form(array $form, FormStateInterface $form_state) {
     $form = parent::form($form, $form_state);
 
+    // Requires a form object with getWebform() — true for every real
+    // caller (WebformUiElementFormBase and its WebformUiElementTestForm
+    // subclass), but not guaranteed by the base class's own form()
+    // signature. A direct call with a bare FormState (no form object
+    // set) fatals here rather than failing gracefully; not defended
+    // against, since no such call path currently exists — noted so a
+    // future one doesn't hit this as a surprise.
+    $webform = $form_state->getFormObject()->getWebform();
+
     $form['ranking'] = [
       '#type' => 'details',
       '#title' => $this->t('Ranking settings'),
       '#open' => TRUE,
       '#weight' => -10,
     ];
+
+    // Precomputed, per-item decomposition of each already-saved item's
+    // 'states' YAML into the picker's row/condition shape, keyed by
+    // item value and attached below as drupalSettings — see
+    // docs/adr/0005-condition-lookup-table-and-live-values.md for why
+    // (the #webform_multiple shared-template constraint this sidesteps,
+    // and why live submitted values are preferred over the saved-entity
+    // snapshot, GitHub issue #79). Anything not single-state/decomposable
+    // (see decomposeItemStatesToConditions()) is simply omitted; the
+    // dialog then falls back to the raw YAML view for that item.
+    $element_properties = $form_state->get('element_properties') ?? [];
+    $conditions_by_value = [];
+    $live_items = $form_state->getValue(['items', 'items']);
+    $items_source = is_array($live_items) ? $live_items : ($element_properties['items'] ?? []);
+    foreach ($items_source as $item) {
+      $value = trim($item['value'] ?? '');
+      if ($value === '' || empty($item['states'])) {
+        continue;
+      }
+      // A live value (unlike the saved-entity snapshot) may be
+      // genuinely invalid YAML mid-edit — decoding must not fatal the
+      // whole AJAX rebuild over one item's temporarily-invalid text;
+      // see docs/adr/0005-condition-lookup-table-and-live-values.md.
+      try {
+        $states = is_string($item['states']) ? WebformYaml::decode($item['states']) : $item['states'];
+      }
+      catch (InvalidDataTypeException) {
+        continue;
+      }
+      $decomposed = is_array($states) ? $this->decomposeItemStatesToConditions($states) : NULL;
+      if ($decomposed !== NULL) {
+        $conditions_by_value[$value] = $decomposed;
+      }
+    }
+
+    // The picker's "State" dropdown — see self::PICKER_STATE_KEYS.
+    // getStateOptions() returns its options grouped by optgroup label
+    // (Visibility/State/Validation/Value); OptGroup::flattenOptions()
+    // (the same core helper Form API's own <select> processing uses to
+    // resolve a submitted value against a grouped '#options' array)
+    // collapses that down to a single flat key => label array first, then
+    // array_intersect_key() keeps only the picker's own subset in that
+    // same (already correctly ordered) flattened array.
+    $state_options = array_intersect_key(
+      array_map('strval', OptGroup::flattenOptions(WebformElementStates::getStateOptions())),
+      array_flip(self::PICKER_STATE_KEYS)
+    );
 
     // Admin-managed list of items to rank. Reuses Webform's own
     // "table of rows" widget pattern (as used for Options element sets)
@@ -127,70 +238,15 @@ class WebformRanking extends WebformElementBase {
           '#title' => $this->t('Label'),
           '#required' => TRUE,
         ],
-        // Per-item conditional inclusion. This was originally
-        // 'webform_element_states' — Webform's own #states
-        // condition-builder widget — which would have given admins the
-        // exact same UI they already use for element-level conditions.
-        // Flagged at the time as unconfirmed: "Nested one level inside
-        // a #webform_multiple table row is not a configuration I've
-        // confirmed works cleanly out of the box." That risk
-        // materialized — adding a second item row crashed with a
-        // TypeError inside WebformCodeMirror::validateWebformCodeMirror(),
-        // an array reaching a YAML validator expecting a string,
-        // strongly suggesting webform_element_states (which appears to
-        // use a codemirror YAML view internally for advanced-mode
-        // editing) doesn't handle being embedded inside another
-        // #tree-based multiple-value widget correctly.
-        //
-        // Using the flagged fallback instead: a plain YAML-mode
-        // codemirror field. Real cost to admin UX (raw YAML instead of
-        // a visual conditions builder), but functional and confirmed
-        // by the same production error to at least avoid that specific
-        // nesting failure mode. WebformCodeMirror's YAML mode decodes
-        // the submitted string into an array for the element's value,
-        // which is the same #states-shaped array structure
-        // WebformRankingVisibilityResolver and the client-side #states
-        // attachment in buildMatrix()/buildDragDrop() already expect —
-        // no changes needed on that side.
-        // Most items won't need a condition at all, so this field is
-        // presented in a dialog (see element.itemsAdmin library, attached
-        // below) rather than inline in the row — a raw per-item YAML
-        // field left inline, even collapsed behind a checkbox, was still
-        // real visual clutter once more than a couple of items had a
-        // condition (GitHub issue #4). An earlier version used a
-        // 'use_states' checkbox for inline progressive disclosure, but
-        // that toggle never actually worked — its row-scoping heuristic
-        // matched the wrong row against webform_multiple's real markup —
-        // and was removed rather than debugged further in favor of this
-        // redesign, which has no equivalent row-matching step (the
-        // dialog's trigger button is inserted directly next to its own
-        // item's wrapper). The field's own content (empty or not) is the
-        // single source of truth on the backend either way; nothing
-        // about that changed.
-        // '#decode_value' => TRUE is load-bearing, not decorative: it's
-        // what makes WebformCodeMirror::validateWebformCodeMirror()
-        // (the element's own #element_validate, registered by
-        // processWebformCodeMirror()) decode the submitted YAML string
-        // into a real array via Yaml::decode() before it ever reaches
-        // $form_state->getValue('items'). Without it, that method's
-        // auto-decode branch only fires when '#default_value' already
-        // happens to be an array — which it never is here, since
-        // #webform_multiple populates each row's default straight from
-        // stored config. Confirmed via a real bug: omitting this meant
-        // $item['states'] stayed a raw YAML *string* all the way through
-        // validateConfigurationForm() into saved config, and then into
-        // buildMatrix()/buildDragDrop()'s '#states' assignment — Drupal's
-        // FormHelper::processStates() JSON-encodes a string exactly as
-        // happily as an array, so no error surfaced anywhere; the
-        // condition just silently never matched (states.js can't parse
-        // a JSON-encoded string as a conditions object). Same '#decode_value'
-        // pattern already used by core Webform for the same reason — see
-        // WebformTable.php's '#decode_value' => TRUE.
-        //
-        // NOT sufficient on its own for already-saved config from before
-        // this fix (that path only runs at submit time) — see prepare()'s
-        // read-side normalization below for the self-healing half of this
-        // fix.
+        // Per-item conditional inclusion, presented in a dialog rather
+        // than inline (issue #4: a raw per-item YAML field was too much
+        // visual clutter). Field type/position are unchanged from an
+        // earlier crashed attempt using Webform's own
+        // 'webform_element_states' widget nested here directly — see
+        // docs/adr/0003-per-item-states-field-design.md for why, and
+        // for why '#decode_value' => TRUE below is load-bearing (not
+        // decorative): removing it lets a saved condition silently stop
+        // matching, with no error anywhere.
         'states' => [
           '#type' => 'webform_codemirror',
           '#mode' => 'yaml',
@@ -204,7 +260,31 @@ class WebformRanking extends WebformElementBase {
       // Uniqueness of 'value' across rows is enforced in
       // validateConfigurationForm() below — #webform_multiple doesn't
       // do this on its own.
-      '#attached' => ['library' => ['webform_ranking/element.itemsAdmin']],
+      //
+      // drupalSettings feeds items_admin.js's condition-rows builder
+      // (rows aren't server-rendered per-row here). Trigger/state
+      // options are cast to plain strings since TranslatableMarkup
+      // doesn't survive JSON encoding. 'webformModulePath' is computed
+      // server-side (not guessed client-side) since the install path
+      // isn't guaranteed to match the common case. The *Keys constants
+      // are sent so items_admin.js reads its trigger/state
+      // classification from this one PHP source instead of a second
+      // hand-typed copy (GitHub issue #83).
+      '#attached' => [
+        'library' => ['webform_ranking/element.itemsAdmin'],
+        'drupalSettings' => [
+          'webformRankingItemsAdmin' => [
+            'conditionsByItemValue' => $conditions_by_value,
+            'stateOptions' => $state_options,
+            'selectorOptions' => $webform->getElementsSelectorOptions(),
+            'triggerOptions' => array_map('strval', WebformElementStates::getTriggerOptions()),
+            'webformModulePath' => \Drupal::service('extension.list.module')->getPath('webform'),
+            'nestedTriggerKeys' => self::NESTED_TRIGGER_KEYS,
+            'noValueTriggerKeys' => self::NO_VALUE_TRIGGER_KEYS,
+            'visibilityStateKeys' => self::VISIBILITY_STATE_KEYS,
+          ],
+        ],
+      ],
     ];
 
     $form['ranking']['ranking_style'] = [
@@ -238,20 +318,12 @@ class WebformRanking extends WebformElementBase {
       '#default_value' => TRUE,
     ];
 
-    // GitHub issue #63: with #allow_na on, #required_all alone lets a
-    // respondent mark every item N/A and satisfy validation without
-    // ranking anything — every item is "accounted for" (ranked or N/A),
-    // which is all #required_all checks. This is a separate, independent
-    // toggle for "you don't have to rank everything, but you must pick
-    // something as your top choice" — deliberately not gated behind
-    // #allow_na or #required_all via #states: it's only a true no-op
-    // when *both* #allow_na is off and #required_all is on (every visible
-    // item must be ranked, so something is always 1st already); with
-    // #required_all off (regardless of #allow_na), leaving the whole
-    // ranking blank is otherwise a valid, unranked submission, and this
-    // option still meaningfully forbids that specific case. Gating
-    // visibility on #allow_na alone (matching 'na_label' below) would
-    // incorrectly hide a combination where this checkbox still matters.
+    // GitHub issue #63: #required_all alone lets a respondent mark
+    // every item N/A and satisfy validation without ranking anything —
+    // this is a separate, independent "must pick a top choice" toggle.
+    // Deliberately not #states-gated on #allow_na/#required_all: it's
+    // only ever a true no-op when both are off/on respectively, and
+    // still meaningfully applies in every other combination.
     $form['ranking']['require_first_place'] = [
       '#type' => 'checkbox',
       '#title' => $this->t('Require at least one item to be ranked 1st'),
@@ -268,16 +340,10 @@ class WebformRanking extends WebformElementBase {
     ];
 
     // GitHub issue #74: always visible, not #states-gated on
-    // #ranking_style — the check this overrides (sequential ranks
-    // starting from 1st, no gaps) is matrix-only (dragdrop's ordering
-    // is inherently gapless by construction, see
-    // WebformRankingConverter::matrixRanksAreSequential()'s docblock),
-    // so this field is a no-op for a drag/drop-style element. Left
-    // ungated anyway, by deliberate choice: the extra complexity of a
-    // ranking_style-conditional #states rule isn't worth it for a
-    // field that simply does nothing when irrelevant, same reasoning
-    // as #required_all above applying to both styles without any
-    // style-specific gating of its own.
+    // #ranking_style, even though it's a no-op for drag/drop (matrix-only
+    // check — see matrixRanksAreSequential()'s docblock) — same "not
+    // worth a style-conditional #states rule for a field that's simply
+    // inert when irrelevant" reasoning as #required_all above.
     $form['ranking']['sequential_ranks_error'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Sequential ranks error message'),
@@ -299,6 +365,182 @@ class WebformRanking extends WebformElementBase {
     ];
 
     return $form;
+  }
+
+  /**
+   * Decomposes a #states array into the condition picker's row shape.
+   *
+   * GitHub issue #65: feeds the per-item condition-rows builder's
+   * initial display for an already-saved condition. Only a single state
+   * (one of self::PICKER_STATE_KEYS) with one or more conditions
+   * decomposes; anything else (multiple states, an unrecognized
+   * trigger, mixed AND/OR/XOR operators, malformed structure) returns
+   * NULL, and the picker falls back to showing the raw YAML view — same
+   * role \Drupal\webform\Element\WebformElementStates
+   * ::isDefaultValueCustomizedFormApiStates() plays for the real
+   * widget.
+   *
+   * Mirrors (in reverse) the shape conventions
+   * \Drupal\webform\Element\WebformElementStates
+   * ::convertElementValueToFormApiStates() produces:
+   * - A single condition, or 2+ ANDed conditions: an associative array,
+   *   `[$selector => [$trigger => $value]]` per condition.
+   * - 2+ ORed/XORed conditions: a numerically-indexed array alternating
+   *   a single-key `[$selector => [$trigger => $value]]` wrapper with
+   *   the literal string `'or'`/`'xor'` between each pair.
+   *
+   * @param array $states
+   *   A decoded #states array, e.g. ['visible' => [...]].
+   *
+   * @return array|null
+   *   ['mode' => one of self::PICKER_STATE_KEYS, 'operator' =>
+   *   'and'|'or'|'xor', 'conditions' => [['selector' => ..., 'trigger'
+   *   => ..., 'value' => ...], ...]], or NULL if not decomposable.
+   */
+  protected function decomposeItemStatesToConditions(array $states): ?array {
+    if (count($states) !== 1) {
+      return NULL;
+    }
+    $mode = key($states);
+    if (!in_array($mode, self::PICKER_STATE_KEYS, TRUE)) {
+      return NULL;
+    }
+    $conditions_raw = reset($states);
+    if (!is_array($conditions_raw) || empty($conditions_raw)) {
+      return NULL;
+    }
+
+    $is_indexed = array_is_list($conditions_raw);
+
+    $conditions = [];
+    $operator = 'and';
+
+    if (!$is_indexed) {
+      // AND shape (or a single condition): selector => condition.
+      foreach ($conditions_raw as $selector => $condition) {
+        if (!is_string($selector) || !is_array($condition)) {
+          return NULL;
+        }
+        $decoded = $this->decomposeCondition($selector, $condition);
+        if ($decoded === NULL) {
+          return NULL;
+        }
+        $conditions[] = $decoded;
+      }
+    }
+    else {
+      // OR/XOR shape: alternating [selector => condition] wrapper and
+      // the literal operator string, always starting and ending on a
+      // wrapper.
+      $expect_condition = TRUE;
+      foreach ($conditions_raw as $entry) {
+        if ($expect_condition) {
+          if (!is_array($entry) || count($entry) !== 1) {
+            return NULL;
+          }
+          $selector = key($entry);
+          $condition = reset($entry);
+          if (!is_string($selector) || !is_array($condition)) {
+            return NULL;
+          }
+          $decoded = $this->decomposeCondition($selector, $condition);
+          if ($decoded === NULL) {
+            return NULL;
+          }
+          $conditions[] = $decoded;
+        }
+        else {
+          // Deliberately only 'or'/'xor' here, not 'and': an indexed
+          // list with a literal 'and' token isn't valid/meaningful
+          // #states syntax at all — traced Drupal core's actual
+          // client-side evaluator (web/core/misc/states.js's
+          // verifyConstraints()) and confirmed an indexed array only
+          // ever means OR (default) or XOR (if the literal 'xor' token
+          // is present); any other string entry, including a stray
+          // 'and', is silently treated as an inert no-op condition, not
+          // an AND operator. Accepting 'and' here would let a condition
+          // decompose successfully and then silently misbehave at
+          // runtime — see docs/CONTINUATION.md entry 27 ("Reclassified,
+          // not fixed") for the full investigation this line encodes.
+          if (!is_string($entry) || !in_array($entry, ['or', 'xor'], TRUE)) {
+            return NULL;
+          }
+          // Mixed operators (some 'or', some 'xor') within one state
+          // aren't representable by the picker's single operator
+          // dropdown.
+          if (count($conditions) > 1 && $entry !== $operator) {
+            return NULL;
+          }
+          $operator = $entry;
+        }
+        $expect_condition = !$expect_condition;
+      }
+      // A valid list always ends on a condition, meaning the NEXT
+      // expected entry (had the list continued) would be an operator —
+      // i.e. $expect_condition is FALSE here. A trailing operator with
+      // nothing after it ($expect_condition still TRUE) isn't a valid
+      // OR/XOR shape, nor is fewer than 2 conditions.
+      if ($expect_condition || count($conditions) < 2) {
+        return NULL;
+      }
+    }
+
+    return [
+      'mode' => $mode,
+      'operator' => $operator,
+      'conditions' => $conditions,
+    ];
+  }
+
+  /**
+   * Decomposes one selector => condition pair for the picker's rows.
+   *
+   * @param string $selector
+   *   A `:input[name="..."]`-style selector.
+   * @param array $condition
+   *   The single-key `[$trigger => $value]` condition array.
+   *
+   * @return array|null
+   *   ['selector' => ..., 'trigger' => ..., 'value' => ...], or NULL if
+   *   $condition isn't a shape the picker can represent.
+   */
+  protected function decomposeCondition(string $selector, array $condition): ?array {
+    if (count($condition) !== 1) {
+      return NULL;
+    }
+    $trigger = key($condition);
+    $value = reset($condition);
+
+    // pattern/less/less_equal/greater/greater_equal/between/!between are
+    // nested one level deeper by Form API convention: $trigger is
+    // always literally 'value', with the real comparison type as the
+    // nested array's own key.
+    if ($trigger === 'value' && is_array($value) && count($value) === 1) {
+      $nested_trigger = key($value);
+      $nested_value = reset($value);
+      if (in_array($nested_trigger, self::NESTED_TRIGGER_KEYS, TRUE)
+        && (is_string($nested_value) || is_numeric($nested_value))) {
+        return [
+          'selector' => $selector,
+          'trigger' => $nested_trigger,
+          'value' => (string) $nested_value,
+        ];
+      }
+      return NULL;
+    }
+
+    if (in_array($trigger, ['value', '!value'], TRUE)) {
+      if (!is_string($value) && !is_numeric($value)) {
+        return NULL;
+      }
+      return ['selector' => $selector, 'trigger' => $trigger, 'value' => (string) $value];
+    }
+
+    if (in_array($trigger, self::NO_VALUE_TRIGGER_KEYS, TRUE) && $value === TRUE) {
+      return ['selector' => $selector, 'trigger' => $trigger, 'value' => ''];
+    }
+
+    return NULL;
   }
 
   /**
@@ -359,38 +601,24 @@ class WebformRanking extends WebformElementBase {
     $element['#rank_labels'] = $element['#rank_labels'] ?? [];
     $element['#required_all'] = $element['#required_all'] ?? TRUE;
 
-    // Seeded, not shuffle()'s own unseeded randomness: prepare() runs on
-    // every build of this element, including validation-error rebuilds,
-    // AJAX rebuilds, and wizard-step navigation within the *same* form
-    // session — an unseeded shuffle() would reorder the rows on every
-    // one of those, jumping the user's already-made selections to new
-    // positions and undermining the bias-reduction rationale for this
-    // feature in the first place. Seeding from the submission's own
-    // UUID (stable for the lifetime of one in-progress submission,
-    // Drupal assigns it at entity creation before the form is even
-    // built) keeps the order stable within a session while still
-    // varying between different respondents. mt_srand() with no
-    // argument at the end reseeds from system entropy afterward, so
-    // this doesn't leave PHP's global RNG state deterministic for any
-    // unrelated code running later in the same request.
+    // Seeded from the submission's own UUID, not shuffle()'s unseeded
+    // randomness: prepare() re-runs on every AJAX rebuild/wizard step
+    // within the *same* form session, and an unseeded shuffle() would
+    // reorder rows on every one of those, jumping the respondent's
+    // already-made selections around. The trailing mt_srand() reseeds
+    // from system entropy so this doesn't leave PHP's global RNG state
+    // deterministic for unrelated code later in the same request.
     if (!empty($element['#randomize_item_order'])) {
       mt_srand(crc32($webform_submission ? $webform_submission->uuid() : ''));
       shuffle($element['#items']);
       mt_srand();
     }
 
-    // Self-healing normalization for config saved before 'states'
-    // #decode_value => TRUE existed on the admin form (see form()'s
-    // docblock for that field): older saved items can still have
-    // 'states' as a raw YAML *string* rather than a decoded array.
-    // Both buildMatrix()/buildDragDrop() (which assign this directly to
-    // a sub-element's '#states') and WebformRankingVisibilityResolver
-    // (which passes it to WebformSubmissionConditionsValidator
-    // ::validateConditions(array $conditions, ...), a strictly
-    // array-typed parameter) require a real array — a leftover string
-    // silently produces an unparseable #states value client-side, and
-    // a TypeError server-side. Normalizing here, once, covers both:
-    // every consumer reads '#items' from this same prepared $element.
+    // Self-healing for config saved before 'states' #decode_value =>
+    // TRUE existed (see form()'s docblock, ADR-0003): older items can
+    // still have 'states' as a raw YAML string. buildMatrix()/
+    // buildDragDrop() and WebformRankingVisibilityResolver both require
+    // a real array; normalizing here, once, covers every consumer.
     foreach ($element['#items'] as &$item) {
       if (isset($item['states']) && is_string($item['states'])) {
         $item['states'] = WebformYaml::decode($item['states']);
@@ -398,35 +626,15 @@ class WebformRanking extends WebformElementBase {
     }
     unset($item);
 
-    // Webform's submission storage only persists composite elements as
-    // a flat map of scalar-valued properties (see
-    // WebformSubmissionStorage::saveData()) — it has no way to store
-    // the canonical {values, na} shape (both keys are arrays)
-    // without corrupting it. WebformRanking::validateWebformRanking()
-    // therefore hands off the flat item-value => rank shape (same as
-    // WebformRankingConverter::canonicalToMatrix()) as the element's
-    // final #value, which is what ends up in a saved submission and
-    // is what #default_value arrives as here when editing an existing
-    // submission. Convert it back to canonical before buildMatrix(),
-    // buildDragDrop() and valueCallback()'s no-input fallback see it —
-    // all three expect canonical shape. Guarded with is_array() since
-    // a never-submitted element's #default_value may still be the
-    // base class's default empty string, and matrixToCanonical() is
-    // otherwise tolerant of missing/malformed per-item entries (see
-    // its own docblock) so a partially-populated stored value here —
-    // e.g. an item added to configuration after this submission was
-    // saved — degrades to "not yet accounted for" rather than erroring.
-    //
-    // Defence in depth against a non-array #default_value reaching
-    // buildMatrix()/buildDragDrop()/valueCallback() (all three require
-    // canonical {values, na} array shape): defineDefaultProperties()
-    // above removes the admin-facing "Default value" textfield, but
-    // existing config saved before that fix, or a value set
-    // programmatically/by another module's alter hook, could still be a
-    // scalar here. Normalizing unconditionally (not gated on !empty())
-    // also fixes a bare [] default value being left un-normalized to
-    // canonical shape, which is inconsistent with what every other
-    // consumer expects.
+    // Submission storage only persists a flat scalar map (see
+    // WebformRankingConverter's storage-boundary docs) — #default_value
+    // arrives here in that same flat shape when editing an existing
+    // submission, but buildMatrix()/buildDragDrop()/valueCallback() all
+    // expect canonical {values, na} shape, hence the conversion back.
+    // is_array() guards a never-submitted element's default (still the
+    // base class's empty-string default) and any pre-defineDefaultProperties()
+    // config/alter-hook-set scalar; unconditional (not !empty()-gated)
+    // so a bare [] also gets normalized to canonical shape.
     $element['#default_value'] = is_array($element['#default_value'] ?? NULL)
       ? WebformRankingConverter::matrixToCanonical($element['#default_value'])
       : ['values' => [], 'na' => []];
@@ -435,52 +643,18 @@ class WebformRanking extends WebformElementBase {
   /**
    * {@inheritdoc}
    *
-   * Exposes one selector per item ("Ranking [Ranking] > Item A (rank)")
-   * instead of the whole element as a single scalar comparison target.
-   * This is the actual fix for the Array-to-string crash seen on
-   * Likert: an admin building a condition is only ever offered
-   * sub-selectors that resolve to a real DOM input with a scalar
-   * value, never the composite array as a whole.
-   *
-   * This overrides getElementSelectorInputsOptions() (protected).
-   * That, not getElementSelectorOptions(), is the extension point
-   * WebformElementBase actually builds around: its own
-   * getElementSelectorOptions() calls this method, and if it returns a
-   * non-empty array, wraps each entry as
-   * `:input[name="{$name}[{$input_name}]"]` and nests the whole set
-   * under the element's title. Left un-overridden (as this class
-   * previously did, instead overriding getElementSelectorOptions()
-   * itself and appending to parent::getElementSelectorOptions()'s
-   * result), the base class falls into its other branch and returns a
-   * single bogus selector matching no real DOM input
-   * (`:input[name="{$name}"]`) — that bogus entry then sat alongside
-   * this class's real per-item selectors as unrelated flat top-level
-   * entries, ungrouped, unlike every other composite element in
-   * Webform.
-   *
-   * Both display styles are covered, but via different real DOM
-   * inputs:
-   * - Matrix: each row's radios element is already a real,
-   *   individually-named DOM input (`{key}[matrix][{item}]`), so no
-   *   extra data is needed — states.js and the server-side conditions
-   *   validator evaluate it exactly like any other radios field.
-   * - Drag/drop: an item's rank has no equivalent real input of its
-   *   own — it only exists as its position within a comma-joined
-   *   hidden input (see WebformRankingConverter), and states.js has no
-   *   way to express "parse this CSV value and check whether item X
-   *   sits at index 1." Selectors here instead point at a second,
-   *   purely-derived per-item hidden input (`{key}[dragdrop][rank][{item}]`)
-   *   that buildDragDrop()/element.dragdrop's sync() keep in lockstep
-   *   with the real 'order'/'na' inputs specifically so #states has
-   *   something real to bind to. See buildDragDrop()'s docblock for
-   *   the staleness risk this duplication carries and why it's
-   *   confined to one write path.
-   *
-   * Selector bug fixed previously (matrix): this used to build
-   * "{key}[matrix][{item}][rank]", a trailing `[rank]` suffix that
-   * never matched any real DOM input — each matrix row's radios share
-   * the row's own `#parents` directly (`{key}[matrix][{item}]`, no
-   * `[rank]` segment; see buildMatrix()).
+   * Overrides getElementSelectorInputsOptions() (protected), not
+   * getElementSelectorOptions() — the former is the real extension point
+   * WebformElementBase builds around; overriding the latter falls into
+   * a different base-class branch that returns one bogus selector
+   * matching no real DOM input. Exposes one selector per item instead
+   * of the whole composite value, resolving via each display style's
+   * own real DOM input (drag/drop's rank has no input of its own, so a
+   * synced per-item echo input exists just to give #states something
+   * to bind to — see buildDragDrop()). See
+   * docs/adr/0004-composite-element-states-selector-bridging.md for the
+   * full history (the Array-to-string crash this fixes, and the
+   * trailing-[rank]-suffix bug fixed previously).
    */
   protected function getElementSelectorInputsOptions(array $element) {
     $style = $element['#ranking_style'] ?? 'matrix';
@@ -531,32 +705,13 @@ class WebformRanking extends WebformElementBase {
    *
    * Without this override, the server-side conditions validator falls
    * back to WebformElementBase's generic composite-key extraction,
-   * which assumes a composite's sub-properties are known, fixed keys
-   * (e.g. WebformName's 'first'/'last') and reduces stored data via
-   * `$value[$composite_key]`. Our per-item selectors (see
-   * getElementSelectorInputsOptions()) use the item's *value* as the
-   * third selector segment (e.g. "preference[matrix][pizza]"), which isn't
-   * a real key in that sense — it doesn't match anything in the flat
-   * item-value => rank storage map, and the generic extraction can't
-   * reduce it. Confirmed via watchdog: the whole flat map reached
-   * checkConditionTrigger() as $element_value, which then hit
-   * `(string) $element_value`, an array, producing PHP's "Array to
-   * string conversion" warning — the trigger condition still
-   * evaluated (comparing the string "Array" against the trigger's
-   * rank value), just never correctly.
-   *
-   * Handles both matrix per-item selectors
-   * ("{key}[matrix][{item}]") and drag/drop per-item rank-echo
-   * selectors ("{key}[dragdrop][rank][{item}]", see
-   * getElementSelectorInputsOptions()'s docblock and
-   * WebformRanking::buildDragDrop() for what that echo input is and
-   * why it exists). Either way the item value is the resolved via
-   * getItemRankValue() against the submission's stored data — storage
-   * is unconditionally the flat matrix-shaped map regardless of
-   * display style (validateWebformRanking() always finishes with
-   * canonicalToMatrix()), so no style branching is needed once the
-   * item value is extracted from the selector. Anything else defers
-   * to the parent implementation.
+   * which assumes fixed sub-property keys and can't resolve this
+   * element's per-item-value selector scheme — the same
+   * "Array to string conversion" failure this fixes, confirmed live via
+   * watchdog. Parses the selector's matrix/dragdrop segment and item
+   * value directly, then resolves via getItemRankValue() against the
+   * flat matrix-shaped storage (the same regardless of display style).
+   * See docs/adr/0004-composite-element-states-selector-bridging.md.
    */
   public function getElementSelectorInputValue($selector, $trigger, array $element, WebformSubmissionInterface $webform_submission) {
     $input_name = WebformSubmissionConditionsValidator::getSelectorInputName($selector);
@@ -581,19 +736,13 @@ class WebformRanking extends WebformElementBase {
   /**
    * {@inheritdoc}
    *
-   * Without this override, WebformSubmissionGenerate's generic
-   * name/type-based fallback guesses at a test value for this element
-   * (there's no 'webform_ranking' entry in its lookup tables) and can
-   * hand back an arbitrary scalar string — which then reaches
-   * WebformRankingConverter::canonicalToMatrix() (via #default_value on
-   * the Test-tab-generated form) and fails its array type hint, a real
-   * error caught live via the "Test" tab after marking this element
-   * composite. Generating a real full random ranking here, in the same
-   * flat item-value => rank shape #default_value is expected to arrive
-   * in (see prepare()'s note), avoids that entirely. Same
-   * wrap-in-an-array return shape as WebformLikert::getTestValues() —
-   * WebformSubmissionGenerate::getTestValue() treats the return as a
-   * list of candidate composite values to pick one from.
+   * Without this override, WebformSubmissionGenerate's generic fallback
+   * hands back an arbitrary scalar string (no 'webform_ranking' entry in
+   * its lookup tables), which fails canonicalToMatrix()'s array type
+   * hint on the Test tab — a real error caught live. Generates a real
+   * full random ranking in the same flat shape #default_value expects
+   * instead; return shape matches WebformLikert::getTestValues() (a
+   * list of candidate values getTestValue() picks one from).
    */
   public function getTestValues(array $element, WebformInterface $webform, array $options = []) {
     $items = $element['#items'] ?? [];
@@ -616,20 +765,13 @@ class WebformRanking extends WebformElementBase {
   /**
    * {@inheritdoc}
    *
-   * Without this override, the base class's default formatHtmlItem()/
-   * formatTextItem() treat getValue()'s return as a scalar —
-   * formatTextItem() concatenates #field_prefix/#field_suffix onto it,
-   * then formatHtmlItem() wraps the result in `#plain_text` — but our
-   * stored value is the flat item-value => rank map (see
-   * WebformRankingConverter's storage-boundary docs), an array. Handing
-   * an array to `#plain_text` hit a real TypeError in
-   * Html::escape()/Renderer::ensureMarkupIsSafe() on the submission
-   * "View"/results page, caught live after marking this element
-   * composite. Renders items in *rank* order (1st, 2nd, ... then N/A,
-   * then never-accounted-for) rather than configured order — each line
-   * is still self-labeled ("Pizza: 1st"), so nothing is lost by
-   * reordering, and rank order is what actually answers "how was this
-   * ranked" at a glance. See WebformRankingConverter::orderByRank().
+   * Without this override, the base class's default formatting treats
+   * getValue()'s return as a scalar — but our stored value is the flat
+   * item-value => rank map, an array, which hit a real TypeError
+   * wrapping it in `#plain_text` on the submission "View" page, caught
+   * live. Renders items in *rank* order rather than configured order
+   * (see WebformRankingConverter::orderByRank()) — each line is still
+   * self-labeled ("Pizza: 1st"), so nothing is lost by reordering.
    */
   protected function formatHtmlItem(array $element, WebformSubmissionInterface $webform_submission, array $options = []) {
     $value = $this->getValue($element, $webform_submission, $options);
