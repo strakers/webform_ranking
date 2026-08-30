@@ -507,6 +507,29 @@ class WebformRankingValidationKernelTest extends KernelTestBase {
   }
 
   /**
+   * Tests the duplicate-rank check's message (GitHub #104).
+   *
+   * '#_matrix_raw_input' forges two items both claiming rank '2' — the
+   * same raw shape matrixToCanonical() would silently collide on,
+   * dropping item_c from 'values' (canonical here already reflects
+   * that collision, matching what the real conversion pipeline would
+   * produce, so #required_all — left at its TRUE default — has
+   * something to complain about too if this check didn't win first).
+   */
+  public function testDuplicateRankRejectsWithCorrectMessage(): void {
+    $form_state = $this->validate(
+      [
+        '#_matrix_raw_input' => ['item_a' => '1', 'item_b' => '2', 'item_c' => '2'],
+      ],
+      ['values' => ['item_a', 'item_b'], 'na' => []]
+    );
+
+    $errors = $form_state->getErrors();
+    $this->assertCount(1, $errors);
+    $this->assertStringContainsString('share the same rank', (string) reset($errors));
+  }
+
+  /**
    * Tests that a custom #sequential_ranks_error overrides the default.
    */
   public function testSequentialRanksUsesCustomErrorMessage(): void {

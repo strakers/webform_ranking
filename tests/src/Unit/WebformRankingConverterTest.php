@@ -389,15 +389,51 @@ class WebformRankingConverterTest extends UnitTestCase {
   /**
    * Tests that duplicate ranks are ignored, not rejected, here.
    *
-   * Duplicate ranks collapse to one distinct value here — that's a
-   * separate rule (validateWebformRanking()'s own duplicate check),
-   * not this method's concern. Two items both at rank '1' is trivially
-   * sequential on its own.
+   * Duplicate ranks collapse to one distinct value here — that's
+   * matrixRanksHaveNoDuplicates()'s job, not this method's concern.
+   * Two items both at rank '1' is trivially sequential on its own.
    */
   public function testMatrixRanksAreSequentialIgnoresDuplicateRanks(): void {
     $raw = ['item_a' => '1', 'item_b' => '1'];
 
     $this->assertTrue(WebformRankingConverter::matrixRanksAreSequential($raw));
+  }
+
+  /**
+   * Tests that no ranks at all has no duplicates, vacuously.
+   */
+  public function testMatrixRanksHaveNoDuplicatesWithNoRanksAtAllIsTrue(): void {
+    $this->assertTrue(WebformRankingConverter::matrixRanksHaveNoDuplicates([]));
+  }
+
+  /**
+   * Tests that distinct ranks (no repeats) pass.
+   */
+  public function testMatrixRanksHaveNoDuplicatesWithDistinctRanksIsTrue(): void {
+    $raw = ['item_a' => '1', 'item_b' => '2', 'item_c' => '3'];
+
+    $this->assertTrue(WebformRankingConverter::matrixRanksHaveNoDuplicates($raw));
+  }
+
+  /**
+   * The exact reported bug (#104): two items both claim rank '2'.
+   */
+  public function testMatrixRanksHaveNoDuplicatesRejectsSharedRank(): void {
+    $raw = ['item_a' => '1', 'item_b' => '2', 'item_c' => '2'];
+
+    $this->assertFalse(WebformRankingConverter::matrixRanksHaveNoDuplicates($raw));
+  }
+
+  /**
+   * Tests that N/A entries don't interfere with duplicate detection.
+   *
+   * N/A isn't tracked in the same rank-keyed structure as numeric
+   * ranks, so multiple N/A entries are never a "duplicate" here.
+   */
+  public function testMatrixRanksHaveNoDuplicatesIgnoresNaEntries(): void {
+    $raw = ['item_a' => '1', 'item_b' => 'na', 'item_c' => 'na'];
+
+    $this->assertTrue(WebformRankingConverter::matrixRanksHaveNoDuplicates($raw));
   }
 
 }
