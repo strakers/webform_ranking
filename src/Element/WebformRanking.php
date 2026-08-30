@@ -965,7 +965,22 @@ class WebformRanking extends FormElementBase {
         : $default_message);
     }
 
-    // Ranks must be a set: no item ranked more than once.
+    // GitHub issue #104: two items sharing a raw matrix rank silently
+    // collide in matrixToCanonical() (one is dropped, not flagged),
+    // which the check below can no longer see by the time it runs — so
+    // this reads the raw input directly, before that collision. Must
+    // run before the #required_all check further down: FormState's
+    // first-error-wins semantics mean this is what actually surfaces
+    // instead of a misleading "item X was never ranked." See
+    // docs/adr/0019-matrix-duplicate-rank-detection.md.
+    if (!WebformRankingConverter::matrixRanksHaveNoDuplicates($raw_matrix_input)) {
+      $form_state->setError($element, $translation->translate('Two items in @title share the same rank — each rank can only be assigned once.', ['@title' => $title]));
+    }
+
+    // Ranks must be a set: no item ranked more than once. Unreachable
+    // via matrix (a genuine duplicate never survives to $values — see
+    // above); real defense against dragdropToCanonical()'s own raw
+    // shape, which has no equivalent dedup.
     if (count($values) !== count(array_unique($values))) {
       $form_state->setError($element, $translation->translate('Each item in @title can only be ranked once.', ['@title' => $title]));
     }

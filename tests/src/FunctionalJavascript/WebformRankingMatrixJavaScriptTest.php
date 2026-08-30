@@ -371,13 +371,47 @@ class WebformRankingMatrixJavaScriptTest extends WebDriverTestBase {
     }));
     $this->assertFalse($this->isTaken('b', '1'));
 
-    // Revealing item C again re-imposes the mark, since its selection
-    // was never cleared, only excluded while hidden.
+    // GitHub #104: item C's own selection is cleared on hide (not just
+    // excluded while hidden), so revealing it again does not re-impose
+    // the mark — a stale selection could otherwise silently collide
+    // with whatever a different item takes in the meantime. See
+    // docs/adr/0019-matrix-duplicate-rank-detection.md.
     $this->getSession()->getPage()->fillField('trigger', '');
     $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () {
-      return $this->isTaken('a', '1');
+      return $this->getSession()->getPage()->find('css', 'input[name="ranking[matrix][c]"][value="1"]')->isVisible();
     }));
-    $this->assertTrue($this->isTaken('b', '1'));
+    $this->assertFalse($this->isChecked('c', '1'));
+    $this->assertFalse($this->isTaken('a', '1'));
+    $this->assertFalse($this->isTaken('b', '1'));
+  }
+
+  /**
+   * Tests that a hidden item's rank can be reused without ever colliding.
+   *
+   * The exact interactive scenario from GitHub #104: item C ranked,
+   * hidden, its rank taken by another item, then C revealed again — the
+   * revealed item must not show the same rank as the item that took it.
+   */
+  public function testHiddenItemRankDoesNotCollideOnReappearance(): void {
+    $this->drupalGet('/webform/test_ranking_matrix');
+
+    $this->selectRank('c', '1');
+    $this->getSession()->getPage()->fillField('trigger', 'anything');
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () {
+      return !$this->isTaken('a', '1');
+    }));
+
+    // A different, still-visible item takes the now-free rank.
+    $this->selectRank('a', '1');
+    $this->assertTrue($this->isChecked('a', '1'));
+
+    // Revealing item C again must not show it as also ranked 1st.
+    $this->getSession()->getPage()->fillField('trigger', '');
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () {
+      return $this->getSession()->getPage()->find('css', 'input[name="ranking[matrix][c]"][value="1"]')->isVisible();
+    }));
+    $this->assertFalse($this->isChecked('c', '1'));
+    $this->assertTrue($this->isChecked('a', '1'));
   }
 
   /**
