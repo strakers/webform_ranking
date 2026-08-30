@@ -33,16 +33,20 @@ class WebformRanking extends WebformElementBase {
    *
    * A subset of WebformElementStates::getStateOptions()'s full list —
    * excludes states aimed at form *inputs* (Read-only/Expanded/
-   * Collapsed/Checked/Unchecked), which don't read sensibly for an
-   * item-inclusion condition. Only visible/invisible actually affect
-   * inclusion (see self::VISIBILITY_STATE_KEYS); the rest are accepted
-   * like any other #states value, matching the real widget's own
-   * flexibility, but are a no-op here — the picker surfaces a note when
-   * one is selected rather than hiding them outright.
+   * Collapsed/Checked/Unchecked/Required/Optional), which don't read
+   * sensibly for an item-inclusion condition; item required-ness is
+   * derived from #required_all, not an independent per-item condition,
+   * and Required/Optional specifically crashed submission (GitHub
+   * #102). Only visible/invisible actually affect inclusion (see
+   * self::VISIBILITY_STATE_KEYS); the rest are accepted like any other
+   * #states value, matching the real widget's own flexibility, but are
+   * a no-op here — the picker surfaces a note when one is selected
+   * rather than hiding them outright. See
+   * docs/adr/0018-remove-required-optional-states-mirror.md.
    */
   const PICKER_STATE_KEYS = [
     'visible', 'invisible', 'visible-slide', 'invisible-slide',
-    'enabled', 'disabled', 'required', 'optional',
+    'enabled', 'disabled',
   ];
 
   /**
@@ -580,6 +584,27 @@ class WebformRanking extends WebformElementBase {
 
     if (count($items) < 2) {
       $form_state->setErrorByName('items', $this->t('Provide at least two items to rank.'));
+    }
+
+    // GitHub issue #102: 'required'/'optional' as a condition's #states
+    // key crashes at submission time regardless of how it got there —
+    // the picker no longer offers them (see PICKER_STATE_KEYS), so this
+    // catches the raw YAML "Edit source" path. See
+    // docs/adr/0018-remove-required-optional-states-mirror.md.
+    foreach ($items as $item) {
+      $states = $item['states'] ?? [];
+      if (is_string($states)) {
+        try {
+          $states = WebformYaml::decode($states) ?? [];
+        }
+        catch (InvalidDataTypeException) {
+          continue;
+        }
+      }
+      if (is_array($states) && (array_key_exists('required', $states) || array_key_exists('optional', $states))) {
+        $form_state->setErrorByName('items', $this->t('Item "@label": the "Include this item when" condition may not use the Required or Optional state. Use Visible/Hidden (or their Slide variants) instead.', ['@label' => $item['label'] ?? $item['value'] ?? '']));
+        break;
+      }
     }
   }
 

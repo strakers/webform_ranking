@@ -20,6 +20,8 @@ The matrix display style needed each ranking item as its own table row, with one
 
 **Native `required`, mirrored through `#states` when the row is conditional:** the plain HTML `required` attribute gets the browser's own "at least one radio in this group must be checked" constraint validation for free, without engaging `FormValidator`'s per-element required check (which operates on a single radio, not the whole row, and would conflict with this element's own `#required_all` validation). For a row with a live, same-page condition, the static attribute is withheld entirely and instead mirrored into the row's own `#states` array as `required`/`optional` (`optional` is core's own alias for `!required`, exactly parallel to `invisible` being `!visible` — `Drupal.states.State.aliases`) — so `states.js`'s existing `state:required` handler adds/removes the attribute itself, in lockstep with visibility, both on page load and on every live change. A row with no live per-page condition (including a cross-page one already resolved and excluded via `#access`) keeps the plain static attribute, since there's nothing there to ever desync from.
 
+> **Superseded by ADR-0018 (2026-08-30):** the mirror above crashed submission (GitHub #102) — Webform core's own conditions validator resolves a Webform element plugin for any `#states`-carrying element with a `required`/`optional` key, which a bare `radio`/`container` doesn't have. The static attribute is now permanently withheld on a conditional row instead of being mirrored/re-added. The rest of this ADR's decisions (container wrapper, per-column radio cells) are unaffected.
+
 ## Alternatives Considered
 
 - **`#type => 'radios'` per row:** rejected outright — every option renders stacked in one cell, not spread across rank columns.
@@ -31,15 +33,16 @@ The matrix display style needed each ranking item as its own table row, with one
 
 ### Positive
 
-- Matrix rows render correctly under the table's column structure with no bundle-stacking bug, remain accessible (`role="radiogroup"`/`aria-labelledby`/`aria-describedby`), and stay reactive to `#states` for both visibility and the required/optional mirror.
-- The required/optional mirror reuses `states.js`'s own built-in aliasing rather than a second, independently-timed JS binding — one source of truth for when the attribute changes.
+- Matrix rows render correctly under the table's column structure with no bundle-stacking bug, remain accessible (`role="radiogroup"`/`aria-labelledby`/`aria-describedby`), and stay reactive to `#states` for visibility.
+- ~~The required/optional mirror reuses `states.js`'s own built-in aliasing rather than a second, independently-timed JS binding — one source of truth for when the attribute changes.~~ No longer applicable — see the ADR-0018 supersession note above.
 
 ### Negative / Caveats
 
 - The `container`-vs-`html_tag` distinction (and *why* it matters) is non-obvious from the code alone — a future label-wrapper change that swaps back to `html_tag` would silently break conditional-row hiding for the label specifically, with no error, only a visibly orphaned label above a hidden row.
-- The required/optional mirror is gated on `$required_all` specifically — with it off, no static `required` exists to begin with, so nothing is mirrored; a future edit that changes when `required_all` applies must keep this gating in sync (verified today by `WebformRankingCrossPageItemStatesTest`'s same-page-item-condition case).
+- ~~The required/optional mirror is gated on `$required_all` specifically...~~ — the static-required suppression (post-ADR-0018) is still gated on `$required_all`, same as before; only the live re-add via `#states` is gone.
 
 ## Related Code & Docs
 
 - **Files:** `src/Element/WebformRanking.php` (`buildMatrix()`)
-- **GitHub Issues:** #46 (accessible matrix markup), #68 (required-vs-conditional-row fix)
+- **Superseded by:** ADR-0018 (native-required/#states interplay decision only)
+- **GitHub Issues:** #46 (accessible matrix markup), #68 (required-vs-conditional-row fix, superseded), #102 (crash fix, see ADR-0018)

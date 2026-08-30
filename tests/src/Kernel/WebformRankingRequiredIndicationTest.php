@@ -157,17 +157,14 @@ class WebformRankingRequiredIndicationTest extends KernelTestBase {
   }
 
   /**
-   * GitHub issue #68: a same-page conditional row's radios don't get a
-   * static native 'required' attribute — a row states.js can hide via
-   * display:none would otherwise still carry one, which the browser can
-   * never let the user satisfy, silently blocking submission client-side
-   * with no Drupal error. Instead, the item's own visible/invisible
-   * condition is mirrored onto 'required'/'optional' in the same
-   * '#states' array, so states.js's own state:required handler manages
-   * the attribute reactively. An item with no live condition is
-   * untouched by this and keeps the plain static attribute.
+   * A conditional row's radios never get a static native 'required'.
+   *
+   * Permanently suppressed, not live-mirrored into '#states' (GitHub
+   * #102 superseded the #68 mirror; see
+   * docs/adr/0018-remove-required-optional-states-mirror.md). An item
+   * with no live condition is untouched and keeps the plain attribute.
    */
-  public function testMatrixRequiredAllWithConditionalItemMirrorsRequiredIntoStates(): void {
+  public function testMatrixRequiredAllWithConditionalItemSuppressesStaticRequired(): void {
     $markup = $this->renderElement([
       '#ranking_style' => 'matrix',
       '#required_all' => TRUE,
@@ -194,7 +191,8 @@ class WebformRankingRequiredIndicationTest extends KernelTestBase {
     $this->assertSame('', $item_b_radio->getAttribute('required'));
     $states = $item_b_radio->getAttribute('data-drupal-states');
     $this->assertStringContainsString('invisible', $states);
-    $this->assertStringContainsString('optional', $states);
+    $this->assertStringNotContainsString('optional', $states);
+    $this->assertStringNotContainsString('required', $states);
   }
 
 }

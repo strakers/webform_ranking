@@ -1517,6 +1517,50 @@ no-input fallback only ever see canonical shape. The plugin's
     #94, plus the #88 safety-note visibility check) — #93's items are
     pure refactors with no behavior change, so no new tests needed there
     beyond the full existing suite passing unchanged.
+32. **GitHub issue #102: matrix `#required_all`'s conditional-row fix
+    (entry 21/#68) itself crashed submission**, found during v0.3.0
+    manual release testing. Root cause: mirroring an item's own
+    visible/invisible condition into a `required`/`optional` `#states`
+    key made Webform core's `WebformSubmissionConditionsValidator`
+    resolve a Webform element plugin for the item's bare `radio`/
+    `container` sub-elements — none exists, so it fell back to a
+    generic placeholder plugin whose `getFormElementClassDefinition()`
+    call then threw `PluginNotFoundException` (that placeholder's own ID
+    isn't a real render element type). Fixed by removing the mirror
+    entirely — a conditional row's native `required` attribute is now
+    permanently withheld instead of live-toggled; `required`/`optional`
+    are also no longer offered as a per-item condition state at all
+    (an item's required-ness was never meant to be independently
+    configurable — it's derived from `#required_all`), and hand-typing
+    either into the raw YAML "Edit source" field is now rejected at
+    save time. See `docs/adr/0018-remove-required-optional-states-mirror.md`
+    (supersedes the relevant part of ADR-0007).
+33. **GitHub issue #104: a hidden matrix item's stale rank could
+    silently collide with another item's rank on reappearance**, found
+    while manually verifying #102's fix. Root cause:
+    `WebformRankingConverter::matrixToCanonical()` keys an intermediate
+    array on rank number, so a genuine duplicate silently collides —
+    the later-processed item wins, the other is dropped entirely, not
+    flagged. The resulting "missing" item then tripped `#required_all`'s
+    check with a misleading message, since neither of the two checks
+    that looked like they'd catch this (`count($values) !==
+    count(array_unique($values))`, and `matrixRanksAreSequential()`)
+    actually can — both operate after or around the point where the
+    duplicate is already gone. Fixed on both sides, confirmed
+    deliberately as both-not-either: client-side, `matrix.js` now
+    clears an item's rank/N/A selection the moment it's hidden (not
+    deferred until it's shown again), so the collision is no longer
+    reachable through normal interaction; server-side, a new
+    `WebformRankingConverter::matrixRanksHaveNoDuplicates()` reads the
+    raw per-item input directly (before the collision can hide it) and
+    rejects with a message naming the actual problem — inserted before
+    the `#required_all` check in `validateWebformRanking()`, since
+    `FormState::setErrorByName()`'s first-error-wins semantics make
+    that ordering the actual fix for the misleading message, confirmed
+    by reading core directly rather than assumed. Also corrected the
+    same false "server-side validation already discards a hidden
+    item's stale selection" claim in ADR-0012. See
+    `docs/adr/0019-matrix-duplicate-rank-detection.md`.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about

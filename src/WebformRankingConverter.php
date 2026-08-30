@@ -58,10 +58,11 @@ class WebformRankingConverter {
         continue;
       }
       if (is_numeric($rank) && (int) $rank > 0) {
-        // Keyed by rank so duplicate ranks (forged/tampered input)
-        // collide and the later one silently wins here — validation
-        // catches the duplicate independently by comparing counts, so
-        // this collision is fine to leave unresolved at this layer.
+        // Keyed by rank so a duplicate rank collides and the later one
+        // silently wins here — this layer only normalizes; rejecting a
+        // duplicate is matrixRanksHaveNoDuplicates()'s job, which reads
+        // the raw input directly and runs before this collision can
+        // hide it. See docs/adr/0019-matrix-duplicate-rank-detection.md.
         $ranked[(int) $rank] = $item_value;
       }
     }
@@ -186,8 +187,9 @@ class WebformRankingConverter {
    * stored/canonical meaning once ranks coalesce; see
    * docs/adr/0002-sequential-rank-validation.md for the full reasoning.
    *
-   * N/A entries, unranked items, and duplicate ranks (a separate rule
-   * validateWebformRanking() enforces independently) are irrelevant here.
+   * N/A entries, unranked items, and duplicate ranks (see
+   * matrixRanksHaveNoDuplicates(), a separate check) are irrelevant here
+   * — this only tracks which rank *numbers* are in use.
    *
    * @param array $raw
    *   Raw submitted matrix input, item value => rank string — same
@@ -212,6 +214,38 @@ class WebformRankingConverter {
 
     ksort($ranks_used);
     return array_keys($ranks_used) === range(1, count($ranks_used));
+  }
+
+  /**
+   * Checks whether raw matrix input has two items claiming the same rank.
+   *
+   * MatrixToCanonical() silently drops one of two colliding items rather
+   * than rejecting them (its own collision is a normalization detail,
+   * not a validation decision) — this is the actual rejection, reading
+   * the raw input directly before that collision can hide it. See
+   * docs/adr/0019-matrix-duplicate-rank-detection.md.
+   *
+   * @param array $raw
+   *   Raw submitted matrix input, item value => rank string — same
+   *   shape matrixToCanonical() takes.
+   *
+   * @return bool
+   *   TRUE if every used rank is claimed by at most one item.
+   */
+  public static function matrixRanksHaveNoDuplicates(array $raw): bool {
+    $counts = [];
+    foreach ($raw as $rank) {
+      if (is_numeric($rank) && (int) $rank > 0) {
+        $counts[(int) $rank] = ($counts[(int) $rank] ?? 0) + 1;
+      }
+    }
+
+    foreach ($counts as $count) {
+      if ($count > 1) {
+        return FALSE;
+      }
+    }
+    return TRUE;
   }
 
 }

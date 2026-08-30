@@ -99,6 +99,23 @@
         // docs/adr/0012-matrix-conditional-item-visibility-sync.md.
         $(input).on('state:visible', function (e) {
           visible[name] = e.value;
+          if (!e.value) {
+            // GitHub issue #104: a stale selection surviving a
+            // hide/show cycle can silently collide with another item
+            // that took the same rank while this one was hidden.
+            // Cleared on hide (not on re-show) so markTakenRanks()
+            // reflects the freed slot for the whole time this item
+            // stays hidden. See
+            // docs/adr/0019-matrix-duplicate-rank-detection.md.
+            var checkedInput = groups[name].filter(function (candidate) {
+              return candidate.checked;
+            })[0];
+            if (checkedInput) {
+              checkedInput.checked = false;
+              checkedInput.dispatchEvent(new Event('change', {bubbles: true}));
+              delete selected[name];
+            }
+          }
           markTakenRanks(groups, groupNames, selected, visible);
           toggleRow(input, e.value);
           updateRankColumns(table, groups, groupNames, visible);
