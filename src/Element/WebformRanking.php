@@ -399,24 +399,15 @@ class WebformRanking extends FormElementBase {
       $current_value = $defaults[$row_key] ?? NULL;
       $cell_keys = ['label'];
 
-      // GitHub issue #68: a static 'required' attribute on a row hidden
-      // by its own live '#states' left an unfocusable required control
-      // the browser silently refused to submit against. Mirrored into
-      // 'required'/'optional' on the same '#states' array instead
-      // ('optional' is core's own '!required' alias), so states.js's
-      // existing handler keeps it in lockstep with visibility. See
-      // docs/adr/0007-matrix-radio-cell-rendering.md.
-      $has_live_states = $required_all && !empty($item['states']) && empty($item['_cross_page_hidden']);
-      $required_states = [];
-      if ($has_live_states) {
-        if (isset($item['states']['visible'])) {
-          $required_states['required'] = $item['states']['visible'];
-        }
-        elseif (isset($item['states']['invisible'])) {
-          $required_states['optional'] = $item['states']['invisible'];
-        }
-      }
-      $suppress_static_required = $has_live_states && $required_states;
+      // GitHub issue #102: mirroring visible/invisible into a
+      // 'required'/'optional' #states key (the former GitHub #68 fix)
+      // crashed WebformSubmissionConditionsValidator, which resolves a
+      // Webform element plugin for any such element — none exists for a
+      // bare radio/container. A conditionally-visible row's static
+      // 'required' attribute is now permanently withheld instead of
+      // live-toggled. See
+      // docs/adr/0018-remove-required-optional-states-mirror.md.
+      $suppress_static_required = $required_all && !empty($item['states']) && empty($item['_cross_page_hidden']);
 
       foreach ($rank_labels as $rank => $rank_label) {
         $return_value = (string) ($rank + 1);
@@ -491,12 +482,8 @@ class WebformRanking extends FormElementBase {
         }
       }
       elseif (!empty($item['states'])) {
-        // $required_states (computed above) rides along in the same
-        // '#states' array so the required/optional mirror is live from
-        // the same trigger, not a second, independently-timed binding.
-        $cell_states = $suppress_static_required ? $item['states'] + $required_states : $item['states'];
         foreach ($cell_keys as $cell_key) {
-          $element['matrix'][$row_key][$cell_key]['#states'] = $cell_states;
+          $element['matrix'][$row_key][$cell_key]['#states'] = $item['states'];
         }
       }
     }

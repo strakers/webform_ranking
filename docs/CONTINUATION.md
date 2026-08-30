@@ -1517,6 +1517,24 @@ no-input fallback only ever see canonical shape. The plugin's
     #94, plus the #88 safety-note visibility check) — #93's items are
     pure refactors with no behavior change, so no new tests needed there
     beyond the full existing suite passing unchanged.
+32. **GitHub issue #102: matrix `#required_all`'s conditional-row fix
+    (entry 21/#68) itself crashed submission**, found during v0.3.0
+    manual release testing. Root cause: mirroring an item's own
+    visible/invisible condition into a `required`/`optional` `#states`
+    key made Webform core's `WebformSubmissionConditionsValidator`
+    resolve a Webform element plugin for the item's bare `radio`/
+    `container` sub-elements — none exists, so it fell back to a
+    generic placeholder plugin whose `getFormElementClassDefinition()`
+    call then threw `PluginNotFoundException` (that placeholder's own ID
+    isn't a real render element type). Fixed by removing the mirror
+    entirely — a conditional row's native `required` attribute is now
+    permanently withheld instead of live-toggled; `required`/`optional`
+    are also no longer offered as a per-item condition state at all
+    (an item's required-ness was never meant to be independently
+    configurable — it's derived from `#required_all`), and hand-typing
+    either into the raw YAML "Edit source" field is now rejected at
+    save time. See `docs/adr/0018-remove-required-optional-states-mirror.md`
+    (supersedes the relevant part of ADR-0007).
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
