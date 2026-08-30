@@ -11,23 +11,12 @@ use PHPUnit\Framework\Attributes\Group;
 /**
  * Tests GitHub issue #68: #required_all vs. a same-page conditional row.
  *
- * Root cause: buildMatrix() baked a native 'required' HTML attribute onto
- * every #required_all row's radios unconditionally, before the same
- * method's own per-item '#states' visibility handling ran. A row hidden by
- * a same-page condition is only hidden client-side (states.js toggling
- * display) — the native attribute stayed regardless, on a now-hidden,
- * unfocusable control. Browsers refuse to submit a form with an unsatisfied
- * required control they can't even focus, and do so silently: no Drupal
- * error, no visible error, just a console warning. Found the same way as
- * #63 — manual browser testing, not the kernel/unit suite (a headless HTTP
- * client never runs the browser's own native constraint validation at
- * all, so this class of bug is invisible to anything but a real browser).
- *
- * Fix: the item's own visible/invisible condition is now mirrored onto
- * 'required'/'optional' in the same '#states' array already governing the
- * row's visibility, so states.js's own state:required handler keeps the
- * native attribute in sync with visibility instead of it being set once
- * and never revisited.
+ * Item B's own live '#states' visibility is unaffected by #required_all;
+ * only the native 'required' attribute's presence changes. Originally
+ * fixed by live-mirroring visibility into 'required'/'optional' #states,
+ * which itself crashed submission (GitHub #102) — superseded by
+ * permanent suppression instead. See
+ * docs/adr/0018-remove-required-optional-states-mirror.md.
  */
 #[Group('webform_ranking')]
 class WebformRankingRequiredAllConditionalRowJavaScriptTest extends WebDriverTestBase {
@@ -82,35 +71,30 @@ class WebformRankingRequiredAllConditionalRowJavaScriptTest extends WebDriverTes
   }
 
   /**
-   * Item B's radios: 'required' present while visible, absent once hidden.
+   * Item B's radios never carry a native 'required' attribute (ADR-0018).
    */
-  public function testNativeRequiredAttributeTracksVisibility(): void {
+  public function testConditionalRowNeverGetsStaticRequiredAttribute(): void {
     $this->drupalGet('/webform/test_ranking_required_states');
 
     $radio = $this->assertSession()->waitForElement('css', 'input[name="ranking[matrix][b]"][value="1"]');
     $this->assertNotNull($radio);
-    $this->assertTrue($radio->hasAttribute('required'), 'Item B should start required (visible by default).');
+    $this->assertFalse($radio->hasAttribute('required'), 'Item B (has its own #states) should never carry a static required attribute.');
 
     $this->getSession()->getPage()->checkField('trigger');
     $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () use ($radio) {
-      return !$radio->hasAttribute('required');
-    }), 'Item B radios should lose the native required attribute once hidden.');
+      return !$radio->isVisible();
+    }), 'Item B row should be hidden after checking the trigger.');
+    $this->assertFalse($radio->hasAttribute('required'), 'Still absent once hidden.');
 
     $this->getSession()->getPage()->uncheckField('trigger');
     $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () use ($radio) {
-      return $radio->hasAttribute('required');
-    }), 'Item B radios should regain the native required attribute once visible again.');
+      return $radio->isVisible();
+    }), 'Item B row should be visible again after unchecking the trigger.');
+    $this->assertFalse($radio->hasAttribute('required'), 'Still absent once visible again.');
   }
 
   /**
-   * Hiding a required row no longer silently blocks submission.
-   *
-   * Item B is hidden (its own native 'required' would previously have
-   * stayed on its unfocusable radios forever), item A is fully ranked so
-   * #required_all's own constraint is satisfied for every visible item.
-   * A real submit reaching the confirmation page is proof the browser's
-   * native constraint validation didn't block it client-side — the old
-   * bug left the user stuck on the same form with no feedback at all.
+   * Hiding a conditionally-required row doesn't block submission.
    */
   public function testHiddenRequiredRowDoesNotBlockSubmission(): void {
     $this->drupalGet('/webform/test_ranking_required_states');

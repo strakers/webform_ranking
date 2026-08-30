@@ -461,6 +461,74 @@ class WebformRankingPluginTest extends KernelTestBase {
   }
 
   /**
+   * Tests that a 'required' item condition is rejected (GitHub #102).
+   *
+   * See docs/adr/0018-remove-required-optional-states-mirror.md.
+   */
+  public function testValidateConfigurationFormRejectsRequiredStateOnItemCondition(): void {
+    $form_state = $this->validateItemsConfiguration([
+      ['value' => 'item_a', 'label' => 'Item A'],
+      [
+        'value' => 'item_b',
+        'label' => 'Item B',
+        'states' => ['required' => [':input[name="trigger"]' => ['checked' => TRUE]]],
+      ],
+    ]);
+
+    $this->assertArrayHasKey('items', $form_state->getErrors());
+  }
+
+  /**
+   * Tests that an 'optional' item condition is rejected (GitHub #102).
+   */
+  public function testValidateConfigurationFormRejectsOptionalStateOnItemCondition(): void {
+    $form_state = $this->validateItemsConfiguration([
+      ['value' => 'item_a', 'label' => 'Item A'],
+      [
+        'value' => 'item_b',
+        'label' => 'Item B',
+        'states' => ['optional' => [':input[name="trigger"]' => ['checked' => TRUE]]],
+      ],
+    ]);
+
+    $this->assertArrayHasKey('items', $form_state->getErrors());
+  }
+
+  /**
+   * Tests the same rejection when 'states' arrives as a raw YAML string.
+   *
+   * Exercises the is_string() decode branch — the "Edit source" field's
+   * saved value shape, not just the picker's already-decoded array.
+   */
+  public function testValidateConfigurationFormRejectsRequiredStateAsRawYamlString(): void {
+    $yaml = "required:\n  ':input[name=\"trigger\"]':\n    checked: true\n";
+    $form_state = $this->validateItemsConfiguration([
+      ['value' => 'item_a', 'label' => 'Item A'],
+      ['value' => 'item_b', 'label' => 'Item B', 'states' => $yaml],
+    ]);
+
+    $this->assertArrayHasKey('items', $form_state->getErrors());
+  }
+
+  /**
+   * Negative control: a legitimate 'visible' condition still passes.
+   *
+   * Guards against an over-broad required/optional check.
+   */
+  public function testValidateConfigurationFormAcceptsVisibleStateOnItemCondition(): void {
+    $form_state = $this->validateItemsConfiguration([
+      ['value' => 'item_a', 'label' => 'Item A'],
+      [
+        'value' => 'item_b',
+        'label' => 'Item B',
+        'states' => ['visible' => [':input[name="trigger"]' => ['checked' => TRUE]]],
+      ],
+    ]);
+
+    $this->assertSame([], $form_state->getErrors());
+  }
+
+  /**
    * Tests that prepare() decodes a string 'states' value into an array.
    *
    * Real bug: config saved before 'states' had '#decode_value' => TRUE

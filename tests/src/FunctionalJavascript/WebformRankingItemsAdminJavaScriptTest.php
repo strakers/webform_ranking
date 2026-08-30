@@ -94,7 +94,7 @@ class WebformRankingItemsAdminJavaScriptTest extends WebDriverTestBase {
               'label' => 'Item D',
               'states' => [
                 'visible' => [':input[name="trigger_field"]' => ['value' => 'x']],
-                'required' => [':input[name="trigger_field"]' => ['value' => 'x']],
+                'enabled' => [':input[name="trigger_field"]' => ['value' => 'x']],
               ],
             ],
             // Item value with incidental surrounding whitespace (bypasses
@@ -596,38 +596,6 @@ JS,
   }
 
   /**
-   * Tests setting an item's condition State to "Required" leaves this
-   * element's own, unrelated "Required" property checkbox untouched.
-   *
-   * Regression test (PR #66 code review): the state picker's <select>
-   * originally reused Webform core's own 'webform-states-table--state'
-   * class for visual parity, which also wired it into core's *unscoped*
-   * webform.element.states.js behavior — toggleRequiredCheckbox() scans
-   * the whole page (not just this dialog) for any matching <select> set
-   * to required/optional and force-checks/disables
-   * 'properties[required]' accordingly, even though that element-level
-   * property has nothing to do with one item's own conditional state.
-   * Now uses a module-scoped class instead (see
-   * webform_ranking.items_admin.js's own comment at the state row).
-   */
-  public function testConditionStateRequiredDoesNotAffectElementRequiredCheckbox(): void {
-    $this->drupalGet('/admin/structure/webform/manage/test_ranking_items_admin/element/ranking/edit');
-    $assert_session = $this->assertSession();
-    $assert_session->waitForElement('css', '.webform-ranking-item-configure-states');
-
-    $required_checkbox = $assert_session->elementExists('css', 'input[name="properties[required]"]');
-    $this->assertFalse($required_checkbox->isChecked(), 'Sanity check: Required starts unchecked.');
-
-    $this->triggerForItemValue('a')->click();
-    $assert_session->waitForElementVisible('css', '.ui-dialog');
-
-    $this->setVisibleDialogFieldValue('.webform-ranking-item-condition-state-cell select', 'required');
-
-    $this->assertFalse($required_checkbox->isChecked());
-    $this->assertFalse($required_checkbox->hasAttribute('disabled'));
-  }
-
-  /**
    * Tests the builder's fields carry Drupal's own form element classes.
    *
    * Confirmed against this same admin form's real, server-rendered
@@ -799,7 +767,7 @@ JS,
     $warning = '.webform-ranking-item-condition-state-warning';
     $this->assertFalse($this->isVisibleInDialog($warning));
 
-    $this->setVisibleDialogFieldValue('.webform-ranking-item-condition-state-cell select', 'required');
+    $this->setVisibleDialogFieldValue('.webform-ranking-item-condition-state-cell select', 'enabled');
     $this->assertTrue($this->isVisibleInDialog($warning));
 
     $this->setVisibleDialogFieldValue('.webform-ranking-item-condition-state-cell select', 'visible');
@@ -1045,7 +1013,7 @@ JS,
 
     $this->assertTrue($this->isVisibleInDialog('.webform-ranking-item-yaml-view'));
     $this->assertFalse($this->isVisibleInDialog('.webform-ranking-item-condition-builder'));
-    $this->assertStringContainsString('required', $this->getOpenDialogYamlValue());
+    $this->assertStringContainsString('enabled', $this->getOpenDialogYamlValue());
   }
 
   /**

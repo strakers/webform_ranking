@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Matrix display style: submitting a form with a conditionally-visible
+  item (its own "Include this item when..." condition) and "Require
+  every visible item to be ranked or marked N/A" left at its default
+  (on) threw a fatal error instead of submitting or showing a normal
+  validation message. "Required"/"Optional" are also no longer offered
+  as a per-item condition state, since an item's required-ness is
+  governed entirely by that setting, not an independent condition
+  (#102).
+
 ## [0.3.0] - 2026-08-29
 
 ### Added
