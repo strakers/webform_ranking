@@ -17,7 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   logic" tab, as the primary way to configure a condition. The builder
   writes directly into the same `#states` YAML field that already
   existed; raw YAML ("Edit source") remains available for anything the
-  builder can't represent (#13, #65).
+  builder can't represent (#13, #65). Includes a few guardrails: a
+  warning if hand-typed YAML and the builder's own rows have diverged
+  (rather than silently overwriting one with the other), a format hint
+  for the "between"/"not between" comparison's `min:max` value, and a
+  warning (instead of a confusing save-time error) when two conditions
+  on the same field are combined with "All," which can't be saved
+  (#88, #92).
 
 ### Fixed
 
