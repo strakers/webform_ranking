@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Corrected outdated Drupal/Webform version requirements and conditional-logic documentation in README.md ([#107](https://github.com/strakers/webform_ranking/issues/107)).
+- Condensed CHANGELOG.md entries to be skimmable, and fixed missing version-header and issue links ([#109](https://github.com/strakers/webform_ranking/issues/109)).
+
 ## [0.3.1] - 2026-08-30
 
 ### Fixed
