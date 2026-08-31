@@ -28,11 +28,10 @@ agent-authored.
 - `dev` is the integration branch; `main` is the stable/release branch.
   A `dev`→`main` PR is how a release ships — it bundles everything
   merged into `dev` since the last release.
-- **`dev`→`main` (or any non-default-branch) merges do not auto-close
-  linked issues**, even with `Fixes #N` in the PR — GitHub only does
-  that for merges into the repo's actual default branch. Close affected
-  issues manually, with a comment pointing at the PR that addressed
-  them, once the merge is confirmed.
+- Merges into `dev` — and later `dev`→`main` — do not auto-close linked
+  issues, even with `Fixes #N` in the PR, since GitHub only does that
+  for merges into the repo's actual default branch (`main`), not `dev`.
+  See the Issues section below for the manual step this requires.
 
 ## Issues
 
@@ -52,6 +51,12 @@ agent-authored.
   own history has several examples of a plausible-sounding claim turning
   out to be wrong once actually checked (see `CONTINUATION.md`'s
   "Pattern Worth Knowing" section).
+- Once a PR that fixes an issue is confirmed merged, close the issue
+  manually with a comment linking back to that PR. This is a required
+  step, not a nice-to-have: as noted under Branching, a merge into `dev`
+  never auto-closes anything, so without this step a fixed issue just
+  stays open indefinitely. Do this right after confirming the merge,
+  not batched up for later.
 
 ## Changelog
 
