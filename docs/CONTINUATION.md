@@ -1621,7 +1621,7 @@ evidence rather than assert confidently.
   since nothing's asked for it yet.
 
 ## Constraints
-- Target: Drupal ^10.1 || ^11, Webform ^6.2 (composer.json).
+- Target: Drupal ^10.3 || ^11, Webform ^6.3 (composer.json).
 - Security-advisory-policy-quality module is the bar (per original ask).
 - No PHP/Drupal execution available in prior environment — all fixes after
   the first several messages were driven by the user's real test/browser
