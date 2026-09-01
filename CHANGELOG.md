@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Corrected outdated Drupal/Webform version requirements and conditional-logic documentation in README.md ([#107](https://github.com/strakers/webform_ranking/issues/107)).
 - Condensed CHANGELOG.md entries to be skimmable, and fixed missing version-header and issue links ([#109](https://github.com/strakers/webform_ranking/issues/109)).
+- Drag/drop display style: "Require every visible item..." is now hidden in the admin form (a no-op for this style), and a conditionally-hidden item's rank no longer leaks to other elements' conditions — it's now excluded and coalesced like a fresh submission, and reappears unranked at the end of the list when revealed ([#108](https://github.com/strakers/webform_ranking/issues/108)).
 
 ## [0.3.1] - 2026-08-30
 

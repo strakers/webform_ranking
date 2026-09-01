@@ -1561,6 +1561,57 @@ no-input fallback only ever see canonical shape. The plugin's
     same false "server-side validation already discards a hidden
     item's stale selection" claim in ADR-0012. See
     `docs/adr/0019-matrix-duplicate-rank-detection.md`.
+34. **GitHub issue #108: drag/drop `#required_all`'s UI relevance and
+    hidden-item state handling.** Two fixes. First, `#required_all` is a
+    structural no-op for drag/drop (every item always lands ranked or
+    N/A'd — there's no "unaccounted for" state), so it's now hidden via
+    `#states` when `ranking_style` isn't `matrix` — deliberately
+    UI-only, per the issue's own follow-up comment, so the stored value
+    survives a round trip through drag/drop and back to matrix. Second,
+    and more involved: `webform_ranking.dragdrop.js` had no per-item
+    reaction to an item's own conditional visibility, only a page-wide
+    listener that re-numbered visible positions. This left the per-item
+    rank *echo* input (ADR-0008 — the channel other `#states` conditions
+    and `webform_computed_twig` live recomputes watch) holding a hidden
+    item's stale value, genuinely observable downstream (confirmed via
+    the user's own worked example: a "banana color" field shown when
+    "Banana ranked 1st" incorrectly stayed matched after Banana was
+    hidden). An initial fix attempt marked a hidden item's echo `'na'`
+    — rejected on review: `'na'` is a real, respondent-facing value, and
+    borrowing it as a "hidden" stand-in is meaningless when `#allow_na`
+    is off, and doesn't produce the coalescing actually wanted. Correct
+    fix: `sync()` now computes `order`/`na` from only currently-visible
+    items and blanks (not `'na'`s) a hidden item's own echo — a hidden
+    item is excluded from the dataset entirely, coalescing the rest, as
+    a side effect of the same filter `renumber()`/`moveItem()` already
+    used. A new per-item `state:visible` listener replaces the old
+    page-wide one: hide just calls `sync()`; reveal calls the existing
+    `setItemNa(item, false)` (already implements "re-enter at the end
+    of the ranked stack," reused rather than reimplemented). First test
+    run against this exposed a second, genuinely surprising bug: the
+    `state:visible` event fires *before* states.js's own DOM-hiding
+    effect actually completes, confirmed by directly instrumenting the
+    handler — `offsetParent` was still non-null inside the very handler
+    reporting the hide. A hide-time `sync()` call, running synchronously
+    inside that event, therefore raced the animation and saw a stale
+    "still visible" DOM, so nothing changed at all. Fixed by tracking
+    visibility in a `knownVisible` value-keyed map updated directly from
+    each event's own `e.value` rather than re-derived from the DOM at
+    call time — the same approach `matrix.js`'s own `visible` map
+    already uses, for the identical reason. A second, separate bug
+    surfaced during manual testing after this fix landed: a hidden
+    item's N/A checkbox, when revealed, visually stayed checked even
+    though the underlying data correctly reset to "ranked, not N/A."
+    Root cause: Webform core's own `webform.states.js` independently
+    backs up every `:input` inside a conditionally-hidden webform
+    element and restores its *pre-hide* value on reveal, via a
+    document-level `state:visible` handler that (bound on an ancestor)
+    runs synchronously right after this module's own item-level
+    handler within the same event dispatch — silently overwriting the
+    `checked = false` this fix had just set. Fixed by deferring that
+    one assignment via `setTimeout(fn, 0)`, so Webform's own restore
+    runs first and this fix's outcome is what's left standing. See
+    `docs/adr/0020-dragdrop-required-all-visibility-and-hidden-item-state.md`.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about

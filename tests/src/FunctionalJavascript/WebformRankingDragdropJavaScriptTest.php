@@ -52,6 +52,10 @@ class WebformRankingDragdropJavaScriptTest extends WebDriverTestBase {
       'id' => 'test_ranking_dragdrop',
       'title' => 'Test ranking dragdrop',
       'elements' => Yaml::encode([
+        'trigger' => [
+          '#type' => 'textfield',
+          '#title' => 'Trigger',
+        ],
         'ranking' => [
           '#type' => 'webform_ranking',
           '#title' => 'Ranking',
@@ -60,7 +64,19 @@ class WebformRankingDragdropJavaScriptTest extends WebDriverTestBase {
           '#items' => [
             ['value' => 'a', 'label' => 'Item A'],
             ['value' => 'b', 'label' => 'Item B'],
-            ['value' => 'c', 'label' => 'Item C'],
+            [
+              'value' => 'c',
+              'label' => 'Item C',
+              // Conditionally-visible item, empty by default so it
+              // doesn't affect the other tests in this class (all of
+              // which use item 'c' freely, assuming it starts
+              // visible).
+              'states' => [
+                'invisible' => [
+                  ':input[name="trigger"]' => ['filled' => TRUE],
+                ],
+              ],
+            ],
           ],
         ],
         // Dependent element used to confirm live #states reaction to a
@@ -482,6 +498,246 @@ JS);
       "Array.from(document.querySelectorAll('.webform-ranking-dragdrop__item')).map(function (el) { return el.getAttribute('data-webform-ranking-value'); })"
     );
     $this->assertSame($expected, $values);
+  }
+
+  /**
+   * Reads back an item's rank echo input value (see ADR-0008).
+   */
+  protected function rankEcho(string $item): string {
+    $selector = 'input[name="ranking[dragdrop][rank][' . $item . ']"]';
+    return (string) $this->getSession()->evaluateScript(
+      "document.querySelector('" . addslashes($selector) . "').value"
+    );
+  }
+
+  /**
+   * Reads back the authoritative submitted order input's raw CSV value.
+   */
+  protected function orderInputValue(): string {
+    return (string) $this->getSession()->evaluateScript(
+      "document.querySelector('input[name=\"ranking[dragdrop][order]\"]').value"
+    );
+  }
+
+  /**
+   * Tests that hiding a ranked item excludes it from order/na entirely.
+   *
+   * GitHub issue #108: a hidden drag/drop item used to keep whatever
+   * rank echo it last held, observable by any downstream #states
+   * condition or live computed-twig recompute watching it. Correct
+   * behavior (per the issue's own worked example) is full exclusion,
+   * with the remaining visible items' ranks coalescing to fill the gap
+   * — not a fake 'na' marking, which would misrepresent state whenever
+   * #allow_na is off (see testHidingRankedItemCoalescesWithNaDisabled()
+   * for that case) and wouldn't produce the coalescing behavior at all.
+   * See docs/adr/0020-dragdrop-required-all-visibility-and-hidden-item-
+   * state.md.
+   */
+  public function testHidingRankedItemCoalescesRemainingRanksAndBlanksEcho(): void {
+    $this->drupalGet('/webform/test_ranking_dragdrop');
+    $page = $this->getSession()->getPage();
+
+    $this->assertSession()->waitForElement('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="a"]');
+
+    // Move C to the top: a, b, c -> a, c, b -> c, a, b.
+    $item_c = $page->find('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="c"]');
+    $item_c->find('css', '.webform-ranking-dragdrop__move-up')->click();
+    $item_c = $page->find('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="c"]');
+    $item_c->find('css', '.webform-ranking-dragdrop__move-up')->click();
+    $this->assertOrder(['c', 'a', 'b']);
+    $this->assertSame('1', $this->rankEcho('c'));
+    $this->assertSame('2', $this->rankEcho('a'));
+    $this->assertSame('3', $this->rankEcho('b'));
+
+    // Hiding item C (ranked 1st) must coalesce A/B up to 1/2, and blank
+    // (not 'na') C's own echo.
+    $page->fillField('trigger', 'anything');
+
+    $this->assertTrue($page->waitFor(4, function () {
+      return $this->rankEcho('c') === '';
+    }), 'Expected the hidden item\'s rank echo to be blanked.');
+    $this->assertSame('1', $this->rankEcho('a'));
+    $this->assertSame('2', $this->rankEcho('b'));
+    $this->assertSame('a,b', $this->orderInputValue());
+
+    // Revealing it again re-enters it at the end of the ranked stack,
+    // not wherever it happened to sit in the DOM pre-hide.
+    $page->fillField('trigger', '');
+    $this->assertTrue($page->waitFor(4, function () {
+      return $this->orderInputValue() === 'a,b,c';
+    }), 'Expected the revealed item to land at the end of the ranked stack. Got: ' . $this->orderInputValue());
+    $this->assertSame('3', $this->rankEcho('c'));
+    $this->assertOrder(['a', 'b', 'c']);
+  }
+
+  /**
+   * Tests that a revealed item is never left marked N/A.
+   *
+   * Even if it was marked N/A before it was hidden. Per the issue, a
+   * revealed item always reappears in the ranked stack, not N/A'd —
+   * reusing setItemNa(item, false)'s existing reposition logic
+   * unconditionally on reveal.
+   */
+  public function testRevealedItemIsNeverLeftMarkedNa(): void {
+    $this->drupalGet('/webform/test_ranking_dragdrop');
+    $page = $this->getSession()->getPage();
+
+    $this->assertSession()->waitForElement('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="a"]');
+
+    $item_c = $page->find('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="c"]');
+    $item_c->find('css', '.webform-ranking-dragdrop__na-checkbox')->click();
+    $this->assertSame('true', $item_c->getAttribute('data-webform-ranking-na'));
+
+    $page->fillField('trigger', 'anything');
+    $this->assertTrue($page->waitFor(4, function () {
+      return $this->rankEcho('c') === '';
+    }));
+
+    $page->fillField('trigger', '');
+    $this->assertTrue($page->waitFor(4, function () {
+      return $this->orderInputValue() === 'a,b,c';
+    }), 'Expected the revealed item to be ranked, not left N/A. Got order: ' . $this->orderInputValue());
+    $item_c = $page->find('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="c"]');
+    $this->assertSame('false', $item_c->getAttribute('data-webform-ranking-na'));
+    // The checkbox's own live DOM property, not just the data
+    // attribute — a real bug found via manual testing: setItemNa()
+    // updated the attribute/DOM position but left a checkbox already
+    // checked from before the hide still visually checked. (Mink's
+    // NodeElement::isChecked() isn't used here — it reads the static
+    // 'checked' HTML attribute, not the live property JS actually
+    // toggles, so it can't observe this class of bug.)
+    $this->assertFalse($this->getSession()->evaluateScript(
+      "document.querySelector('.webform-ranking-dragdrop__item[data-webform-ranking-value=\"c\"] .webform-ranking-dragdrop__na-checkbox').checked"
+    ));
+  }
+
+  /**
+   * Tests the hide/reveal coalescing fix with #allow_na disabled.
+   *
+   * GitHub issue #108: an earlier fix attempt marked a hidden item's
+   * rank echo as 'na', which would have been meaningless/misleading
+   * with N/A unavailable at all. This confirms the actual fix (full
+   * exclusion, not an 'na' stand-in) behaves correctly in that
+   * configuration too.
+   */
+  public function testHidingRankedItemCoalescesWithNaDisabled(): void {
+    Webform::create([
+      'langcode' => 'en',
+      'status' => WebformInterface::STATUS_OPEN,
+      'id' => 'test_ranking_dragdrop_no_na',
+      'title' => 'Test ranking dragdrop no na',
+      'elements' => Yaml::encode([
+        'trigger' => [
+          '#type' => 'textfield',
+          '#title' => 'Trigger',
+        ],
+        'ranking' => [
+          '#type' => 'webform_ranking',
+          '#title' => 'Ranking',
+          '#ranking_style' => 'dragdrop',
+          '#allow_na' => FALSE,
+          '#items' => [
+            ['value' => 'a', 'label' => 'Item A'],
+            ['value' => 'b', 'label' => 'Item B'],
+            [
+              'value' => 'c',
+              'label' => 'Item C',
+              'states' => [
+                'invisible' => [
+                  ':input[name="trigger"]' => ['filled' => TRUE],
+                ],
+              ],
+            ],
+          ],
+        ],
+      ]),
+    ])->save();
+
+    $this->drupalGet('/webform/test_ranking_dragdrop_no_na');
+    $page = $this->getSession()->getPage();
+
+    $this->assertSession()->waitForElement('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="a"]');
+    $this->assertOrder(['a', 'b', 'c']);
+
+    $page->fillField('trigger', 'anything');
+    $this->assertTrue($page->waitFor(4, function () {
+      return $this->getSession()->evaluateScript(
+        "document.querySelector('input[name=\"ranking[dragdrop][order]\"]').value"
+      ) === 'a,b';
+    }));
+    $this->assertSame('', $this->rankEcho('c'));
+
+    $page->fillField('trigger', '');
+    $this->assertTrue($page->waitFor(4, function () {
+      return $this->orderInputValue() === 'a,b,c';
+    }));
+    $this->assertSame('3', $this->rankEcho('c'));
+  }
+
+  /**
+   * Tests the exact scenario reported in GitHub issue #108's discussion.
+   *
+   * A downstream element's own '#states' condition, watching a drag/
+   * drop item's rank echo (see ADR-0008 and testStatesReactToRankSelection()),
+   * must stop matching once that ranked item itself is hidden — before
+   * this fix, the echo kept its stale pre-hide value, so a dependent
+   * "show when Item A is ranked 1st" element stayed visible even after
+   * Item A was hidden.
+   */
+  public function testHidingRankedItemHidesDependentStatesCondition(): void {
+    Webform::create([
+      'langcode' => 'en',
+      'status' => WebformInterface::STATUS_OPEN,
+      'id' => 'test_ranking_dragdrop_dependent',
+      'title' => 'Test ranking dragdrop dependent states',
+      'elements' => Yaml::encode([
+        'trigger' => [
+          '#type' => 'textfield',
+          '#title' => 'Trigger',
+        ],
+        'ranking' => [
+          '#type' => 'webform_ranking',
+          '#title' => 'Ranking',
+          '#ranking_style' => 'dragdrop',
+          '#allow_na' => TRUE,
+          '#items' => [
+            [
+              'value' => 'a',
+              'label' => 'Item A',
+              'states' => [
+                'invisible' => [
+                  ':input[name="trigger"]' => ['filled' => TRUE],
+                ],
+              ],
+            ],
+            ['value' => 'b', 'label' => 'Item B'],
+          ],
+        ],
+        'first_choice_message' => [
+          '#type' => 'webform_markup',
+          '#markup' => 'You selected Item A as your first choice.',
+          '#states' => [
+            'visible' => [
+              ':input[name="ranking[dragdrop][rank][a]"]' => ['value' => '1'],
+            ],
+          ],
+        ],
+      ]),
+    ])->save();
+
+    $this->drupalGet('/webform/test_ranking_dragdrop_dependent');
+
+    // Item A starts ranked 1st by default, so the dependent message is
+    // visible on load.
+    $message = $this->assertSession()->elementExists('css', '#edit-first-choice-message');
+    $this->assertTrue($message->isVisible());
+
+    // Hiding item A must hide the dependent message too — its rank
+    // echo is no longer '1' once it's excluded from the dataset.
+    $this->getSession()->getPage()->fillField('trigger', 'anything');
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () use ($message) {
+      return !$message->isVisible();
+    }), 'Expected the dependent message to hide once its ranked item was hidden.');
   }
 
 }
