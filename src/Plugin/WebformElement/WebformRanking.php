@@ -316,10 +316,19 @@ class WebformRanking extends WebformElementBase {
       ],
     ];
 
+    // GitHub issue #108: hidden for drag/drop, where it's a structural
+    // no-op — every drag/drop item always lands in the ranked order or
+    // the N/A list, so "every visible item accounted for" can never
+    // fail there. UI-only: the stored value is left untouched so it's
+    // preserved if the site builder switches back to matrix later. See
+    // docs/adr/0020-dragdrop-required-all-visibility-and-hidden-item-state.md.
     $form['ranking']['required_all'] = [
       '#type' => 'checkbox',
       '#title' => $this->t('Require every visible item to be ranked or marked N/A'),
       '#default_value' => TRUE,
+      '#states' => [
+        'visible' => [':input[name="properties[ranking_style]"]' => ['value' => 'matrix']],
+      ],
     ];
 
     // GitHub issue #63: #required_all alone lets a respondent mark
@@ -345,9 +354,10 @@ class WebformRanking extends WebformElementBase {
 
     // GitHub issue #74: always visible, not #states-gated on
     // #ranking_style, even though it's a no-op for drag/drop (matrix-only
-    // check — see matrixRanksAreSequential()'s docblock) — same "not
-    // worth a style-conditional #states rule for a field that's simply
-    // inert when irrelevant" reasoning as #required_all above.
+    // check — see matrixRanksAreSequential()'s docblock). Unlike
+    // #required_all above (see GitHub issue #108), this field has no
+    // sibling meaning for drag/drop to preserve visibility of, so it's
+    // simply left inert rather than hidden.
     $form['ranking']['sequential_ranks_error'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Sequential ranks error message'),
