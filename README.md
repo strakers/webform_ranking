@@ -44,8 +44,10 @@ Add a **Ranking** element to your webform to begin. Under the element settings, 
 
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for local environment
 setup and project structure, [docs/TESTING.md](docs/TESTING.md) for
-running the test suite, and [docs/CONTINUATION.md](docs/CONTINUATION.md)
-for architecture notes, design-decision rationale, and known gaps.
+running the test suite, [docs/CONTINUATION.md](docs/CONTINUATION.md)
+for architecture notes, design-decision rationale, and known gaps, and
+[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for this project's
+branching, issue, changelog, and review conventions.
 
 ## AI Usage and Transparency
 
