@@ -1518,7 +1518,7 @@ no-input fallback only ever see canonical shape. The plugin's
     pure refactors with no behavior change, so no new tests needed there
     beyond the full existing suite passing unchanged.
 32. **GitHub issue #102: matrix `#required_all`'s conditional-row fix
-    (entry 21/#68) itself crashed submission**, found during v0.3.0
+    (entry 21/#68) itself crashed submission**, found during 0.3.0
     manual release testing. Root cause: mirroring an item's own
     visible/invisible condition into a `required`/`optional` `#states`
     key made Webform core's `WebformSubmissionConditionsValidator`

@@ -40,6 +40,10 @@ Add a **Ranking** element to your webform to begin. Under the element settings, 
 - **Conditional Logic Format:** The visual condition builder can't represent every possible rule (e.g. combining more than one state, such as Visible and Enabled, on the same item). In those cases, "Edit source" falls back to entering raw YAML directly.
 - **Strict Matrix Order:** The Matrix display style requires respondents to assign ranks sequentially starting from the top slot. Skipping a leading rank (e.g., selecting 2nd and 3rd but leaving 1st unassigned) triggers a validation error on submission. The error message is customizable via the "Sequential ranks error message" setting.
 
+## Repository
+
+This module's primary repository is on GitHub — issues, pull requests, and all development happen there. A mirror is published to [drupal.org](https://www.drupal.org/project/webform_ranking) for packaging and distribution; it isn't a place to develop against directly.
+
 ## Development
 
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for local environment
