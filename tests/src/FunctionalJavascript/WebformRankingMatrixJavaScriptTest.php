@@ -676,6 +676,22 @@ class WebformRankingMatrixJavaScriptTest extends WebDriverTestBase {
     $this->assertTrue($rank_label->isVisible());
     $this->assertSame('1st', $rank_label->getText());
 
+    // The rank-label span is a '#suffix', rendered as a sibling *after*
+    // the radio's own theme_wrappers-rendered <div> (core's Radio
+    // element always wraps in one) — that div is block-level by
+    // default, which previously pushed the span onto its own line
+    // below instead of next to the radio. Confirms the td's own
+    // `display: flex` keeps them on the same line.
+    $geometry = $this->getSession()->evaluateScript(<<<'JS'
+(function () {
+  var input = document.querySelector('input[name="ranking[matrix][a]"][value="1"]');
+  var div = input.closest('td').querySelector('div');
+  var span = input.closest('td').querySelector('.webform-ranking-matrix__rank-label');
+  return Math.abs(div.getBoundingClientRect().top - span.getBoundingClientRect().top) < 5;
+})()
+JS);
+    $this->assertTrue($geometry, 'Expected the rank-label span to sit on the same line as its preceding radio/label div.');
+
     // Resizing back up restores the desktop layout.
     $this->getSession()->resizeWindow(1200, 800, 'current');
     $this->assertTrue($page->waitFor(4, function () use ($thead) {

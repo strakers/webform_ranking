@@ -78,9 +78,12 @@
  * below hides the column headers that normally convey this. aria-hidden
  * at the render layer (WebformRanking::buildMatrix()) — this class only
  * ever controls its visual display, never its accessibility exposure.
+ * The left padding separates it from the radio/label it follows, once
+ * the narrow-viewport rule below puts them on the same line.
  */
 .webform-ranking-matrix__rank-label {
   display: none;
+  padding-inline-start: var(--sp0-5, calc(0.5 * 1.125rem));
 }
 
 /**
@@ -97,9 +100,25 @@
   }
 
   .webform-ranking-matrix td {
-    display: block;
+    display: flex;
+    align-items: center;
     width: 100%;
+    padding: 0;
     text-align: left;
+  }
+
+  /*
+   * Each radio's own '#suffix' rank-label span (see
+   * WebformRanking::buildMatrix()) is a sibling *after* this element's
+   * theme_wrappers-rendered <div> (core's Radio element always wraps in
+   * one), not inside it — that div is block-level by default, which
+   * would otherwise push the span onto its own line below. The td's own
+   * `display: flex` above puts both on one line; this zeroes the div's
+   * own top margin (core's own form-item spacing) so stacked radios
+   * within a row don't pile up extra vertical gaps on top of that.
+   */
+  .webform-ranking-matrix td > div {
+    margin-block-start: 0;
   }
 
   .webform-ranking-matrix__rank-label {
