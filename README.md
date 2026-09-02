@@ -42,7 +42,8 @@ Add a **Ranking** element to your webform to begin. Under the element settings, 
 
 ## Repository
 
-This module's primary repository is on GitHub — issues, pull requests, and all development happen there. A mirror is published to [drupal.org](https://www.drupal.org/project/webform_ranking) for packaging and distribution; it isn't a place to develop against directly.
+This module's primary repository is on GitHub — issues, pull requests, and all development happen there. A mirror is published to [drupal.org](https://www.drupal.org/project/webform_ranking) for packaging and distribution; it isn't currently where
+development occurs.
 
 ## Development
 
