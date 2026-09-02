@@ -7,330 +7,124 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Matrix display style: the table now collapses to a vertical, stacked layout on narrow screens, matching the Webform Likert element's own mobile behavior ([#115](https://github.com/strakers/webform_ranking/issues/115)).
+
+### Changed
+
+- Release tags are now plain `X.Y.Z` (no `v` prefix) on both GitHub and the new drupal.org mirror, and every historical tag/release was retargeted to match — see [CONTRIBUTING.md](docs/CONTRIBUTING.md#remotes) for the dual-remote setup.
+
+### Fixed
+
+- Corrected outdated Drupal/Webform version requirements and conditional-logic documentation in README.md ([#107](https://github.com/strakers/webform_ranking/issues/107)).
+- Condensed CHANGELOG.md entries to be skimmable, and fixed missing version-header and issue links ([#109](https://github.com/strakers/webform_ranking/issues/109)).
+- Drag/drop display style: "Require every visible item..." is now hidden in the admin form (a no-op for this style), and a conditionally-hidden item's rank no longer leaks to other elements' conditions — it's now excluded and coalesced like a fresh submission, and reappears unranked at the end of the list when revealed ([#108](https://github.com/strakers/webform_ranking/issues/108)).
+
 ## [0.3.1] - 2026-08-30
 
 ### Fixed
 
-- Matrix display style: submitting a form with a conditionally-visible
-  item (its own "Include this item when..." condition) and "Require
-  every visible item to be ranked or marked N/A" left at its default
-  (on) threw a fatal error instead of submitting or showing a normal
-  validation message. "Required"/"Optional" are also no longer offered
-  as a per-item condition state, since an item's required-ness is
-  governed entirely by that setting, not an independent condition
-  (#102).
-- Matrix display style: a conditionally-visible item's rank/N/A
-  selection could survive a hide/show cycle and silently collide with
-  a different item that took the same rank while it was hidden,
-  producing a misleading "every item must be ranked" message instead
-  of describing the actual problem. A hidden item's selection is now
-  cleared instead of persisting, and duplicate ranks are also rejected
-  server-side regardless of how they're submitted (#104).
+- Matrix display style, with "Require every visible item..." on: fixed a fatal error submitting with a conditionally-visible item — "Required"/"Optional" are also no longer valid per-item condition states ([#102](https://github.com/strakers/webform_ranking/issues/102)).
+- Matrix display style: fixed a hidden item's stale rank silently colliding with another item's rank on reappearance, which produced a misleading validation message ([#104](https://github.com/strakers/webform_ranking/issues/104)).
 
 ## [0.3.0] - 2026-08-29
 
 ### Added
 
-- Per-item conditional visibility now offers a visual condition builder
-  — a fieldset with a `State`/`Element`/`Trigger-Value` table, the same
-  states (Visible, Hidden, Visible (Slide), Hidden (Slide), Enabled,
-  Disabled, Required, Optional) and All/Any/One combining — matching
-  the look and feel of this element's own element-level "Conditional
-  logic" tab, as the primary way to configure a condition. The builder
-  writes directly into the same `#states` YAML field that already
-  existed; raw YAML ("Edit source") remains available for anything the
-  builder can't represent (#13, #65). Includes a few guardrails: a
-  warning if hand-typed YAML and the builder's own rows have diverged
-  (rather than silently overwriting one with the other), a format hint
-  for the "between"/"not between" comparison's `min:max` value, and a
-  warning (instead of a confusing save-time error) when two conditions
-  on the same field are combined with "All," which can't be saved
-  (#88, #92).
+- Added a visual point-and-click builder for per-item conditional visibility (matching the element-level "Conditional logic" tab's look), replacing hand-typed YAML as the primary configuration method — raw YAML remains available for anything the builder can't represent ([#13](https://github.com/strakers/webform_ranking/issues/13), [#65](https://github.com/strakers/webform_ranking/issues/65)). Includes guardrails against stale hand-typed YAML, an unclear "between" value format, and an unsavable same-field "All" combination ([#88](https://github.com/strakers/webform_ranking/issues/88), [#92](https://github.com/strakers/webform_ranking/issues/92)).
 
 ### Fixed
 
-- Per-item condition builder: an unsaved condition edit on one item
-  could be silently discarded and reverted to whatever was last saved,
-  if the admin then added or removed a different item row (or triggered
-  any other AJAX rebuild elsewhere on the form) before saving (#79).
+- Per-item condition builder: fixed an unsaved condition edit being silently discarded when a different item row was added or removed before saving ([#79](https://github.com/strakers/webform_ranking/issues/79)).
 
 ## [0.2.2] - 2026-08-24
 
 ### Added
 
-- New "Require at least one item to be ranked 1st" option. Previously,
-  with "Allow abstaining (N/A)" and "Require every visible item to be
-  ranked or marked N/A" both on, a respondent could mark every item N/A
-  and satisfy validation without ranking anything at all. This is an
-  independent toggle for genuine engagement — a top choice is required,
-  even when full engagement with every item isn't (#63).
-- New "Sequential ranks error message" admin field (matrix display
-  style), for overriding the message shown when a respondent's ranking
-  skips a position (e.g. picks 2nd/3rd but not 1st) — matches the
-  existing "Require 1st place error message" field's pattern (#74).
+- Added "Require at least one item to be ranked 1st," an independent toggle for genuine engagement alongside "Allow abstaining" ([#63](https://github.com/strakers/webform_ranking/issues/63)).
+- Added a "Sequential ranks error message" admin field (matrix display style) ([#74](https://github.com/strakers/webform_ranking/issues/74)).
 
 ### Changed
 
-- Every validation error message this element shows has been rewritten
-  in plainer, less technical language, and brought in line with
-  Webform core's own message convention (the field's title embedded
-  grammatically into the sentence, e.g. `"@title field is required."`)
-  — several of this element's own messages had instead invented a
-  `"@title: <message>"` colon-prefixed style found nowhere else in
-  Webform core. Most notably, the matrix "no gaps" message changes from
-  "ranks must be assigned starting from the top, with no gaps — a lower
-  rank cannot be used unless every rank above it is also used" to
-  "must be ranked in order (1st, 2nd, 3rd, etc.), without skipping any
-  positions" — with an added sentence noting N/A is available, when
-  "Allow abstaining" is enabled (#74).
-- "Require 1st place message" admin field renamed to "Require 1st place
-  error message," and its description reworded to clarify it appears
-  specifically when there is a validation error for that setting (#74).
+- Rewrote every validation error message in plainer language, matching Webform core's own message convention ([#74](https://github.com/strakers/webform_ranking/issues/74)).
+- Renamed "Require 1st place message" to "Require 1st place error message" ([#74](https://github.com/strakers/webform_ranking/issues/74)).
 
 ### Fixed
 
-- Element-level `#states` (hiding/showing the *entire* ranking field
-  based on another element's value, configured via this element's own
-  "Conditional logic" tab) did not work at all — the `data-drupal-states`
-  attribute states.js needs was being written to a render array property
-  (`#attributes`) this element's `form_element` theme wrapper never
-  outputs. Per-item conditional visibility, and other elements reacting
-  to a ranking item's value, were unaffected and continue to work (#57).
-- Matrix display style: an item's own conditional visibility never
-  worked when its trigger element lived on an earlier wizard page —
-  Webform's cross-page condition handling never saw the condition in
-  the first place, since it isn't a real, independently-discoverable
-  render element at the point that resolution runs. Now resolved
-  statically, server-side, for cross-page triggers specifically;
-  same-page conditions are unaffected (#61).
-- Matrix display style: hiding a conditionally-visible item via its own
-  "Include this item when..." condition only hid the label and radios —
-  the containing table row itself stayed in the DOM, showing as an
-  empty-looking row. Now the whole row hides/shows together (#59).
-- Matrix display style: rank columns (1st, 2nd, 3rd, ... + N/A) no
-  longer stay fixed at the full configured item count when one or more
-  items are conditionally hidden — only as many rank positions as
-  there are currently-visible items are offered, N/A excepted (#60).
-- Matrix display style: with "Require every visible item to be ranked
-  or marked N/A" on, a row hidden by its own same-page conditional
-  visibility still carried a native HTML `required` attribute on its
-  radios — a hidden, unfocusable control the browser could never let
-  the user satisfy, silently blocking submission with no Drupal error
-  and no visible one. Now kept in sync with the row's own live
-  visibility instead of being fixed at render time (#68).
-- Validation errors on this element rendered duplicated, once per
-  matrix radio, when Drupal core's `inline_form_errors` module is
-  enabled — the module's own per-element error rendering and this
-  element's own inline error text (added for #48) were both firing for
-  the same error, unaware of each other. Now suppressed the same way
-  Webform's own composite elements suppress it for their sub-elements
-  (#69).
+- Fixed element-level "Conditional logic" (hiding/showing the whole field) not working at all — per-item conditions were unaffected ([#57](https://github.com/strakers/webform_ranking/issues/57)).
+- Matrix display style: fixed an item's own conditional visibility not working when its trigger element was on an earlier wizard page ([#61](https://github.com/strakers/webform_ranking/issues/61)).
+- Matrix display style: fixed a conditionally-hidden item's table row staying visible instead of hiding along with its label/radios ([#59](https://github.com/strakers/webform_ranking/issues/59)).
+- Matrix display style: fixed rank columns not shrinking to match the currently-visible item count ([#60](https://github.com/strakers/webform_ranking/issues/60)).
+- Matrix display style, with "Require every visible item..." on: fixed a conditionally-hidden row silently blocking submission ([#68](https://github.com/strakers/webform_ranking/issues/68)).
+- Fixed validation errors rendering duplicated when Drupal core's `inline_form_errors` module is enabled ([#69](https://github.com/strakers/webform_ranking/issues/69)).
 
 ## [0.2.1] - 2026-08-21
 
 ### Added
 
-- Visual and ARIA indication that `#required_all` requires every visible
-  item to be ranked or marked N/A. Matrix style: a red asterisk on each
-  item's label plus `role="radiogroup"`/`aria-labelledby` on the row, a
-  native `required` attribute and `aria-describedby` on each radio.
-  Drag/drop style: an ARIA-only screen-reader cue (no visual asterisk,
-  since an item's placement in the ordered list already denotes its
-  rank) (#46).
-- `aria-invalid`/`class="error"` on the ranking field's wrapper, and
-  visible inline error text beneath it, on a failed validation —
-  neither was previously rendered anywhere, unlike every other field
-  on the form (#47, #48).
-- Automated accessibility auditing via the `Metadrop/ddev-pa11y` DDEV
-  add-on (pa11y/pa11y-ci), covering both display styles in a clean and
-  an interactive (post-selection/post-reorder) state. On-demand and
-  suite entry points, plus fixture webforms and setup docs — see
-  `docs/TESTING.md`'s "Accessibility auditing (pa11y)" section (#9).
+- Added visual/ARIA indication of `#required_all` (asterisk + `aria-describedby` for matrix, screen-reader-only cue for drag/drop) ([#46](https://github.com/strakers/webform_ranking/issues/46)).
+- Added `aria-invalid`/inline error text on validation failure, matching every other field on the form ([#47](https://github.com/strakers/webform_ranking/issues/47), [#48](https://github.com/strakers/webform_ranking/issues/48)).
+- Added automated accessibility auditing via `ddev-pa11y` (pa11y/pa11y-ci), covering both display styles ([#9](https://github.com/strakers/webform_ranking/issues/9)).
 
 ## [0.2.0] - 2026-08-21
 
 ### Added
 
-- `LICENSE.txt` (GPL-2.0-or-later).
+- Added `LICENSE.txt` (GPL-2.0-or-later).
 
 ### Changed
 
-- Reorganized documentation: `README.md` now focuses on user-facing
-  usage; local development setup and testing instructions moved to
-  `docs/DEVELOPMENT.md` and `docs/TESTING.md`.
-- Brought the codebase into full compliance with Drupal's coding
-  standards, in preparation for a drupal.org project application.
-- Removed a no-op `$form_state->setValue('items', $items)` call in the
-  admin config form's validation handler — `$items` was never mutated
-  before being written back (#30).
-- Removed an unused `$delta` loop variable in the matrix display
-  style's item-rendering loop (#31).
-- Replaced a `formatPlural(1, '@position', '@position', ...)` wrapper
-  (singular/plural arguments identical — not actually pluralizable)
-  with plain `t()` in `getRankLabels()` (#32).
-- Renamed the pipeline-smoke-test kernel test file
-  (`WebformRankingValidationTest` → `WebformRankingPipelineTest`) to
-  stop it being confused with the comprehensive validation-rules suite,
-  `WebformRankingValidationKernelTest` — the near-identical names were
-  easy to trip over despite each file's own docblock explaining the
-  distinction (#33).
+- Reorganized documentation: `README.md` is now user-facing only; setup/testing moved to `docs/DEVELOPMENT.md`/`docs/TESTING.md`.
+- Brought the codebase into full Drupal coding-standards compliance, in preparation for a drupal.org submission.
+- Minor cleanup: removed a no-op form-state call ([#30](https://github.com/strakers/webform_ranking/issues/30)), an unused loop variable ([#31](https://github.com/strakers/webform_ranking/issues/31)), and a non-pluralizable `formatPlural()` wrapper ([#32](https://github.com/strakers/webform_ranking/issues/32)).
+- Renamed a confusingly-similar-named kernel test file for clarity ([#33](https://github.com/strakers/webform_ranking/issues/33)).
 
 ### Fixed
 
-- Ranking item values are now validated at config-save time (letters,
-  numbers, underscores, hyphens, periods only; 128 characters max) —
-  previously an unconstrained value could produce a malformed `#states`
-  selector string that silently never matched. **Note:** if an
-  already-configured Ranking element has an item value outside these
-  rules, its settings form will fail to save until the value is
-  corrected, even for an unrelated change (#21).
-- Matrix display style: a conditionally-visible item's name label no
-  longer stays on screen after its own rank radios have been hidden by
-  `#states`. The label cell was a bare, attribute-less render array
-  that `states.js` had nothing to bind to; it's now a proper
-  `container` element that hides in lockstep with its row (#35).
-- `#states` condition-builder selector options for this element no
-  longer include a bogus whole-element selector that matched no real
-  DOM input; per-item rank selectors are now correctly grouped under
-  the element's title, like every other composite element (#22).
-- Matrix display style: hiding a conditionally-visible item that
-  currently holds a rank now correctly frees that rank back up for
-  every other item. Previously the client-side "each rank used at
-  most once" check never recomputed on a visibility change, only on a
-  rank selection — leaving a rank needlessly disabled after the item
-  holding it disappeared (#36).
-- The ranking element's value is now always written back in its
-  storage (flat item => rank) shape after validation, even when
-  validation fails — several checks previously returned early and
-  skipped this, which was invisible on a real failed submission but
-  could leave a `webform_computed_twig` element's live AJAX recompute
-  reading the element's internal, pre-conversion shape instead (#37).
-- Matrix display style: a fully-ranked matrix can now be rearranged.
-  Rank-exclusivity previously *disabled* every already-taken cell,
-  which meant swapping two items' positions needed two simultaneous
-  changes that permanently, mutually blocked each other — a
-  fully-ranked matrix without `#allow_na` could never be rearranged
-  again. Selecting an already-taken rank now reassigns it away from
-  whichever item currently holds it instead of refusing the click
-  (#40).
-- A conditional ranking item's rank could be silently dropped from a
-  `webform_computed_twig` element's live `#ajax`-recomputed value,
-  even while genuinely visible and correctly ranked. The item
-  visibility resolver was consulted with the form's stale,
-  not-yet-synced submission entity instead of one reflecting the
-  current request's field values, so a `#states` condition depending
-  on another field changed in the same request could incorrectly
-  evaluate as unsatisfied (#41).
-- Module version metadata now matches what the code actually requires
-  and what's actually tested: `core_version_requirement` (both
-  `webform_ranking.info.yml` and `composer.json`) bumped from
-  `^10.1 || ^11` to `^10.3 || ^11` — `Drupal\Core\Render\Element\FormElementBase`,
-  which this module's render element extends, was itself only added
-  in Drupal core 10.3.0; the module could never actually install on
-  10.1/10.2 despite claiming to. `composer.json`'s `drupal/webform`
-  constraint narrowed from `^6.2` to `^6.3`, the version this module
-  is actually developed and tested against. The deprecated
-  `@FormElement("webform_ranking")` annotation replaced with the
-  `#[FormElement('webform_ranking')]` attribute, matching Drupal core's
-  own migration of this same base class (#27).
-- `element.dragdrop` library now declares its `core/drupal.states`
-  dependency (which itself provides jQuery), matching `element.matrix`.
-  Its live-region-renumbering code previously guessed at jQuery's
-  presence at runtime (`if (window.jQuery)`) with an unverified,
-  unreachable-in-practice native-`addEventListener` fallback, since
-  `states.js` only ever fires `state:visible` as a jQuery event (#23).
-- Neither display style redefines `.visually-hidden` itself anymore.
-  The matrix style's local copy (no `!important`, a zero-size clip
-  rect instead of the 1px rect assistive tech expects) shadowed core's
-  own, more complete version whenever both loaded — and the drag/drop
-  style's live region, which uses the same class, never guaranteed
-  *any* version was loaded at all. Both libraries now depend on
-  `system/base`, which provides the correct version, instead (#26).
-- Drag/drop items now declare `touch-action: none`, without which a
-  touch press-and-move gesture was claimed by the browser for
-  scrolling instead of reaching the reorder engine's pointer-events
-  handler — the README advertised touch dragging as supported, but it
-  never actually worked (#24).
-- Drag/drop display style, three accessibility fixes: the hidden
-  order/na/rank inputs and the live-region `<div>` are no longer
-  direct children of the `role="list"` element (a list role's owned
-  children must all be `role="listitem"`); the move-up/move-down
-  buttons no longer lose keyboard focus to the item container after a
-  move, so repeatedly pressing Enter on a move button keeps working
-  instead of doing exactly one move; the `▲`/`▼` button glyphs are now
-  wrapped in an `aria-hidden` span instead of being announced
-  alongside the button's `aria-label` (#25).
-- Randomized item order (`#randomize_item_order`) no longer reshuffles
-  on every form rebuild. `prepare()` runs on every build of this
-  element — including validation-error rebuilds, AJAX rebuilds, and
-  wizard-step navigation within the same form session — and an
-  unseeded `shuffle()` reordered the rows on every one of those,
-  jumping a respondent's already-made selections to new positions and
-  undermining the bias-reduction rationale for the feature. The order
-  is now seeded from the submission's own UUID, stable for the
-  lifetime of one in-progress submission but still varying between
-  different respondents (#28).
-- Matrix display style: stealing a rank from another item now
-  correctly updates any `#states` condition elsewhere on the form that
-  was watching the item that lost it. Reassignment unchecked the
-  loser's radio via a plain property assignment with no accompanying
-  `change` event, so `states.js` — which only re-evaluates a `value`
-  trigger condition on `change`/`keyup` — never noticed and left any
-  dependent element stuck showing/hiding whatever was last true (#51).
+- Added item-value validation at config-save time (letters, numbers, underscores, hyphens, periods only; 128 characters max). **Note:** an already-saved item value outside these rules must be corrected before the settings form can be saved again, even for an unrelated change ([#21](https://github.com/strakers/webform_ranking/issues/21)).
+- Matrix display style: fixed a conditionally-hidden item's label staying on screen after its radios were hidden ([#35](https://github.com/strakers/webform_ranking/issues/35)).
+- Fixed a bogus whole-element `#states` selector option; per-item rank selectors are now grouped correctly ([#22](https://github.com/strakers/webform_ranking/issues/22)).
+- Matrix display style: fixed a conditionally-hidden item's rank not being freed up for other items until a rank was reselected ([#36](https://github.com/strakers/webform_ranking/issues/36)).
+- Fixed the element's value not always being written back in storage shape after a failed validation ([#37](https://github.com/strakers/webform_ranking/issues/37)).
+- Matrix display style: fixed a fully-ranked matrix being unable to rearrange — rank-exclusivity now reassigns instead of disabling taken cells ([#40](https://github.com/strakers/webform_ranking/issues/40)).
+- Fixed a conditional item's rank being silently dropped from a `webform_computed_twig` live recompute ([#41](https://github.com/strakers/webform_ranking/issues/41)).
+- Corrected module version metadata to match actual requirements: Drupal `^10.1 || ^11` → `^10.3 || ^11`, Webform `^6.2` → `^6.3` ([#27](https://github.com/strakers/webform_ranking/issues/27)).
+- Fixed `element.dragdrop`'s missing `core/drupal.states` dependency ([#23](https://github.com/strakers/webform_ranking/issues/23)).
+- Fixed both display styles shadowing/relying on an incomplete `.visually-hidden` definition instead of Drupal core's ([#26](https://github.com/strakers/webform_ranking/issues/26)).
+- Fixed drag/drop touch dragging not working at all ([#24](https://github.com/strakers/webform_ranking/issues/24)).
+- Drag/drop display style: three accessibility fixes — correct `role="list"` structure, move buttons keeping keyboard focus after a move, and the `▲`/`▼` glyphs no longer being announced redundantly ([#25](https://github.com/strakers/webform_ranking/issues/25)).
+- Fixed randomized item order reshuffling on every form rebuild instead of staying stable per submission ([#28](https://github.com/strakers/webform_ranking/issues/28)).
+- Matrix display style: fixed a stolen rank not updating `#states` conditions elsewhere on the form that were watching the item that lost it ([#51](https://github.com/strakers/webform_ranking/issues/51)).
 
 ## [0.1.0] - 2026-07-12
 
 ### Added
 
-- Drag-and-drop ranking items can now be used as `#states` trigger sources
-  for other form elements, matching the matrix display style's existing
-  capability (#1, #2).
-- FunctionalJavascript browser test coverage for both display styles:
-  pointer/keyboard/button reordering, N/A toggling, rank exclusivity,
-  live `aria-live` announcements, and live `#states` reactions (#6, #8).
+- Drag/drop items can now be used as `#states` trigger sources, matching matrix ([#1](https://github.com/strakers/webform_ranking/issues/1), [#2](https://github.com/strakers/webform_ranking/issues/2)).
+- Added FunctionalJavascript browser test coverage for both display styles ([#6](https://github.com/strakers/webform_ranking/issues/6), [#8](https://github.com/strakers/webform_ranking/issues/8)).
 
 ### Changed
 
-- Per-item conditional visibility on the admin config form now opens a
-  dialog per item ("Conditions" button) instead of an inline checkbox
-  toggle, reducing clutter in the items table when several items have a
-  condition configured (#4, #12).
+- Per-item conditional visibility now opens a dialog per item instead of an inline checkbox toggle ([#4](https://github.com/strakers/webform_ranking/issues/4), [#12](https://github.com/strakers/webform_ranking/issues/12)).
 
 ### Fixed
 
-- Per-item conditional visibility (`#states` YAML) never actually hid or
-  showed ranking items — the submitted YAML was never decoded into an
-  array, so the condition silently never matched (#5, #7).
-- Drag-and-drop pointer-based reordering stopped responding after the
-  first item swap during a real mouse/trackpad drag — reparenting the
-  dragged item mid-gesture was silently breaking pointer capture in
-  Chromium (#3, #11).
-- Admin config form's per-item conditional-visibility toggle didn't
-  reliably scope to the correct item row (#4, #12).
+- Fixed per-item conditional visibility never actually hiding/showing items ([#5](https://github.com/strakers/webform_ranking/issues/5), [#7](https://github.com/strakers/webform_ranking/issues/7)).
+- Fixed drag/drop pointer reordering stopping after the first swap ([#3](https://github.com/strakers/webform_ranking/issues/3), [#11](https://github.com/strakers/webform_ranking/issues/11)).
+- Fixed the per-item conditional-visibility toggle not reliably scoping to the correct row ([#4](https://github.com/strakers/webform_ranking/issues/4), [#12](https://github.com/strakers/webform_ranking/issues/12)).
 
 ## [0.0.1] - 2026-07-10
 
 ### Added
 
-- Initial release of the Ranking element for Webform.
-- Two display styles: a matrix of radio buttons (one row per item, one
-  column per rank) and a drag-and-drop list (pointer drag, touch, arrow
-  keys, and move-up/down buttons).
-- Optional "Not Applicable" abstention per item.
-- Server- and client-side validation: no duplicate ranks, no gaps in
-  rank sequence among currently-visible items.
-- Per-item conditional visibility via a `#states`-style YAML condition,
-  configurable per item on the admin form.
-- Matrix items usable as `#states` trigger sources for other elements
-  (e.g. "show this field only if Pizza is ranked 1st").
-- Randomizable item display order, to reduce position bias in
-  survey-style rankings.
-- Customizable rank position labels (overriding the default "1st, 2nd,
-  3rd..." labels).
-- Results/CSV export formatting, ordered by resolved rank.
-- Unit and Kernel test coverage.
+- Initial release: matrix and drag/drop display styles, N/A abstention, sequential/no-duplicate-rank validation, per-item conditional visibility, per-item `#states` trigger sources, randomizable order, customizable rank labels, results/CSV export, and initial test coverage.
 
-[Unreleased]: https://github.com/strakers/webform_ranking/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/strakers/webform_ranking/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/strakers/webform_ranking/compare/v0.0.1...v0.1.0
-[0.0.1]: https://github.com/strakers/webform_ranking/releases/tag/v0.0.1
+[Unreleased]: https://github.com/strakers/webform_ranking/compare/0.3.1...HEAD
+[0.3.1]: https://github.com/strakers/webform_ranking/compare/0.3.0...0.3.1
+[0.3.0]: https://github.com/strakers/webform_ranking/compare/0.2.2...0.3.0
+[0.2.2]: https://github.com/strakers/webform_ranking/compare/0.2.1...0.2.2
+[0.2.1]: https://github.com/strakers/webform_ranking/compare/0.2.0...0.2.1
+[0.2.0]: https://github.com/strakers/webform_ranking/compare/0.1.0...0.2.0
+[0.1.0]: https://github.com/strakers/webform_ranking/compare/0.0.1...0.1.0
+[0.0.1]: https://github.com/strakers/webform_ranking/releases/tag/0.0.1

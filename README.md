@@ -13,8 +13,8 @@ The Webform Ranking module adds a flexible ranking element to the Drupal [Webfor
 
 ## Requirements
 
-- Drupal ^10.1 || ^11
-- Webform ^6.2
+- Drupal ^10.3 || ^11
+- Webform ^6.3
 
 ## Installation
 
@@ -31,21 +31,28 @@ Add a **Ranking** element to your webform to begin. Under the element settings, 
 
 ### Setting Up Conditional Logic
 
-**To hide or reveal specific ranking choices:** Click the **Conditions** button next to any choice in your item configuration list. This opens a dialog box where you can supply conditional logic, either blank or pre-filled if one is already set.
+**To hide or reveal specific ranking choices:** Click the **Conditions** button next to any choice in your item configuration list. This opens a visual condition builder — pick a state (Visible, Hidden, Visible (Slide), Hidden (Slide), Enabled, Disabled), the other element to watch, and its trigger value, matching the look and feel of Webform's own element-level "Conditional logic" tab. Multiple conditions can be combined with All/Any/One. For anything the builder can't represent, an "Edit source" link switches to raw YAML.
 
 **To trigger other form fields based on a rank:** Use the standard Webform conditional wizard on _other_ form elements. The ranking element exposes unique, per-item selectors (such as `Ranking: Pizza`) directly in the condition-builder UI. You can easily construct rules like _Show [Field B] if [Ranking: Pizza] is [1]_. The visibility changes update live in the browser as the respondent interacts with the field.
 
 ## Key Design Considerations & Limitations
 
-- **Conditional Logic Format:** Setting up visibility rules for individual choices within the ranking element requires entering raw YAML syntax inside the configuration dialog, rather than using Webform's visual rule builder.
+- **Conditional Logic Format:** The visual condition builder can't represent every possible rule (e.g. combining more than one state, such as Visible and Enabled, on the same item). In those cases, "Edit source" falls back to entering raw YAML directly.
 - **Strict Matrix Order:** The Matrix display style requires respondents to assign ranks sequentially starting from the top slot. Skipping a leading rank (e.g., selecting 2nd and 3rd but leaving 1st unassigned) triggers a validation error on submission. The error message is customizable via the "Sequential ranks error message" setting.
+
+## Repository
+
+This module's primary repository is on GitHub — issues, pull requests, and all development happen there. A mirror is published to [drupal.org](https://www.drupal.org/project/webform_ranking) for packaging and distribution; it isn't currently where
+development occurs.
 
 ## Development
 
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for local environment
 setup and project structure, [docs/TESTING.md](docs/TESTING.md) for
-running the test suite, and [docs/CONTINUATION.md](docs/CONTINUATION.md)
-for architecture notes, design-decision rationale, and known gaps.
+running the test suite, [docs/CONTINUATION.md](docs/CONTINUATION.md)
+for architecture notes, design-decision rationale, and known gaps, and
+[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for this project's
+branching, issue, changelog, and review conventions.
 
 ## AI Usage and Transparency
 

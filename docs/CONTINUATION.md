@@ -1518,7 +1518,7 @@ no-input fallback only ever see canonical shape. The plugin's
     pure refactors with no behavior change, so no new tests needed there
     beyond the full existing suite passing unchanged.
 32. **GitHub issue #102: matrix `#required_all`'s conditional-row fix
-    (entry 21/#68) itself crashed submission**, found during v0.3.0
+    (entry 21/#68) itself crashed submission**, found during 0.3.0
     manual release testing. Root cause: mirroring an item's own
     visible/invisible condition into a `required`/`optional` `#states`
     key made Webform core's `WebformSubmissionConditionsValidator`
@@ -1561,6 +1561,88 @@ no-input fallback only ever see canonical shape. The plugin's
     same false "server-side validation already discards a hidden
     item's stale selection" claim in ADR-0012. See
     `docs/adr/0019-matrix-duplicate-rank-detection.md`.
+34. **GitHub issue #108: drag/drop `#required_all`'s UI relevance and
+    hidden-item state handling.** Two fixes. First, `#required_all` is a
+    structural no-op for drag/drop (every item always lands ranked or
+    N/A'd — there's no "unaccounted for" state), so it's now hidden via
+    `#states` when `ranking_style` isn't `matrix` — deliberately
+    UI-only, per the issue's own follow-up comment, so the stored value
+    survives a round trip through drag/drop and back to matrix. Second,
+    and more involved: `webform_ranking.dragdrop.js` had no per-item
+    reaction to an item's own conditional visibility, only a page-wide
+    listener that re-numbered visible positions. This left the per-item
+    rank *echo* input (ADR-0008 — the channel other `#states` conditions
+    and `webform_computed_twig` live recomputes watch) holding a hidden
+    item's stale value, genuinely observable downstream (confirmed via
+    the user's own worked example: a "banana color" field shown when
+    "Banana ranked 1st" incorrectly stayed matched after Banana was
+    hidden). An initial fix attempt marked a hidden item's echo `'na'`
+    — rejected on review: `'na'` is a real, respondent-facing value, and
+    borrowing it as a "hidden" stand-in is meaningless when `#allow_na`
+    is off, and doesn't produce the coalescing actually wanted. Correct
+    fix: `sync()` now computes `order`/`na` from only currently-visible
+    items and blanks (not `'na'`s) a hidden item's own echo — a hidden
+    item is excluded from the dataset entirely, coalescing the rest, as
+    a side effect of the same filter `renumber()`/`moveItem()` already
+    used. A new per-item `state:visible` listener replaces the old
+    page-wide one: hide just calls `sync()`; reveal calls the existing
+    `setItemNa(item, false)` (already implements "re-enter at the end
+    of the ranked stack," reused rather than reimplemented). First test
+    run against this exposed a second, genuinely surprising bug: the
+    `state:visible` event fires *before* states.js's own DOM-hiding
+    effect actually completes, confirmed by directly instrumenting the
+    handler — `offsetParent` was still non-null inside the very handler
+    reporting the hide. A hide-time `sync()` call, running synchronously
+    inside that event, therefore raced the animation and saw a stale
+    "still visible" DOM, so nothing changed at all. Fixed by tracking
+    visibility in a `knownVisible` value-keyed map updated directly from
+    each event's own `e.value` rather than re-derived from the DOM at
+    call time — the same approach `matrix.js`'s own `visible` map
+    already uses, for the identical reason. A second, separate bug
+    surfaced during manual testing after this fix landed: a hidden
+    item's N/A checkbox, when revealed, visually stayed checked even
+    though the underlying data correctly reset to "ranked, not N/A."
+    Root cause: Webform core's own `webform.states.js` independently
+    backs up every `:input` inside a conditionally-hidden webform
+    element and restores its *pre-hide* value on reveal, via a
+    document-level `state:visible` handler that (bound on an ancestor)
+    runs synchronously right after this module's own item-level
+    handler within the same event dispatch — silently overwriting the
+    `checked = false` this fix had just set. Fixed by deferring that
+    one assignment via `setTimeout(fn, 0)`, so Webform's own restore
+    runs first and this fix's outcome is what's left standing. See
+    `docs/adr/0020-dragdrop-required-all-visibility-and-hidden-item-state.md`.
+35. **GitHub issue #10 ("Visual design pass for matrix and drag/drop
+    displays") split into six focused sub-issues** (#115-#120) — it had
+    accumulated several genuinely independent pieces (theming infra,
+    drag/drop icons, uniform control heights, matrix N/A/taken-radio
+    styling, admin-configurable options, and a follow-up comment's
+    responsive-collapse idea that explicitly left open whether it
+    belonged in #10 or its own issue). #10 closed with cross-references
+    to the six; first one tackled was #115 (responsive matrix collapse).
+    **GitHub issue #115: matrix display style collapses to a vertical
+    layout below `768px`**, mirroring the Webform Likert element's own
+    technique (`web/modules/contrib/webform/css/webform.element.likert.css`)
+    — hide `<thead>`, block every `<td>`. The one design decision that
+    couldn't just copy Likert verbatim: Likert's per-answer label span
+    is deliberately screen-reader-exposed (not `aria-hidden`), because
+    Likert's radios use `aria-labelledby` pointing only at the question
+    text, so the label span is what disambiguates the answer for screen
+    reader users via browse-mode reading order. This element's matrix
+    radios don't use `aria-labelledby` — the existing combined `#title`
+    ("Item: Rank", invisible but always in the accessible-name
+    computation) is already a complete, unambiguous name regardless of
+    viewport. Caught on review before implementation: adding a Likert-
+    style visually-hidden (not `aria-hidden`) span for the new mobile
+    rank hint would have caused a screen reader to announce the radio's
+    full name, then separately pick up the new span's own text as
+    redundant, confusing extra content. Fixed by making the new
+    `webform-ranking-matrix__rank-label` span `aria-hidden="true"`
+    unconditionally — it's a pure sighted-user affordance with zero
+    accessibility duty, so excluding it from the tree entirely (rather
+    than toggling visually-hidden ⇄ visible by breakpoint, as Likert
+    does) is both simpler and correct specifically because our
+    accessible name doesn't depend on it the way Likert's does.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
@@ -1600,10 +1682,13 @@ evidence rather than assert confidently.
   DOM**~~ — resolved by Key Design Decision #17's redesign: the checkbox
   + row-matching heuristic this referred to no longer exists (replaced
   by a per-item dialog with no row-matching step at all).
-- **No visual CSS design pass** — current CSS is structural/layout only,
-  except `webform_ranking.items_admin.css` (added for GitHub issue #65),
-  which deliberately mirrors core Webform's own +/- icon-button styling
-  for the per-item condition builder — genuine, if narrow, visual design.
+- **No visual CSS design pass** — current CSS is still mostly structural/
+  layout only, except `webform_ranking.items_admin.css` (added for
+  GitHub issue #65), which deliberately mirrors core Webform's own +/-
+  icon-button styling for the per-item condition builder, and the
+  matrix style's new responsive collapse (#115). What used to be a
+  single tracking issue (#10) is now six focused sub-issues (#116-#120
+  remaining) — see entry 35 above.
 - **`webform_element_states` nested-widget crash root cause never actually
   diagnosed** — worked around, not fixed/understood. Could theoretically
   be revisited if raw-YAML UX becomes a real problem.
@@ -1621,7 +1706,7 @@ evidence rather than assert confidently.
   since nothing's asked for it yet.
 
 ## Constraints
-- Target: Drupal ^10.1 || ^11, Webform ^6.2 (composer.json).
+- Target: Drupal ^10.3 || ^11, Webform ^6.3 (composer.json).
 - Security-advisory-policy-quality module is the bar (per original ask).
 - No PHP/Drupal execution available in prior environment — all fixes after
   the first several messages were driven by the user's real test/browser

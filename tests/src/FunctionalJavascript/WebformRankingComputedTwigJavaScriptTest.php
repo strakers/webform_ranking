@@ -274,4 +274,79 @@ class WebformRankingComputedTwigJavaScriptTest extends WebDriverTestBase {
     $this->assertSame('1', $decoded['burgers']);
   }
 
+  /**
+   * Tests that a hidden drag/drop item is excluded from the computed value.
+   *
+   * Mirrors testComputedValueIncludesVisibleConditionalItem() above for
+   * the drag/drop display style (GitHub issue #108). Server-side, this
+   * is already enforced regardless of display style by
+   * validateWebformRanking()'s visibility-resolver intersect — this
+   * pins that same protection down for drag/drop specifically, since
+   * only the matrix side had coverage for it before.
+   */
+  public function testComputedValueExcludesHiddenDragdropItem(): void {
+    Webform::create([
+      'langcode' => 'en',
+      'status' => WebformInterface::STATUS_OPEN,
+      'id' => 'test_rank_computed_dragdrop_cond',
+      'title' => 'Test ranking computed dragdrop conditional',
+      'elements' => Yaml::encode([
+        'trigger' => [
+          '#type' => 'textfield',
+          '#title' => 'Trigger',
+        ],
+        'preference' => [
+          '#type' => 'webform_ranking',
+          '#title' => 'Preference',
+          '#ranking_style' => 'dragdrop',
+          '#allow_na' => TRUE,
+          '#items' => [
+            ['value' => 'pizza', 'label' => 'Pizza'],
+            [
+              'value' => 'burgers',
+              'label' => 'Burgers',
+              'states' => [
+                'invisible' => [
+                  ':input[name="trigger"]' => ['filled' => TRUE],
+                ],
+              ],
+            ],
+          ],
+        ],
+        'computed' => [
+          '#type' => 'webform_computed_twig',
+          '#title' => 'Computed',
+          '#template' => '{{ data.preference|json_encode }}',
+          '#ajax' => TRUE,
+        ],
+      ]),
+    ])->save();
+
+    $this->drupalGet('/webform/test_rank_computed_dragdrop_cond');
+
+    // Both items start ranked (pizza 1st, burgers 2nd, per configured
+    // order), so the computed value should include both initially.
+    $text = $this->getSession()->getPage()->waitFor(8, function () {
+      $text = $this->computedText();
+      return (strpos($text, 'pizza') !== FALSE && strpos($text, 'burgers') !== FALSE) ? $text : FALSE;
+    });
+    $this->assertNotFalse($text, 'Computed value never included both items. Got: ' . $this->computedText());
+
+    // Hiding burgers must drop it from the computed value entirely, not
+    // leave its stale rank behind.
+    $this->getSession()->getPage()->fillField('trigger', 'anything');
+
+    $text = $this->getSession()->getPage()->waitFor(8, function () {
+      $text = $this->computedText();
+      $json = substr($text, strpos($text, '{'));
+      $decoded = json_decode($json, TRUE);
+      return is_array($decoded) && !array_key_exists('burgers', $decoded) ? $text : FALSE;
+    });
+    $this->assertNotFalse($text, 'Computed value still included the hidden item. Got: ' . $this->computedText());
+
+    $json = substr($text, strpos($text, '{'));
+    $decoded = json_decode($json, TRUE);
+    $this->assertSame('1', $decoded['pizza']);
+  }
+
 }

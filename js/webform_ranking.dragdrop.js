@@ -47,11 +47,18 @@
       return item.getAttribute('data-webform-ranking-na') === 'true';
     }
 
-    // Dynamic rank numbering: only counts items states.js currently
-    // shows, affecting the position indicator/button state only — the
-    // submitted order/na always includes every present item. See
-    // docs/adr/0013-dragdrop-pointer-events-and-accessibility-model.md.
+    // Value -> known current visibility, updated live from each item's
+    // 'state:visible' event rather than re-derived from offsetParent at
+    // call time — that event fires before states.js's own DOM-hiding
+    // effect actually completes. See GitHub issue #108 and
+    // docs/adr/0020-dragdrop-required-all-visibility-and-hidden-item-state.md.
+    var knownVisible = {};
+
     function isCurrentlyVisible(item) {
+      var value = item.getAttribute('data-webform-ranking-value');
+      if (Object.prototype.hasOwnProperty.call(knownVisible, value)) {
+        return knownVisible[value];
+      }
       return item.offsetParent !== null;
     }
 
@@ -126,13 +133,17 @@
      * 'change' so #states reacts — states.js only watches real field
      * values) and each rank echo input, in the same pass. The ONLY
      * place any of these inputs are ever written — see
-     * docs/adr/0008-dragdrop-rank-echo-channel.md.
+     * docs/adr/0008-dragdrop-rank-echo-channel.md. A hidden item is
+     * excluded and its own echo blanked, not marked 'na' — see
+     * docs/adr/0020-dragdrop-required-all-visibility-and-hidden-item-state.md.
      */
     function sync() {
-      var order = rankedItems().map(function (item) {
+      var visibleRanked = rankedItems().filter(isCurrentlyVisible);
+      var visibleNa = naItems().filter(isCurrentlyVisible);
+      var order = visibleRanked.map(function (item) {
         return item.getAttribute('data-webform-ranking-value');
       });
-      var na = naItems().map(function (item) {
+      var na = visibleNa.map(function (item) {
         return item.getAttribute('data-webform-ranking-value');
       });
 
@@ -146,6 +157,11 @@
       });
       na.forEach(function (value) {
         setRankInput(value, 'na');
+      });
+      allItems().filter(function (item) {
+        return !isCurrentlyVisible(item);
+      }).forEach(function (item) {
+        setRankInput(item.getAttribute('data-webform-ranking-value'), '');
       });
 
       renumber();
@@ -206,6 +222,22 @@
       item.setAttribute('data-webform-ranking-na', na ? 'true' : 'false');
       item.classList.toggle('webform-ranking-dragdrop__item--na', na);
 
+      // Keeps the checkbox itself in sync — needed once this function
+      // has a programmatic caller (the reveal-time reset below) whose
+      // checkbox.checked doesn't already match. Deferred: Webform
+      // core's own webform.states.js restores a revealed input's
+      // PRE-HIDE value via its own document-level 'state:visible'
+      // handler, which runs synchronously right after this one and
+      // would otherwise immediately re-check a box this function just
+      // unchecked. See GitHub issue #108 and
+      // docs/adr/0020-dragdrop-required-all-visibility-and-hidden-item-state.md.
+      var naCheckbox = item.querySelector('.webform-ranking-dragdrop__na-checkbox');
+      if (naCheckbox) {
+        window.setTimeout(function () {
+          naCheckbox.checked = na;
+        }, 0);
+      }
+
       if (na) {
         // Group N/A'd items at the end of the list.
         container.appendChild(item);
@@ -231,6 +263,10 @@
         ? Drupal.t('@item marked as @na_label', {'@item': itemLabel(item), '@na_label': container.getAttribute('data-na-label') || Drupal.t('N/A')})
         : Drupal.t('@item returned to ranking', {'@item': itemLabel(item)}));
     }
+
+    allItems().forEach(function (item) {
+      knownVisible[item.getAttribute('data-webform-ranking-value')] = item.offsetParent !== null;
+    });
 
     allItems().forEach(function (item) {
       var upBtn = item.querySelector('.webform-ranking-dragdrop__move-up');
@@ -328,14 +364,20 @@
 
       item.addEventListener('pointerup', endDrag);
       item.addEventListener('pointercancel', endDrag);
-    });
 
-    // Re-renumber on any states.js visibility change, so the dynamic-
-    // rank indicator stays correct without needing a reorder. jQuery
-    // event (states.js triggers via $(element).trigger()), not a
-    // native DOM event — plain addEventListener can't observe it.
-    $(document).on('state:visible', function () {
-      renumber();
+      // Reacts to this item's own conditional visibility (jQuery event
+      // — plain addEventListener can't observe it). See GitHub issue
+      // #108 and
+      // docs/adr/0020-dragdrop-required-all-visibility-and-hidden-item-state.md.
+      $(item).on('state:visible', function (e) {
+        knownVisible[item.getAttribute('data-webform-ranking-value')] = e.value;
+        if (e.value) {
+          setItemNa(item, false);
+        }
+        else {
+          sync();
+        }
+      });
     });
 
     // Initial sync: makes hidden inputs match server-rendered default

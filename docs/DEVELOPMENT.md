@@ -2,7 +2,8 @@
 
 This document covers setting up a local environment to work on the
 Webform Ranking module itself — installing it as a project dependency is
-covered in the main [README](../README.md).
+covered in the main [README](../README.md). For branching, issue, and
+review conventions, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Local environment
 
