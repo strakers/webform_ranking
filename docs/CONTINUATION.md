@@ -1612,6 +1612,37 @@ no-input fallback only ever see canonical shape. The plugin's
     one assignment via `setTimeout(fn, 0)`, so Webform's own restore
     runs first and this fix's outcome is what's left standing. See
     `docs/adr/0020-dragdrop-required-all-visibility-and-hidden-item-state.md`.
+35. **GitHub issue #10 ("Visual design pass for matrix and drag/drop
+    displays") split into six focused sub-issues** (#115-#120) — it had
+    accumulated several genuinely independent pieces (theming infra,
+    drag/drop icons, uniform control heights, matrix N/A/taken-radio
+    styling, admin-configurable options, and a follow-up comment's
+    responsive-collapse idea that explicitly left open whether it
+    belonged in #10 or its own issue). #10 closed with cross-references
+    to the six; first one tackled was #115 (responsive matrix collapse).
+    **GitHub issue #115: matrix display style collapses to a vertical
+    layout below `768px`**, mirroring the Webform Likert element's own
+    technique (`web/modules/contrib/webform/css/webform.element.likert.css`)
+    — hide `<thead>`, block every `<td>`. The one design decision that
+    couldn't just copy Likert verbatim: Likert's per-answer label span
+    is deliberately screen-reader-exposed (not `aria-hidden`), because
+    Likert's radios use `aria-labelledby` pointing only at the question
+    text, so the label span is what disambiguates the answer for screen
+    reader users via browse-mode reading order. This element's matrix
+    radios don't use `aria-labelledby` — the existing combined `#title`
+    ("Item: Rank", invisible but always in the accessible-name
+    computation) is already a complete, unambiguous name regardless of
+    viewport. Caught on review before implementation: adding a Likert-
+    style visually-hidden (not `aria-hidden`) span for the new mobile
+    rank hint would have caused a screen reader to announce the radio's
+    full name, then separately pick up the new span's own text as
+    redundant, confusing extra content. Fixed by making the new
+    `webform-ranking-matrix__rank-label` span `aria-hidden="true"`
+    unconditionally — it's a pure sighted-user affordance with zero
+    accessibility duty, so excluding it from the tree entirely (rather
+    than toggling visually-hidden ⇄ visible by breakpoint, as Likert
+    does) is both simpler and correct specifically because our
+    accessible name doesn't depend on it the way Likert's does.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
@@ -1651,10 +1682,13 @@ evidence rather than assert confidently.
   DOM**~~ — resolved by Key Design Decision #17's redesign: the checkbox
   + row-matching heuristic this referred to no longer exists (replaced
   by a per-item dialog with no row-matching step at all).
-- **No visual CSS design pass** — current CSS is structural/layout only,
-  except `webform_ranking.items_admin.css` (added for GitHub issue #65),
-  which deliberately mirrors core Webform's own +/- icon-button styling
-  for the per-item condition builder — genuine, if narrow, visual design.
+- **No visual CSS design pass** — current CSS is still mostly structural/
+  layout only, except `webform_ranking.items_admin.css` (added for
+  GitHub issue #65), which deliberately mirrors core Webform's own +/-
+  icon-button styling for the per-item condition builder, and the
+  matrix style's new responsive collapse (#115). What used to be a
+  single tracking issue (#10) is now six focused sub-issues (#116-#120
+  remaining) — see entry 35 above.
 - **`webform_element_states` nested-widget crash root cause never actually
   diagnosed** — worked around, not fixed/understood. Could theoretically
   be revisited if raw-YAML UX becomes a real problem.

@@ -431,6 +431,14 @@ class WebformRanking extends FormElementBase {
           // the same way Webform's own composite elements suppress it
           // for their sub-elements.
           '#error_no_message' => TRUE,
+          // GitHub issue #115: sighted-only, narrow-viewport aid — the
+          // column header this echoes is hidden by
+          // webform_ranking.matrix.css's responsive collapse, so this
+          // fills in visually. aria-hidden since the radio's own #title
+          // above already fully names it; unlike the Likert element's
+          // similar span, this one carries no accessibility duty of its
+          // own to protect.
+          '#suffix' => '<span class="webform-ranking-matrix__rank-label" aria-hidden="true">' . Html::escape($rank_label) . '</span>',
         ];
         if ($required_all) {
           // Native 'required' (not Drupal's own '#required'): a plain
@@ -458,6 +466,8 @@ class WebformRanking extends FormElementBase {
           '#parents' => $row_parents,
           '#id' => Html::getUniqueId('edit-' . implode('-', array_merge($row_parents, ['na']))),
           '#error_no_message' => TRUE,
+          // See the rank radios' own '#suffix' above (GitHub issue #115).
+          '#suffix' => '<span class="webform-ranking-matrix__rank-label" aria-hidden="true">' . Html::escape($element['#na_label']) . '</span>',
         ];
         if ($required_all) {
           if (!$suppress_static_required) {

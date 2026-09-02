@@ -620,4 +620,163 @@ class WebformRankingMatrixJavaScriptTest extends WebDriverTestBase {
     $this->assertFalse($this->isRankColumnHidden('2'));
   }
 
+  /**
+   * Finds the rank-label span belonging to a specific item/rank radio.
+   *
+   * The span is a '#suffix', rendered outside the radio's own
+   * '#theme_wrappers' => ['form_element'] wrapper div (see core's
+   * Radio element) — not a direct sibling of the <input> itself, so
+   * this walks up to the shared <td> first rather than relying on a
+   * CSS sibling combinator.
+   */
+  protected function rankLabelSpanFor(string $item, string $rank) {
+    $selector = 'input[name="ranking[matrix][' . $item . ']"][value="' . $rank . '"]';
+    $radio = $this->assertSession()->waitForElement('css', $selector);
+    return $radio->find('xpath', './ancestor::td[1]//*[contains(concat(" ", normalize-space(@class), " "), " webform-ranking-matrix__rank-label ")]');
+  }
+
+  /**
+   * Tests the responsive collapse at narrow viewports (GitHub issue #115).
+   *
+   * Mirrors the Likert element's own technique
+   * (web/modules/contrib/webform/css/webform.element.likert.css): below
+   * the breakpoint, the column headers hide and each cell becomes a
+   * block, stacking vertically. A sighted-only rank-label span (added in
+   * WebformRanking::buildMatrix()) fills in for the now-hidden column
+   * header.
+   */
+  public function testResponsiveCollapseAtNarrowViewport(): void {
+    $this->drupalGet('/webform/test_ranking_matrix');
+    $this->assertSession()->waitForElement('css', 'input[name="ranking[matrix][a]"]');
+
+    $page = $this->getSession()->getPage();
+
+    // Desktop width: headers visible, rank-label spans hidden (the
+    // header already conveys this).
+    $thead = $page->find('css', '.webform-ranking-matrix thead');
+    $this->assertNotNull($thead);
+    $this->assertTrue($thead->isVisible());
+    $rank_label = $this->rankLabelSpanFor('a', '1');
+    $this->assertNotNull($rank_label);
+    $this->assertFalse($rank_label->isVisible());
+
+    // Narrow viewport: headers hide, the row label stays visible, and
+    // the rank-label span takes over conveying the rank.
+    $this->getSession()->resizeWindow(480, 800, 'current');
+    $this->assertTrue($page->waitFor(4, function () use ($thead) {
+      return !$thead->isVisible();
+    }));
+
+    $row_label = $page->find('css', '.webform-ranking-matrix__label');
+    $this->assertNotNull($row_label);
+    $this->assertTrue($row_label->isVisible());
+
+    // The table itself needs its own top margin too — with the header
+    // row hidden, nothing else separates the first item's group of
+    // cells from the element's title/description text above it.
+    $tableMarginTop = $this->getSession()->evaluateScript(
+      "getComputedStyle(document.querySelector('.webform-ranking-matrix')).marginTop"
+    );
+    $this->assertSame('18px', $tableMarginTop);
+
+    $rank_label = $this->rankLabelSpanFor('a', '1');
+    $this->assertNotNull($rank_label);
+    $this->assertTrue($rank_label->isVisible());
+    $this->assertSame('1st', $rank_label->getText());
+
+    // The rank-label span is a '#suffix', rendered as a sibling *after*
+    // the radio's own theme_wrappers-rendered <div> (core's Radio
+    // element always wraps in one) — that div is block-level by
+    // default, which previously pushed the span onto its own line
+    // below instead of next to the radio. Confirms the td's own
+    // `display: flex` keeps them on the same line.
+    $geometry = $this->getSession()->evaluateScript(<<<'JS'
+(function () {
+  var input = document.querySelector('input[name="ranking[matrix][a]"][value="1"]');
+  var div = input.closest('td').querySelector('div');
+  var span = input.closest('td').querySelector('.webform-ranking-matrix__rank-label');
+  return Math.abs(div.getBoundingClientRect().top - span.getBoundingClientRect().top) < 5;
+})()
+JS);
+    $this->assertTrue($geometry, 'Expected the rank-label span to sit on the same line as its preceding radio/label div.');
+
+    // Cells within the same item's row sit flush together (no leftover
+    // per-cell padding), but a visible gap separates one item's group
+    // of cells from the next's — without it, review flagged that every
+    // item's radios would run together with nothing marking where one
+    // item ends and the next begins.
+    $rowGaps = $this->getSession()->evaluateScript(<<<'JS'
+(function () {
+  var rowA = document.querySelector('tr[data-drupal-selector="edit-ranking-matrix-a"]');
+  var rowB = document.querySelector('tr[data-drupal-selector="edit-ranking-matrix-b"]');
+  var cellsA = rowA.querySelectorAll('td');
+  return {
+    withinRow: cellsA[1].getBoundingClientRect().top - cellsA[0].getBoundingClientRect().bottom,
+    betweenRows: rowB.querySelector('td:first-child').getBoundingClientRect().top - rowA.querySelector('td:last-child').getBoundingClientRect().bottom
+  };
+})()
+JS);
+    $this->assertLessThanOrEqual(1, $rowGaps['withinRow'], 'Expected no gap between cells within the same item row.');
+    $this->assertGreaterThan(10, $rowGaps['betweenRows'], 'Expected a visible gap between different items\' cell groups.');
+
+    // Resizing back up restores the desktop layout.
+    $this->getSession()->resizeWindow(1200, 800, 'current');
+    $this->assertTrue($page->waitFor(4, function () use ($thead) {
+      return $thead->isVisible();
+    }));
+  }
+
+  /**
+   * Tests that every rank-label span is excluded from the a11y tree.
+   *
+   * GitHub issue #115, flagged during review: unlike the Likert
+   * element's own per-answer label (deliberately screen-reader-exposed,
+   * since Likert's radios rely on it via aria-labelledby), this
+   * element's radios already have a complete, unambiguous accessible
+   * name ("Item: Rank") regardless of viewport — so the rank-label span
+   * added for sighted narrow-viewport users must never be exposed to
+   * assistive tech, or it would be announced a second time as
+   * confusing, redundant content.
+   */
+  public function testRankLabelSpansAreAriaHidden(): void {
+    $this->drupalGet('/webform/test_ranking_matrix');
+    $this->assertSession()->waitForElement('css', 'input[name="ranking[matrix][a]"]');
+
+    $spans = $this->getSession()->getPage()->findAll('css', '.webform-ranking-matrix__rank-label');
+    $this->assertNotEmpty($spans, 'Expected at least one rank-label span.');
+    foreach ($spans as $span) {
+      $this->assertSame('true', $span->getAttribute('aria-hidden'));
+    }
+  }
+
+  /**
+   * Tests that a conditionally-hidden row stays hidden at any width.
+   *
+   * Confirms the responsive collapse (GitHub issue #115) doesn't
+   * interact with the `tr[hidden]` `!important` rule (GitHub issue #59)
+   * — a hidden row's `display: none !important` must keep winning over
+   * the new narrow-viewport `td { display: block; }` rule regardless.
+   */
+  public function testConditionalItemRowStaysHiddenAtNarrowViewport(): void {
+    $this->drupalGet('/webform/test_ranking_matrix');
+    $page = $this->getSession()->getPage();
+
+    $radio = $this->assertSession()->waitForElement('css', 'input[name="ranking[matrix][c]"][value="1"]');
+    $row = $radio->find('xpath', './ancestor::tr[1]');
+    $this->assertNotNull($row);
+
+    $page->fillField('trigger', 'anything');
+    $this->assertTrue($page->waitFor(4, function () use ($row) {
+      return !$row->isVisible();
+    }));
+
+    $this->getSession()->resizeWindow(480, 800, 'current');
+    $this->assertTrue($page->waitFor(4, function () {
+      return !$this->getSession()->getPage()->find('css', '.webform-ranking-matrix thead')->isVisible();
+    }));
+    $this->assertFalse($row->isVisible());
+
+    $this->getSession()->resizeWindow(1200, 800, 'current');
+  }
+
 }
