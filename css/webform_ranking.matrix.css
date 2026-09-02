@@ -1,7 +1,6 @@
 /**
- * Structural styles only. Visual design (colors, spacing polish) is a
- * separate follow-up pass — see GitHub issue #119. Responsive collapse
- * for narrow viewports (GitHub issue #115) is handled below.
+ * Structural styles only — visual design (colors, spacing polish) is a
+ * separate pass, see GitHub issue #119.
  */
 .webform-ranking-matrix {
   border-collapse: collapse;
@@ -20,31 +19,18 @@
 }
 
 /**
- * GitHub issue #59: webform_ranking.matrix.js sets the native `hidden`
- * attribute on a conditionally-hidden item's <tr> (states.js has
- * nothing to attach '#states' to on the row itself — see
- * WebformRanking::buildMatrix()'s docblock). `[hidden] { display: none }`
- * is already a UA-stylesheet default, but table rows are a known
- * exception across themes: a `tr { display: table-row }` rule of equal
- * specificity, declared later in the cascade, can win over the UA
- * default and leave the row visible despite the attribute. Explicit and
- * `!important` here so this doesn't depend on which theme's own base
- * CSS this element happens to render under.
+ * GitHub issue #59: webform_ranking.matrix.js sets `hidden` on a
+ * conditionally-hidden item's <tr>. `!important` since a theme's own
+ * equal-specificity `tr { display: table-row }` rule can otherwise win
+ * over the `[hidden]` UA default and leave the row visible.
  */
 .webform-ranking-matrix tr[hidden] {
   display: none !important;
 }
 
 /**
- * GitHub issue #60: webform_ranking.matrix.js hides a rank column (the
- * header cell plus every row's cell at that position) once fewer ranks
- * than configured items are currently needed, via the native `hidden`
- * attribute. `[hidden] { display: none }` is a UA-stylesheet default,
- * but table cells are a known cross-theme exception — an equal-
- * specificity `td`/`th` display rule declared later in a theme's own
- * CSS can win over it. Explicit and `!important` for the same reason
- * as the `tr[hidden]` rule this element also uses (see GitHub issue
- * #59) — doesn't depend on which theme this happens to render under.
+ * GitHub issue #60: same `!important`-over-a-theme's-own-rule reasoning
+ * as `tr[hidden]` above, for a surplus rank column's header/cells.
  */
 .webform-ranking-matrix th[hidden],
 .webform-ranking-matrix td[hidden] {
@@ -62,24 +48,16 @@
 }
 
 /**
- * '.visually-hidden' (used by this style's live region, see
- * WebformRanking::buildMatrix()) is intentionally NOT redefined here.
- * It used to be, with a weaker definition (no `!important`, a
- * zero-size clip rect instead of the 1px rect assistive tech actually
- * expects) that shadowed core's own, more complete version
- * (web/core/modules/system/css/components/hidden.module.css) whenever
- * both loaded — this library now depends on `system/base` instead
- * (see webform_ranking.libraries.yml) to guarantee the correct
- * version is present without redefining it.
+ * '.visually-hidden' is intentionally NOT redefined here — a weaker
+ * local definition used to shadow core's own (system/base, now a
+ * declared library dependency instead).
  */
 
 /**
- * Sighted-only rank hint shown per radio once the responsive collapse
- * below hides the column headers that normally convey this. aria-hidden
- * at the render layer (WebformRanking::buildMatrix()) — this class only
- * ever controls its visual display, never its accessibility exposure.
- * The left padding separates it from the radio/label it follows, once
- * the narrow-viewport rule below puts them on the same line.
+ * Sighted-only rank hint (GitHub issue #115), shown per radio once the
+ * collapse below hides the column headers that normally convey this —
+ * aria-hidden at the render layer (WebformRanking::buildMatrix()), so
+ * this class only ever controls its visual display.
  */
 .webform-ranking-matrix__rank-label {
   display: none;
@@ -89,14 +67,17 @@
 /**
  * GitHub issue #115: mirrors the Likert element's own narrow-viewport
  * collapse (web/modules/contrib/webform/css/webform.element.likert.css)
- * — same breakpoint, same "hide the header, block every cell" approach.
- * Doesn't need Likert's visually-hidden/un-hide dance for its per-radio
- * label, since ours is aria-hidden and purely presentational rather than
- * screen-reader load-bearing (see WebformRanking::buildMatrix()).
+ * — hide the header, block every cell, same breakpoint.
  */
 @media (max-width: 768px) {
   .webform-ranking-matrix thead {
     display: none;
+  }
+
+  /* Separates the table from the element's title/description text above
+     it, now that the header row providing that break is hidden. */
+  .webform-ranking-matrix {
+    margin-block-start: var(--sp1, 1.125rem);
   }
 
   .webform-ranking-matrix td {
@@ -107,21 +88,21 @@
     text-align: left;
   }
 
-  /*
-   * Each radio's own '#suffix' rank-label span (see
-   * WebformRanking::buildMatrix()) is a sibling *after* this element's
-   * theme_wrappers-rendered <div> (core's Radio element always wraps in
-   * one), not inside it — that div is block-level by default, which
-   * would otherwise push the span onto its own line below. The td's own
-   * `display: flex` above puts both on one line; this zeroes the div's
-   * own top margin (core's own form-item spacing) so stacked radios
-   * within a row don't pile up extra vertical gaps on top of that.
-   */
+  /* Zeroes core's own form-item top margin on the radio's wrapper div
+     (a block-level sibling the rank-label span follows, per td's own
+     `display: flex` above) so stacked radios sit flush together. */
   .webform-ranking-matrix td > div {
     margin-block-start: 0;
   }
 
   .webform-ranking-matrix__rank-label {
     display: inline;
+  }
+
+  /* Restores a visual gap between item groups, lost once td padding was
+     zeroed above. On the last cell, not `tr` itself — margin doesn't
+     apply to that display type. */
+  .webform-ranking-matrix td:last-child {
+    margin-block-end: var(--sp1, 1.125rem);
   }
 }

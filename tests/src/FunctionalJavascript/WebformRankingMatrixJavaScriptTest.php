@@ -671,6 +671,14 @@ class WebformRankingMatrixJavaScriptTest extends WebDriverTestBase {
     $this->assertNotNull($row_label);
     $this->assertTrue($row_label->isVisible());
 
+    // The table itself needs its own top margin too — with the header
+    // row hidden, nothing else separates the first item's group of
+    // cells from the element's title/description text above it.
+    $tableMarginTop = $this->getSession()->evaluateScript(
+      "getComputedStyle(document.querySelector('.webform-ranking-matrix')).marginTop"
+    );
+    $this->assertSame('18px', $tableMarginTop);
+
     $rank_label = $this->rankLabelSpanFor('a', '1');
     $this->assertNotNull($rank_label);
     $this->assertTrue($rank_label->isVisible());
@@ -691,6 +699,25 @@ class WebformRankingMatrixJavaScriptTest extends WebDriverTestBase {
 })()
 JS);
     $this->assertTrue($geometry, 'Expected the rank-label span to sit on the same line as its preceding radio/label div.');
+
+    // Cells within the same item's row sit flush together (no leftover
+    // per-cell padding), but a visible gap separates one item's group
+    // of cells from the next's — without it, review flagged that every
+    // item's radios would run together with nothing marking where one
+    // item ends and the next begins.
+    $rowGaps = $this->getSession()->evaluateScript(<<<'JS'
+(function () {
+  var rowA = document.querySelector('tr[data-drupal-selector="edit-ranking-matrix-a"]');
+  var rowB = document.querySelector('tr[data-drupal-selector="edit-ranking-matrix-b"]');
+  var cellsA = rowA.querySelectorAll('td');
+  return {
+    withinRow: cellsA[1].getBoundingClientRect().top - cellsA[0].getBoundingClientRect().bottom,
+    betweenRows: rowB.querySelector('td:first-child').getBoundingClientRect().top - rowA.querySelector('td:last-child').getBoundingClientRect().bottom
+  };
+})()
+JS);
+    $this->assertLessThanOrEqual(1, $rowGaps['withinRow'], 'Expected no gap between cells within the same item row.');
+    $this->assertGreaterThan(10, $rowGaps['betweenRows'], 'Expected a visible gap between different items\' cell groups.');
 
     // Resizing back up restores the desktop layout.
     $this->getSession()->resizeWindow(1200, 800, 'current');
