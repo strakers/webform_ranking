@@ -33,6 +33,21 @@ agent-authored.
   for merges into the repo's actual default branch (`main`), not `dev`.
   See the Issues section below for the manual step this requires.
 
+## Remotes
+
+- GitHub (`origin`) is the primary repository — every issue, PR, and
+  review happens here. `drupal` (`git.drupalcode.org/project/webform_ranking`)
+  is a receive-only mirror for drupal.org packaging/distribution, not a
+  second place to develop against.
+- Never commit or push directly to the `drupal` remote outside the
+  documented sync step below — the two histories would otherwise fork
+  silently, since nothing keeps them in sync automatically.
+- Tags are plain `X.Y.Z`, no `v` prefix — required by drupal.org, and
+  kept identical on GitHub rather than running two schemes.
+- drupal.org also requires a version-named release branch (`X.Y.x`,
+  e.g. `0.3.x`) in addition to `main`/`dev` — see Releases below for
+  when that gets created/updated.
+
 ## Issues
 
 - File an issue before starting non-trivial work: bugs, features,
@@ -78,7 +93,7 @@ agent-authored.
 - At release time: finalize `## [Unreleased]` to
   `## [X.Y.Z] - YYYY-MM-DD`, with a fresh empty `[Unreleased]` heading
   above it, and add that version's link-reference definition at the
-  bottom of the file (matching the existing `compare/vX...vY` pattern).
+  bottom of the file (matching the existing `compare/X...Y` pattern).
 
 ## Pull requests
 
@@ -126,3 +141,8 @@ agent-authored.
 - SemVer bump decisions (patch vs. minor, especially pre-1.0) are the
   maintainer's own case-by-case judgment call, not a mechanical reading
   of the changelog.
+- After the GitHub Release is published: mirror `main` to the `drupal`
+  remote's `main` and current `X.Y.x` branch (today: `0.3.x`), and push
+  the matching plain-version tag there too — see Remotes above. There's
+  no separate patch-only release line yet, so `X.Y.x` currently just
+  tracks `main` wholesale rather than diverging from it.

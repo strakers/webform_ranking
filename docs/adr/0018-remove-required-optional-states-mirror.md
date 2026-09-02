@@ -39,7 +39,7 @@ whenever a conditionally-visible item exists on a form with
 element).
 
 A second, independent path produced the same crash-triggering shape: the
-per-item visual condition builder (#65/v0.3.0) let a site builder pick
+per-item visual condition builder (#65/0.3.0) let a site builder pick
 "Required"/"Optional" directly as an item's own condition *state* via
 `WebformRanking::PICKER_STATE_KEYS`, regardless of `#required_all`.
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Release tags are now plain `X.Y.Z` (no `v` prefix) on both GitHub and the new drupal.org mirror, and every historical tag/release was retargeted to match — see [CONTRIBUTING.md](docs/CONTRIBUTING.md#remotes) for the dual-remote setup.
+
 ### Fixed
 
 - Corrected outdated Drupal/Webform version requirements and conditional-logic documentation in README.md ([#107](https://github.com/strakers/webform_ranking/issues/107)).
@@ -112,11 +116,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release: matrix and drag/drop display styles, N/A abstention, sequential/no-duplicate-rank validation, per-item conditional visibility, per-item `#states` trigger sources, randomizable order, customizable rank labels, results/CSV export, and initial test coverage.
 
-[Unreleased]: https://github.com/strakers/webform_ranking/compare/v0.3.1...HEAD
-[0.3.1]: https://github.com/strakers/webform_ranking/compare/v0.3.0...v0.3.1
-[0.3.0]: https://github.com/strakers/webform_ranking/compare/v0.2.2...v0.3.0
-[0.2.2]: https://github.com/strakers/webform_ranking/compare/v0.2.1...v0.2.2
-[0.2.1]: https://github.com/strakers/webform_ranking/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/strakers/webform_ranking/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/strakers/webform_ranking/compare/v0.0.1...v0.1.0
-[0.0.1]: https://github.com/strakers/webform_ranking/releases/tag/v0.0.1
+[Unreleased]: https://github.com/strakers/webform_ranking/compare/0.3.1...HEAD
+[0.3.1]: https://github.com/strakers/webform_ranking/compare/0.3.0...0.3.1
+[0.3.0]: https://github.com/strakers/webform_ranking/compare/0.2.2...0.3.0
+[0.2.2]: https://github.com/strakers/webform_ranking/compare/0.2.1...0.2.2
+[0.2.1]: https://github.com/strakers/webform_ranking/compare/0.2.0...0.2.1
+[0.2.0]: https://github.com/strakers/webform_ranking/compare/0.1.0...0.2.0
+[0.1.0]: https://github.com/strakers/webform_ranking/compare/0.0.1...0.1.0
+[0.0.1]: https://github.com/strakers/webform_ranking/releases/tag/0.0.1
