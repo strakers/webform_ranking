@@ -1,18 +1,30 @@
 /**
- * Structural styles only — see webform_ranking.matrix.css note.
+ * Structural styles only — see webform_ranking.matrix.css note. Values
+ * below are theme-overridable custom properties: see GitHub issue #116
+ * and docs/adr/0021-css-custom-property-convention.md for the token
+ * vocabulary and why these are only ever referenced via var(), never
+ * declared, in this module's own CSS.
  */
 .webform-ranking-dragdrop {
   display: flex;
   flex-direction: column;
-  gap: 0.5em;
+  gap: var(--webform-ranking-item-gap, var(--space-xs, var(--sp0-5, 0.5em)));
 }
 
 .webform-ranking-dragdrop__item {
   display: flex;
   align-items: center;
   gap: 0.75em;
-  padding: 0.5em 0.75em;
-  border: 1px solid;
+  padding: var(--webform-ranking-item-padding-block, var(--input-padding-vertical, 0.5em))
+    var(--webform-ranking-item-padding-inline, var(--input-padding-horizontal, 0.75em));
+  border: var(--webform-ranking-border-width, var(--input-border-size, 1px))
+    var(--webform-ranking-border-style, solid)
+    var(--webform-ranking-border-color, var(--input-border-color, var(--color--gray-70, #ccc)));
+  /* Stays square by default (GitHub issue #120 exposes this as an
+     admin-configurable toggle); already overridable today by a theme
+     or future inline style, since the property is never specified
+     here — see the ADR referenced above. */
+  border-radius: var(--webform-ranking-border-radius, 0);
   cursor: grab;
   /* Without this, a press-and-drag gesture can also trigger the
      browser's native text selection, visually competing with the
@@ -26,6 +38,19 @@
      drag before webform_ranking.dragdrop.js's pointermove handler
      ever sees it. */
   touch-action: none;
+}
+
+/**
+ * A custom role="listitem" tabindex="0" element (the real keyboard-
+ * reorder target per ADR-0008), not a native control — the move
+ * buttons/N/A checkbox are real <button>/<input> and already get
+ * theme-adaptive native focus styling, so only this element needs an
+ * explicit ring.
+ */
+.webform-ranking-dragdrop__item:focus-visible {
+  outline: var(--webform-ranking-border-width, var(--input-border-size, 1px)) solid
+    var(--webform-ranking-focus-color, var(--color-focus, var(--color--primary-50, #0f62c9)));
+  outline-offset: 2px;
 }
 
 .webform-ranking-dragdrop__item--dragging {
