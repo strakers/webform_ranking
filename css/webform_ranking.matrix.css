@@ -1,7 +1,7 @@
 /**
- * Structural styles only. Visual design (colors, spacing polish,
- * responsive collapse for narrow viewports per the earlier mobile
- * discussion) is a separate follow-up pass.
+ * Structural styles only. Visual design (colors, spacing polish) is a
+ * separate follow-up pass — see GitHub issue #119. Responsive collapse
+ * for narrow viewports (GitHub issue #115) is handled below.
  */
 .webform-ranking-matrix {
   border-collapse: collapse;
@@ -72,3 +72,37 @@
  * (see webform_ranking.libraries.yml) to guarantee the correct
  * version is present without redefining it.
  */
+
+/**
+ * Sighted-only rank hint shown per radio once the responsive collapse
+ * below hides the column headers that normally convey this. aria-hidden
+ * at the render layer (WebformRanking::buildMatrix()) — this class only
+ * ever controls its visual display, never its accessibility exposure.
+ */
+.webform-ranking-matrix__rank-label {
+  display: none;
+}
+
+/**
+ * GitHub issue #115: mirrors the Likert element's own narrow-viewport
+ * collapse (web/modules/contrib/webform/css/webform.element.likert.css)
+ * — same breakpoint, same "hide the header, block every cell" approach.
+ * Doesn't need Likert's visually-hidden/un-hide dance for its per-radio
+ * label, since ours is aria-hidden and purely presentational rather than
+ * screen-reader load-bearing (see WebformRanking::buildMatrix()).
+ */
+@media (max-width: 768px) {
+  .webform-ranking-matrix thead {
+    display: none;
+  }
+
+  .webform-ranking-matrix td {
+    display: block;
+    width: 100%;
+    text-align: left;
+  }
+
+  .webform-ranking-matrix__rank-label {
+    display: inline;
+  }
+}
