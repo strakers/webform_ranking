@@ -1643,6 +1643,37 @@ no-input fallback only ever see canonical shape. The plugin's
     than toggling visually-hidden ⇄ visible by breakpoint, as Likert
     does) is both simpler and correct specifically because our
     accessible name doesn't depend on it the way Likert's does.
+36. **GitHub issue #116: theme-overridable CSS custom properties for
+    both display styles.** Formalizes the ad hoc Olivero-token chaining
+    #115 introduced (`var(--sp1, 1.125rem)`) into a documented
+    `--webform-ranking-*` vocabulary, surveyed against Olivero, Claro,
+    and Gin's actual token names (Gin is a Claro subtheme —
+    `base theme: claro` — and deliberately keeps Claro's unprefixed
+    `--space-*`/`--input-*`/`--color-focus` names live, making them a
+    genuine de-facto standard beyond just plain-Claro sites). The one
+    real pitfall: a first draft declared these tokens with static
+    values directly on each component's root class
+    (`.webform-ranking-dragdrop { --webform-ranking-border-color: #ccc; }`).
+    For an inherited property, a value *specified* on an element always
+    beats one it only *inherits* — not a specificity contest — so a
+    theme's own natural `:root { --webform-ranking-border-color: ...; }`
+    override would silently never have reached the element at all.
+    Fixed by never giving these properties a specified value anywhere
+    in module CSS — only referencing `var(--webform-ranking-<name>,
+    <fallback-chain>)` inline at each point of use, leaving the
+    property genuinely unset so a theme's inheritance path is never
+    pre-empted. Full token table and reasoning in
+    [ADR-0021](adr/0021-css-custom-property-convention.md).
+    `--webform-ranking-border-radius` is the one token deliberately
+    *not* chained through a theme default (stays a literal `0`) — doing
+    so would have silently rounded every corner on any Olivero site the
+    moment this shipped, ahead of #120's actual admin-configurable
+    toggle for that. The drag/drop item (a custom
+    `role="listitem" tabindex="0"` div, not a native control) also
+    gained an explicit `:focus-visible` ring using the same token
+    chain — the move buttons/N/A checkbox are real `<button>`/`<input>`
+    and already get adequate native focus styling, so they were left
+    alone.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
@@ -1685,10 +1716,13 @@ evidence rather than assert confidently.
 - **No visual CSS design pass** — current CSS is still mostly structural/
   layout only, except `webform_ranking.items_admin.css` (added for
   GitHub issue #65), which deliberately mirrors core Webform's own +/-
-  icon-button styling for the per-item condition builder, and the
-  matrix style's new responsive collapse (#115). What used to be a
-  single tracking issue (#10) is now six focused sub-issues (#116-#120
-  remaining) — see entry 35 above.
+  icon-button styling for the per-item condition builder, the matrix
+  style's responsive collapse (#115), and the theme-overridable custom-
+  property vocabulary (#116, entry 36 above). What used to be a single
+  tracking issue (#10) is now six focused sub-issues; remaining order:
+  #117+#118 (drag/drop SVG icons + uniform control height, grouped),
+  then #120 (admin-configurable rounded corners/N/A display), then #119
+  (matrix N/A/row-column-line/taken-radio styling) last.
 - **`webform_element_states` nested-widget crash root cause never actually
   diagnosed** — worked around, not fixed/understood. Could theoretically
   be revisited if raw-YAML UX becomes a real problem.

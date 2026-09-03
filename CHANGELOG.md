@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Matrix display style: the table now collapses to a vertical, stacked layout on narrow screens, matching the Webform Likert element's own mobile behavior ([#115](https://github.com/strakers/webform_ranking/issues/115)).
+- Both display styles now use theme-overridable CSS custom properties for spacing, borders, and focus rings — chaining through Olivero/Claro/Gin's own tokens where present, with static fallbacks otherwise — and the drag/drop item now has a visible focus ring ([#116](https://github.com/strakers/webform_ranking/issues/116)).
 
 ### Changed
 
