@@ -76,6 +76,18 @@ Olivero-specific name, then a static literal:
 | `--webform-ranking-item-padding-inline` | `var(--input-padding-horizontal, 0.75em)` |
 | `--webform-ranking-rank-label-spacing` | `var(--sp0-5, calc(0.5 * 1.125rem))` (unchanged from #115) |
 | `--webform-ranking-narrow-margin` | `var(--sp1, var(--space-m, 1.125rem))` |
+| `--webform-ranking-control-size` | `var(--input-line-height, 2rem)` (added in #118 — the drag/drop move buttons' and N/A checkbox's shared `box-sizing: border-box` width/height, applied identically to both via one selector, paired with `font: inherit` so native form controls' own em-basis can't drift from the page's type scale; `2rem` clears WCAG 2.2's 24px target-size minimum (SC 2.5.8); no Olivero equivalent exists for "form control height," so that layer is skipped for this token) |
+| `--webform-ranking-button-bg` | `var(--button-bg-color, transparent)` (added in #118 — move-button background; Claro's real button token, Gin inherits it unchanged; no Olivero equivalent, so `transparent` rather than an invented brand color) |
+| `--webform-ranking-button-fg` | `var(--button-fg-color, currentColor)` (move-button text/icon color — the icon's own `fill="currentColor"` follows this automatically, no separate icon token needed) |
+| `--webform-ranking-button-hover-bg` | `var(--button--hover-bg-color, transparent)` |
+| `--webform-ranking-button-active-bg` | `var(--button--active-bg-color, transparent)` |
+| `--webform-ranking-button-disabled-bg` | `var(--button--disabled-bg-color, transparent)` (the topmost/bottommost item's move button; paired with a static `opacity: 0.5` fallback affordance, matching `.webform-ranking-matrix__radio--taken`'s own convention, since disabling a button via class selector alone would otherwise override the browser's native `:disabled` dimming) |
+| `--webform-ranking-button-disabled-fg` | `var(--button--disabled-fg-color, currentColor)` |
+| `--webform-ranking-button-focus-color` | `var(--button--focus-border-color, var(--webform-ranking-focus-color, var(--color-focus, var(--color--primary-50, #0f62c9))))` (the move buttons' `:focus-visible` outline — tries Claro's button-specific focus token before falling back through the generic `--webform-ranking-focus-color` chain `.webform-ranking-dragdrop__item:focus-visible` already uses) |
+| `--webform-ranking-button-hover-fg` | `var(--webform-ranking-button-fg, var(--button-fg-color, currentColor))` (Claro's generic button has no distinct hover foreground — only its primary/CTA variant does — so this intentionally resolves back to the base button foreground; still a real override point for a theme that does distinguish it) |
+| `--webform-ranking-button-active-fg` | Same fallback shape as `-hover-fg`, for `:active` |
+| `--webform-ranking-button-focus-bg` | `var(--webform-ranking-button-bg, var(--button-bg-color, transparent))` (same reasoning as `-hover-fg` above, applied to the focus state's background) |
+| `--webform-ranking-button-focus-fg` | Same fallback shape as `-hover-fg`, for `:focus-visible` |
 
 `--webform-ranking-border-radius` is the one deliberate exception to
 "chain through a real theme token": its default is a literal `0`, not
