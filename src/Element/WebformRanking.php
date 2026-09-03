@@ -688,14 +688,18 @@ class WebformRanking extends FormElementBase {
           // type="button" (not "submit") so a click never triggers
           // form submission; the reorder logic itself is entirely
           // client-side (element.dragdrop library).
-          // The ▲/▼ glyphs are wrapped in an aria-hidden span rather
-          // than set as the button's own #value: exposed directly,
-          // assistive tech announced the raw glyph character
-          // alongside the aria-label (redundant/confusing symbol-name
-          // readout). No #value on the button itself — see the 'na'
-          // label below for the same established pattern (a
-          // childless-#value html_tag with nested html_tag children
-          // instead).
+          // The icons are wrapped in an aria-hidden span rather than
+          // exposed directly: assistive tech would otherwise announce
+          // redundant/confusing content alongside the aria-label. No
+          // #value on the button itself — see the 'na' label below for
+          // the same established pattern (a childless-#value html_tag
+          // with nested html_tag children instead). Icons are built as
+          // nested html_tag render arrays (svg > path), not a raw
+          // markup string — Drupal\Core\Render\Element\HtmlTag's own
+          // void-element list already covers 'path', and a raw string
+          // would get Xss::filterAdmin()-stripped since neither 'svg'
+          // nor 'path' is in its allowed-tag list. See
+          // docs/adr/0022-inline-svg-via-nested-render-arrays.md.
           'move_up' => [
             '#type' => 'html_tag',
             '#tag' => 'button',
@@ -707,8 +711,8 @@ class WebformRanking extends FormElementBase {
             'glyph' => [
               '#type' => 'html_tag',
               '#tag' => 'span',
-              '#value' => '▲',
               '#attributes' => ['aria-hidden' => 'true'],
+              'icon' => static::buildMoveIcon('up'),
             ],
           ],
           'move_down' => [
@@ -722,8 +726,8 @@ class WebformRanking extends FormElementBase {
             'glyph' => [
               '#type' => 'html_tag',
               '#tag' => 'span',
-              '#value' => '▼',
               '#attributes' => ['aria-hidden' => 'true'],
+              'icon' => static::buildMoveIcon('down'),
             ],
           ],
         ],
@@ -765,6 +769,47 @@ class WebformRanking extends FormElementBase {
     $element['#attached']['library'][] = 'webform_ranking/element.dragdrop';
 
     return $element;
+  }
+
+  /**
+   * Builds a move-up/move-down triangle icon as a nested render array.
+   *
+   * A simple filled triangle — visually equivalent to the '▲'/'▼' glyphs
+   * this replaced, just vector-crisp and themable. fill="currentColor"
+   * inherits the button's own text color, so it needs no color token of
+   * its own. width/height: 1em ties its size to the button's font-size
+   * (GitHub issue #118 scales controls via font-driven sizing), instead
+   * of a hardcoded pixel size that could look wrong at other sizes.
+   * focusable="false" is defensive legacy-engine hardening (some older
+   * browsers made inline SVG tab-focusable by default); redundant with
+   * the caller's own aria-hidden wrapper on modern browsers.
+   *
+   * @param string $direction
+   *   Either 'up' or 'down'.
+   *
+   * @return array
+   *   A render array for the icon's <svg>.
+   */
+  protected static function buildMoveIcon($direction) {
+    return [
+      '#type' => 'html_tag',
+      '#tag' => 'svg',
+      '#attributes' => [
+        'class' => ['webform-ranking-dragdrop__icon'],
+        'viewBox' => '0 0 16 16',
+        'width' => '1em',
+        'height' => '1em',
+        'focusable' => 'false',
+      ],
+      'path' => [
+        '#type' => 'html_tag',
+        '#tag' => 'path',
+        '#attributes' => [
+          'd' => $direction === 'up' ? 'M8 4l5 8H3z' : 'M8 12L3 4h10z',
+          'fill' => 'currentColor',
+        ],
+      ],
+    ];
   }
 
   /**

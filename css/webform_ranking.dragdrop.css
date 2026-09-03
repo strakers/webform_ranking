@@ -77,3 +77,35 @@
   min-width: 4em;
   font-variant-numeric: tabular-nums;
 }
+
+/**
+ * GitHub issue #118: at native browser sizes, the move buttons and N/A
+ * checkbox don't match each other (buttons visibly taller). Raised both
+ * to a shared, comfortable size rather than shrinking the buttons down
+ * to the tiny native checkbox size, which would hurt their click
+ * target. --webform-ranking-control-size follows the ADR-0021
+ * convention (never declared, only referenced) — see that ADR's token
+ * table for the full vocabulary.
+ */
+.webform-ranking-dragdrop__move-up,
+.webform-ranking-dragdrop__move-down,
+.webform-ranking-dragdrop__na-checkbox {
+  width: var(--webform-ranking-control-size, var(--input-line-height, 1.6875rem));
+  height: var(--webform-ranking-control-size, var(--input-line-height, 1.6875rem));
+  margin: 0;
+}
+
+.webform-ranking-dragdrop__move-up,
+.webform-ranking-dragdrop__move-down {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+/* Keeps the now-larger checkbox aligned with its own label text. */
+.webform-ranking-dragdrop__na-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+}

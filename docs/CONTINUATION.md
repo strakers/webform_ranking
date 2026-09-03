@@ -1674,6 +1674,39 @@ no-input fallback only ever see canonical shape. The plugin's
     chain — the move buttons/N/A checkbox are real `<button>`/`<input>`
     and already get adequate native focus styling, so they were left
     alone.
+37. **GitHub issues #117 + #118: drag/drop SVG move icons + uniform
+    control height, grouped into one PR** (both touch the same move-
+    button/N/A-checkbox markup and CSS). **#117:** replaced the `▲`/`▼`
+    text glyphs with real icons, built as nested `html_tag` render
+    arrays (`buildMoveIcon()`) rather than a raw markup string — no
+    prior SVG usage existed anywhere in `src/`, so this was new
+    territory. Discovered Drupal core's `HtmlTag` render element
+    already extends its void-element list to include `path`/`rect`/
+    `circle`/etc. specifically to support building inline SVG this
+    way, and confirmed via `Renderer::doRender()` that a childless
+    `svg` element with nested render-array children renders correctly
+    (children render into `#children` regardless of `#markup`, which
+    is just an empty string when `#value` is omitted). A raw markup
+    string was rejected: `Xss::filterAdmin()` (what `HtmlTag` runs
+    plain-string `#value` through) doesn't allow `svg`/`path` in its
+    tag list, so the icon would have been stripped. Full reasoning in
+    [ADR-0022](adr/0022-inline-svg-via-nested-render-arrays.md). The
+    icon itself is a simple hand-drawn two-point filled triangle (not a
+    third-party icon set — avoids any licensing/attribution question
+    for a shape this simple), `fill="currentColor"` so it needs no
+    color token of its own. **#118:** the move buttons and N/A checkbox
+    had no sizing rules at all, so they mismatched at native browser
+    defaults (buttons visibly taller). Raised both to a shared size via
+    a new `--webform-ranking-control-size` token (added to
+    [ADR-0021](adr/0021-css-custom-property-convention.md)'s table,
+    same convention — never declared, only referenced) rather than
+    shrinking the buttons down to the tiny native checkbox size, which
+    would have hurt their click target. Chains through Claro/Gin's
+    `--input-line-height` (a genuine semantic match); no Olivero
+    equivalent exists for "form control height," so that layer is
+    skipped for this one token. The icon's own `1em` width/height means
+    it scales proportionally with this change instead of needing a
+    second, separately-tuned size.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
@@ -1717,12 +1750,13 @@ evidence rather than assert confidently.
   layout only, except `webform_ranking.items_admin.css` (added for
   GitHub issue #65), which deliberately mirrors core Webform's own +/-
   icon-button styling for the per-item condition builder, the matrix
-  style's responsive collapse (#115), and the theme-overridable custom-
-  property vocabulary (#116, entry 36 above). What used to be a single
-  tracking issue (#10) is now six focused sub-issues; remaining order:
-  #117+#118 (drag/drop SVG icons + uniform control height, grouped),
-  then #120 (admin-configurable rounded corners/N/A display), then #119
-  (matrix N/A/row-column-line/taken-radio styling) last.
+  style's responsive collapse (#115), the theme-overridable custom-
+  property vocabulary (#116, entry 36 above), and the drag/drop SVG
+  icons/uniform control sizing (#117+#118, entry 37 above). What used
+  to be a single tracking issue (#10) is now six focused sub-issues;
+  remaining order: #120 (admin-configurable rounded corners/N/A
+  display), then #119 (matrix N/A/row-column-line/taken-radio styling)
+  last.
 - **`webform_element_states` nested-widget crash root cause never actually
   diagnosed** — worked around, not fixed/understood. Could theoretically
   be revisited if raw-YAML UX becomes a real problem.

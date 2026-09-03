@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Release tags are now plain `X.Y.Z` (no `v` prefix) on both GitHub and the new drupal.org mirror, and every historical tag/release was retargeted to match — see [CONTRIBUTING.md](docs/CONTRIBUTING.md#remotes) for the dual-remote setup.
+- Drag/drop display style: the move-up/move-down buttons' `▲`/`▼` text glyphs are now SVG icons ([#117](https://github.com/strakers/webform_ranking/issues/117)), and the move buttons/N/A checkbox now share a uniform, theme-overridable control size instead of mismatched browser defaults ([#118](https://github.com/strakers/webform_ranking/issues/118)).
 
 ### Fixed
 

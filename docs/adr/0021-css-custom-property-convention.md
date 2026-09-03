@@ -76,6 +76,7 @@ Olivero-specific name, then a static literal:
 | `--webform-ranking-item-padding-inline` | `var(--input-padding-horizontal, 0.75em)` |
 | `--webform-ranking-rank-label-spacing` | `var(--sp0-5, calc(0.5 * 1.125rem))` (unchanged from #115) |
 | `--webform-ranking-narrow-margin` | `var(--sp1, var(--space-m, 1.125rem))` |
+| `--webform-ranking-control-size` | `var(--input-line-height, 1.6875rem)` (added in #118 — the drag/drop move buttons and N/A checkbox's shared height/width; no Olivero equivalent exists for "form control height," so that layer is skipped for this token) |
 
 `--webform-ranking-border-radius` is the one deliberate exception to
 "chain through a real theme token": its default is a literal `0`, not
