@@ -55,6 +55,20 @@
     var knownVisible = {};
 
     function isCurrentlyVisible(item) {
+      // `offsetParent` (directly, or via `knownVisible` seeded from it —
+      // see below) is only meaningful for an item that can actually be
+      // individually hidden: buildDragDrop() only ever attaches
+      // `#states` to an item's own container when that item's own
+      // condition is non-empty, i.e. only such an item ever carries
+      // `data-drupal-states`. For an item with no condition of its own,
+      // any `offsetParent === null` reading can only mean an ancestor
+      // (e.g. this element's own top-level `#states`) is hidden —
+      // irrelevant to this item's individual visibility, and wrongly
+      // treating it as hidden here silently dropped it from the
+      // submitted order/na values (GitHub issue #123).
+      if (!item.hasAttribute('data-drupal-states')) {
+        return true;
+      }
       var value = item.getAttribute('data-webform-ranking-value');
       if (Object.prototype.hasOwnProperty.call(knownVisible, value)) {
         return knownVisible[value];
@@ -265,7 +279,14 @@
     }
 
     allItems().forEach(function (item) {
-      knownVisible[item.getAttribute('data-webform-ranking-value')] = item.offsetParent !== null;
+      // Only an item with its own `#states` (see isCurrentlyVisible()'s
+      // own docblock) can genuinely be individually hidden; leaving a
+      // condition-less item unseeded here means isCurrentlyVisible()'s
+      // own early return handles it instead, never trusting this
+      // ancestor-confoundable reading for it at all.
+      if (item.hasAttribute('data-drupal-states')) {
+        knownVisible[item.getAttribute('data-webform-ranking-value')] = item.offsetParent !== null;
+      }
     });
 
     allItems().forEach(function (item) {
@@ -379,6 +400,35 @@
         }
       });
     });
+
+    // Reacts to this *element's own* (not a per-item) conditional
+    // visibility — the wrapper carrying this element's top-level
+    // '#states' is the one preRenderWebformRanking() copies
+    // 'data-drupal-states' onto (see its own docblock). Necessary in
+    // addition to the item-level listener above and the
+    // isCurrentlyVisible() guard in initDragdrop()'s docblock: even
+    // once an item's own visibility is read correctly, nothing
+    // re-ran sync() at all when only the *element's* own visibility
+    // changed (no per-item 'state:visible' event fires for an item
+    // with no condition of its own) — GitHub issue #123. The re-sync
+    // is deferred a tick for the same reason setItemNa()'s own
+    // checkbox sync already is (see this file's other 'state:visible'
+    // handler above, and docs/adr/0020's own explanation): Webform
+    // core's own webform.states.js (web/modules/contrib/webform/js/
+    // webform.states.js) backs up and clears every ':input' inside a
+    // conditionally-hidden webform element on hide, then restores that
+    // backed-up (now-stale) value on reveal, via its own synchronous
+    // $document-level 'state:visible' handler — which would otherwise
+    // immediately overwrite whatever sync() just (re-)computed,
+    // including the order/na hidden inputs.
+    var elementWrapper = container.closest('.js-webform-ranking');
+    if (elementWrapper) {
+      $(elementWrapper).on('state:visible', function (e) {
+        if (e.value) {
+          window.setTimeout(sync, 0);
+        }
+      });
+    }
 
     // Initial sync: makes hidden inputs match server-rendered default
     // order/N/A state, and populates position indicators on load.

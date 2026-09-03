@@ -41,8 +41,17 @@
       // result (states.js attaches first, before this behavior's own
       // 'state:visible' listener exists to catch that first event) —
       // see docs/adr/0012-matrix-conditional-item-visibility-sync.md.
+      // `offsetParent === null` is only meaningful for a row that can
+      // actually be individually hidden (has its own per-item
+      // `#states`, i.e. carries `data-drupal-states` — buildMatrix()
+      // only ever attaches `#states` to a cell when the item's own
+      // condition is non-empty). For a row with no condition of its
+      // own, `offsetParent === null` can only mean an ancestor (e.g.
+      // this element's own top-level `#states`) is hidden — irrelevant
+      // to this row's individual visibility, and wrongly treating it
+      // as hidden here is what caused GitHub issue #123.
       var firstInput = groups[name][0];
-      if (firstInput && firstInput.offsetParent === null) {
+      if (firstInput && firstInput.hasAttribute('data-drupal-states') && firstInput.offsetParent === null) {
         visible[name] = false;
       }
       toggleRow(firstInput, visible[name] !== false);
