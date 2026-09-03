@@ -69,7 +69,7 @@ Olivero-specific name, then a static literal:
 | `--webform-ranking-border-color` | `var(--input-border-color, var(--color--gray-70, #ccc))` |
 | `--webform-ranking-border-style` | `solid` (no cross-theme convention exists for this) |
 | `--webform-ranking-border-width` | `var(--input-border-size, 1px)` |
-| `--webform-ranking-border-radius` | `0` (deliberately **not** chained — see below) |
+| `--webform-ranking-border-radius` | `var(--input-border-radius-size, var(--base-border-radius, var(--border-radius, 0)))` (chained since #120 — see below for the reversal from this token's original, deliberately-unchained state) |
 | `--webform-ranking-focus-color` | `var(--color-focus, var(--color--primary-50, #0f62c9))` |
 | `--webform-ranking-item-gap` | `var(--space-xs, var(--sp0-5, 0.5em))` |
 | `--webform-ranking-item-padding-block` | `var(--input-padding-vertical, 0.5em)` |
@@ -88,19 +88,25 @@ Olivero-specific name, then a static literal:
 | `--webform-ranking-button-active-fg` | Same fallback shape as `-hover-fg`, for `:active` |
 | `--webform-ranking-button-focus-bg` | `var(--webform-ranking-button-bg, var(--button-bg-color, transparent))` (same reasoning as `-hover-fg` above, applied to the focus state's background) |
 | `--webform-ranking-button-focus-fg` | Same fallback shape as `-hover-fg`, for `:focus-visible` |
+| `--webform-ranking-na-opacity` | `var(--input--disabled-border-opacity, 0.7)` (added in #120 — `.webform-ranking-dragdrop__item--na`'s opacity; `0.7` is the original literal value, preserved as the static default so behavior is unchanged absent a matching theme token; Claro/Gin's disabled-state opacity is the closest real semantic match found, no Olivero equivalent exists) |
 
-`--webform-ranking-border-radius` is the one deliberate exception to
-"chain through a real theme token": its default is a literal `0`, not
-chained through Olivero's `--border-radius` or Claro's
-`--input-border-radius-size`. Chaining it would silently round every
-corner on, e.g., every Olivero site the moment this shipped — Olivero
-always defines `--border-radius` — before GitHub issue #120's actual
-admin-configurable toggle exists to make that an intentional choice
-rather than a side effect. Because the property is still never
-*specified* by module CSS, a theme (or #120's future PHP-emitted inline
-style) can already set `--webform-ranking-border-radius` today and have
-it take effect immediately — the override contract works from day one,
-only the admin-UI convenience for it is deferred.
+**Updated in #120:** `--webform-ranking-border-radius` originally
+shipped in #116/#118 as a **deliberate exception** to "chain through a
+real theme token" — a literal `0`, explicitly not chained through
+Olivero's `--border-radius` or Claro's `--input-border-radius-size`,
+reasoning that chaining it would silently round every corner on, e.g.,
+every Olivero site the moment it shipped, ahead of an admin-
+configurable toggle #120 was expected to add to make that an
+intentional choice rather than a side effect. #120 itself later
+reconsidered: an admin toggle doesn't serve "blend into the site's
+theme" any better than the theme's own tokens already do, and adds a
+config surface for what's really a styling concern — so no toggle was
+added, and the original blocking rationale no longer applies. The
+token is now chained like every other one in this table. Because the
+property was never *specified* by module CSS even in its unchained
+state, this was already a non-breaking change for any theme/site that
+had started relying on the override contract early — nothing that
+worked before stops working now.
 
 ## How a theme overrides these
 
@@ -150,9 +156,10 @@ inheritance:
   → static, accessible defaults; Claro/Gin present → form-appropriate
   values; Olivero present → its own scale. No hard dependency on any
   one theme.
-- `--webform-ranking-border-radius`'s "already overridable, not yet
-  admin-configurable" state means #120 only has to add the admin-form
-  plumbing, not invent the CSS mechanism.
+- `--webform-ranking-border-radius`'s "never specified by module CSS"
+  design meant reversing its unchained-vs-chained default in #120 was
+  a pure fallback-chain edit — no admin form, no PHP, no render-layer
+  change needed.
 
 ### Negative / Caveats
 
@@ -172,5 +179,7 @@ inheritance:
 - **Files:** `css/webform_ranking.matrix.css`, `css/webform_ranking.dragdrop.css`
 - **Related:** GitHub issue #115 (the original ad hoc Olivero-token
   chaining this formalizes)
-- **GitHub Issues:** #116, #10 (parent, split), #120 (border-radius
-  admin toggle), #119 (matrix's first border/focus-token consumer)
+- **GitHub Issues:** #116, #10 (parent, split), #120 (theme-derived
+  border-radius/N/A-opacity, reversing this ADR's original unchained-
+  border-radius decision), #119 (matrix's first border/focus-token
+  consumer)

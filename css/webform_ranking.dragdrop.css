@@ -20,9 +20,10 @@
   border: var(--webform-ranking-border-width, var(--input-border-size, 1px))
     var(--webform-ranking-border-style, solid)
     var(--webform-ranking-border-color, var(--input-border-color, var(--color--gray-70, #ccc)));
-  /* Stays square by default (#120 will expose this as an admin
-     toggle) — already overridable today, per ADR-0021. */
-  border-radius: var(--webform-ranking-border-radius, 0);
+  /* Theme-derived, not admin-configurable (#120) — see ADR-0021 for
+     the fallback chain and why border-radius is chained here after
+     originally shipping unchained. */
+  border-radius: var(--webform-ranking-border-radius, var(--input-border-radius-size, var(--base-border-radius, var(--border-radius, 0))));
   cursor: grab;
   /* Without this, a press-and-drag gesture can also trigger the
      browser's native text selection, visually competing with the
@@ -56,8 +57,13 @@
   cursor: grabbing;
 }
 
+/**
+ * Theme-derived, not admin-configurable (#120) — 0.7 remains the
+ * default (unchanged), but a theme's own token now overrides it. See
+ * ADR-0021 for the fallback chain.
+ */
 .webform-ranking-dragdrop__item--na {
-  opacity: 0.7;
+  opacity: var(--webform-ranking-na-opacity, var(--input--disabled-border-opacity, 0.7));
   cursor: default;
 }
 
@@ -116,7 +122,7 @@
   border: var(--webform-ranking-border-width, var(--input-border-size, 1px))
     var(--webform-ranking-border-style, solid)
     var(--webform-ranking-border-color, var(--input-border-color, var(--color--gray-70, #ccc)));
-  border-radius: var(--webform-ranking-border-radius, 0);
+  border-radius: var(--webform-ranking-border-radius, var(--input-border-radius-size, var(--base-border-radius, var(--border-radius, 0))));
 }
 
 /**

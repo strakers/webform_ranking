@@ -1814,6 +1814,40 @@ no-input fallback only ever see canonical shape. The plugin's
     `-bg` tokens (falling back to the base `-fg`/`-bg` chain when unset)
     so a theme that *does* distinguish these has a real override point,
     rather than only covering what Claro itself currently needs.
+38. **GitHub issue #120: scope pivoted mid-planning, from "admin-
+    configurable visual options" (its literal original title) to
+    theme-derived CSS tokens — no new admin form fields shipped at
+    all.** Explicit user reconsideration: the goal was "blend into
+    whatever theme it's dropped into," and an admin toggle doesn't
+    serve that any better than the theme's own CSS custom properties
+    already do — it just adds a config surface for what's really a
+    styling concern. Concretely: `--webform-ranking-border-radius`
+    (introduced #116/#118, deliberately left unchained/static `0` at
+    the time, explicitly citing "before #120's admin toggle exists" as
+    the reason) is now chained through real theme radius tokens
+    (Claro/Gin's `--input-border-radius-size`/`--base-border-radius`,
+    Olivero's `--border-radius`) — the original blocking rationale
+    evaporated once no toggle was being added. This is a genuine
+    reversal of a documented decision, not a silent rewrite: ADR-0021
+    keeps the original reasoning in place under an explicit
+    "**Updated in #120:**" marker explaining why it no longer applies,
+    per this project's established practice for flagging deferred/
+    reversed decisions instead of just erasing them. New token
+    `--webform-ranking-na-opacity` (`css/webform_ranking.dragdrop.css`)
+    replaces the N/A item's bare `opacity: 0.7` — `0.7` stays the
+    default (unchanged behavior), Claro/Gin's
+    `--input--disabled-border-opacity: 0.5` is the closest real
+    semantic match found for "how much do we dim an inactive/opted-out
+    state," no Olivero equivalent exists. Real visual consequence worth
+    having in mind: Olivero *does* define `--border-radius`, so this is
+    the first change in the #116-120 sequence that actually changes the
+    rendered look on a stock, untouched Drupal site (a subtle ~3px
+    corner rounding on drag/drop items/buttons that wasn't there
+    before) — flagged explicitly for manual visual sign-off before
+    merge, not just assumed harmless like the rest of this token
+    vocabulary's static-`0`-by-default entries. `#119` should reuse
+    `--webform-ranking-na-opacity` when it adds matrix's own N/A
+    treatment, for consistency, rather than inventing a second one.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
@@ -1859,11 +1893,12 @@ evidence rather than assert confidently.
   icon-button styling for the per-item condition builder, the matrix
   style's responsive collapse (#115), the theme-overridable custom-
   property vocabulary (#116, entry 36 above), and the drag/drop SVG
-  icons/uniform control sizing (#117+#118, entry 37 above). What used
-  to be a single tracking issue (#10) is now six focused sub-issues;
-  remaining order: #120 (admin-configurable rounded corners/N/A
-  display), then #119 (matrix N/A/row-column-line/taken-radio styling)
-  last.
+  icons/uniform control sizing (#117+#118, entry 37 above), and
+  theme-derived corner rounding/N/A opacity (#120, entry 38 above —
+  retitled/re-scoped mid-planning; shipped as CSS tokens, not admin
+  config). What used to be a single tracking issue (#10) is now six
+  focused sub-issues; remaining: #119 (matrix N/A/row-column-line/
+  taken-radio styling), last.
 - **`webform_element_states` nested-widget crash root cause never actually
   diagnosed** — worked around, not fixed/understood. Could theoretically
   be revisited if raw-YAML UX becomes a real problem.
