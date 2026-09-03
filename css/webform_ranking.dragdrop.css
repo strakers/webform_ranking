@@ -20,10 +20,8 @@
   border: var(--webform-ranking-border-width, var(--input-border-size, 1px))
     var(--webform-ranking-border-style, solid)
     var(--webform-ranking-border-color, var(--input-border-color, var(--color--gray-70, #ccc)));
-  /* Stays square by default (GitHub issue #120 exposes this as an
-     admin-configurable toggle); already overridable today by a theme
-     or future inline style, since the property is never specified
-     here — see the ADR referenced above. */
+  /* Stays square by default (#120 will expose this as an admin
+     toggle) — already overridable today, per ADR-0021. */
   border-radius: var(--webform-ranking-border-radius, 0);
   cursor: grab;
   /* Without this, a press-and-drag gesture can also trigger the
@@ -79,30 +77,12 @@
 }
 
 /**
- * GitHub issue #118: at native browser sizes, the move buttons and N/A
- * checkbox don't match each other (buttons visibly taller) — and, per
- * manual review, don't reliably match each other even at equal
- * *declared* sizes: native form controls don't inherit the page's font
- * by default (e.g. Chrome's UA stylesheet gives them a ~13.3px "small-
- * control" font, confirmed via computed-style inspection), so any
- * em-based sizing on them is relative to that arbitrary, browser/OS-
- * dependent value rather than the page's own type scale — exactly why
- * an earlier draft of this rule, sizing the checkbox in em, rendered
- * inconsistently across browsers. `font: inherit` resets that. Both
- * controls now share one explicit, root-relative box.
- *
- * 2rem (32px) clears WCAG 2.2's 24px (2.5.8, AA) target-size minimum
- * with real room for comfortable pointer/touch use, while staying
- * short of the 44px "enhanced" (2.5.5, AAA) guideline — reasonable for
- * a tightly-packed list-item control row rather than a primary action.
- * --webform-ranking-control-size follows the ADR-0021 convention
- * (never declared, only referenced) — see that ADR's token table for
- * the full vocabulary.
- *
- * A native checkbox's visible graphic still fills more of its box than
- * a button's small centered icon does — an inherent, unavoidable
- * native-widget rendering difference, not something CSS sizing alone
- * can fully equalize — but both now occupy the exact same box.
+ * GitHub issue #118: move buttons and N/A checkbox share one explicit,
+ * root-relative box. `font: inherit` matters because native form
+ * controls don't inherit the page's font by default, so `em`-based
+ * sizing on them (an earlier draft of this rule) drifts off an
+ * arbitrary, browser-dependent value instead — see ADR-0021 for the
+ * full diagnosis and the 2rem/WCAG 2.5.8 sizing rationale.
  */
 .webform-ranking-dragdrop__move-up,
 .webform-ranking-dragdrop__move-down,
@@ -123,22 +103,11 @@
 }
 
 /**
- * Scope expanded within GitHub issue #118 to also match the buttons to
- * the active theme's own button styling, instead of the browser's bare
- * native chrome — same chain-through-real-theme-tokens-then-static-
- * fallback convention as ADR-0021. Claro exposes real button-specific
- * tokens (--button-bg-color/-fg-color/--hover-bg-color/--active-bg-
- * color); Gin (a Claro subtheme) doesn't override them, so Claro's own
- * values still apply there too. No Olivero equivalent exists, so
- * `transparent`/`currentColor` are used as static fallbacks rather
- * than inventing an arbitrary brand color — matching how every other
- * token in this file stays neutral absent a real theme match. The icon
- * itself needs no separate color handling: it already uses
- * fill="currentColor" (see buildMoveIcon()), so it follows the
- * button's own `color` automatically. Border/radius reuse the tokens
- * already established for the item container, rather than inventing
- * button-specific ones, since a custom background without a matching
- * border would look visually disconnected from native button chrome.
+ * GitHub issue #118: matches the buttons to the active theme's own
+ * button styling (real Claro/Gin tokens, static fallback otherwise)
+ * instead of bare native chrome — see ADR-0021's token table for the
+ * full fallback chains. The icon needs no separate color handling: its
+ * fill="currentColor" (buildMoveIcon()) already follows this `color`.
  */
 .webform-ranking-dragdrop__move-up,
 .webform-ranking-dragdrop__move-down {
@@ -151,15 +120,9 @@
 }
 
 /**
- * Hover/active/focus all set both background AND foreground, not just
- * background — Claro doesn't actually define a distinct foreground for
- * any of these on its *generic* button (only its primary/CTA variant
- * does: --button-fg-color--primary etc.), so the foreground fallback
- * chain intentionally resolves back to the same base --webform-ranking-
- * button-fg value, matching that real behavior (no text/icon color
- * change) rather than inventing one. Still wired as real, overridable
- * tokens: a theme that DOES distinguish per-state foregrounds can set
- * --webform-ranking-button-hover-fg/-active-fg/-focus-fg directly.
+ * Sets both background and foreground per state, not just background
+ * — see ADR-0021 for why the foreground fallbacks resolve back to the
+ * base color (Claro's generic button doesn't vary it per-state).
  */
 .webform-ranking-dragdrop__move-up:hover,
 .webform-ranking-dragdrop__move-down:hover {
@@ -174,18 +137,11 @@
 }
 
 /**
- * Per explicit follow-up request: the buttons' focus indication should
- * also adhere to the theme's own focus styling, not just rely on the
- * browser's native default ring. The outline tries Claro's button-
- * specific --button--focus-border-color first (more specific than the
- * generic focus token .webform-ranking-dragdrop__item:focus-visible
- * already uses above), then falls back through that same
- * --webform-ranking-focus-color chain, so a site that already
- * overrode the generic focus color gets it here too even without a
- * button-specific override of its own. Background/foreground follow
- * the same pattern as hover/active above — Claro's generic button has
- * no distinct focus background/foreground either (only its primary
- * variant does), so these fall back to the base button colors.
+ * Buttons' focus ring/background/foreground also adhere to the
+ * theme's own styling, not just the browser default — the outline
+ * tries Claro's button-specific token before the generic focus-color
+ * chain .webform-ranking-dragdrop__item:focus-visible already uses;
+ * see ADR-0021 for the full chain and background/foreground reasoning.
  */
 .webform-ranking-dragdrop__move-up:focus-visible,
 .webform-ranking-dragdrop__move-down:focus-visible {
@@ -198,15 +154,10 @@
 }
 
 /**
- * The topmost/bottommost item's move-up/move-down button is disabled
- * (webform_ranking.dragdrop.js), previously distinguished only by the
- * browser's native disabled dimming — which the background-color/color
- * rule above now overrides (an author-stylesheet class selector always
- * wins over the UA stylesheet's own :disabled styling, regardless of
- * pseudo-class specificity). opacity is the fallback rather than a
- * theme token: it's portable everywhere with no theme present, and
- * matches this module's own established "inactive" affordance
- * (.webform-ranking-matrix__radio--taken uses the same 0.5).
+ * An author-stylesheet class selector overrides the browser's native
+ * :disabled dimming regardless of pseudo-class specificity, so it's
+ * restated explicitly here — opacity is the static fallback affordance,
+ * matching .webform-ranking-matrix__radio--taken's own convention.
  */
 .webform-ranking-dragdrop__move-up:disabled,
 .webform-ranking-dragdrop__move-down:disabled {
@@ -217,14 +168,10 @@
 }
 
 /**
- * Without this, the SVG (an inline replaced element) sits on its
- * containing span's text baseline, leaving invisible descender space
- * below it — inflating the span's effective line-box height
- * asymmetrically and throwing off the button's flex vertical
- * centering by a couple of pixels. display: block removes that
- * baseline/line-box participation entirely. Confirmed via computed-
- * style inspection (icon rect vs. button rect) after manual review
- * caught the icon sitting visibly off-center.
+ * Without this, the SVG sits on its containing span's text baseline,
+ * leaving invisible descender space that throws off the button's flex
+ * vertical centering by a couple of pixels — display: block removes
+ * that baseline/line-box participation entirely.
  */
 .webform-ranking-dragdrop__icon {
   display: block;
