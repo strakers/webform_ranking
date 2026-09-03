@@ -1696,17 +1696,124 @@ no-input fallback only ever see canonical shape. The plugin's
     for a shape this simple), `fill="currentColor"` so it needs no
     color token of its own. **#118:** the move buttons and N/A checkbox
     had no sizing rules at all, so they mismatched at native browser
-    defaults (buttons visibly taller). Raised both to a shared size via
-    a new `--webform-ranking-control-size` token (added to
-    [ADR-0021](adr/0021-css-custom-property-convention.md)'s table,
-    same convention — never declared, only referenced) rather than
-    shrinking the buttons down to the tiny native checkbox size, which
-    would have hurt their click target. Chains through Claro/Gin's
-    `--input-line-height` (a genuine semantic match); no Olivero
-    equivalent exists for "form control height," so that layer is
-    skipped for this one token. The icon's own `1em` width/height means
-    it scales proportionally with this change instead of needing a
-    second, separately-tuned size.
+    defaults (buttons visibly taller). Went through two revisions
+    before landing on the final design. First attempt: give the
+    checkbox the exact same numeric width/height as the buttons via a
+    new `--webform-ranking-control-size` token. Manual review caught
+    that this made the checkbox look visibly *bigger* than the buttons,
+    not merely as tall — a native checkbox's visible graphic fills its
+    whole box, while a button's icon sits inside a much larger padded
+    box. Second attempt: leave the checkbox sized in `em` (smaller,
+    proportionate to its own text) and give its label wrapper a
+    `min-height` matching the buttons instead. Debugged via a temporary
+    computed-style dump (`getComputedStyle()` on both controls, same
+    debug-test-then-remove pattern used for #115's geometry work — see
+    entry 35) after the user reported the checkbox rendering visibly
+    *larger* than the buttons in their own browser, a different symptom
+    than either revision was meant to produce. Root cause: browsers
+    don't inherit the page's font onto native form controls by default
+    (confirmed via the dump: Chrome's UA stylesheet gives `<button>`/
+    `<input>` a ~13.3px "small-control" font regardless of the page's
+    16px root), so the checkbox's `em`-based size was relative to that
+    arbitrary, browser/OS-dependent value — not the page's type scale,
+    and not reliably reproducible across browsers, which is exactly why
+    the observed symptom differed from what either prior revision
+    intended. **Final fix:** `font: inherit` on both controls (a well-
+    known reset for this exact class of bug — Normalize.css/
+    sanitize.css both carry the same rule), plus one shared, explicit,
+    root-relative `--webform-ranking-control-size` (default raised from
+    an earlier `1.6875rem` to `2rem`/32px — clears WCAG 2.2's 24px
+    target-size minimum, SC 2.5.8, with real room to spare, short of
+    the 44px "enhanced" AAA guideline, reasonable for a tightly-packed
+    list-item row) applied identically to buttons and checkbox alike —
+    `box-sizing: border-box` so the button's native border doesn't
+    inflate its box past the declared size. A native checkbox's visible
+    graphic still fills more of its box than a button's small centered
+    icon does — an inherent, unavoidable native-widget rendering
+    difference no amount of CSS sizing alone fully equalizes — but both
+    controls now occupy the exact same box, portably. The icon's own
+    `1em` width/height also benefits from the `font: inherit` fix,
+    scaling against the page's real type scale instead of the same
+    arbitrary UA default.
+
+    Two more rounds of manual review, both verified via the same
+    debug-test-then-remove computed-style dump: (1) a screenshot
+    showing the *original* pre-fix 24px/27px split even after this fix
+    landed turned out to be stale cached CSS, not a real regression —
+    confirmed by re-running the dump after `drush cr`, which showed
+    both controls genuinely at 32px, identical `rect.top`. (2) A real,
+    separate bug the same screenshot correctly flagged: the move
+    buttons' icons weren't vertically centered, off by a couple of
+    pixels. Root cause: an inline SVG (an inline replaced element) sits
+    on its containing span's text baseline by default, leaving
+    invisible descender space below it — inflating the span's
+    effective line-box height asymmetrically and throwing off the
+    button's flex `align-items: center` by that same margin. Fixed with
+    `display: block` on `.webform-ranking-dragdrop__icon`, the standard
+    remedy for this well-known class of "mystery gap under an inline
+    image/SVG" bug — confirmed via the dump that the icon's computed
+    center now exactly matches the button's.
+
+    #118's scope was deliberately expanded once more, on request: match
+    the move buttons' background/text/icon color to the active theme's
+    own button styling, not just their size, since the buttons
+    previously had zero color styling at all (bare native chrome).
+    Follows the same ADR-0021 chain-through-real-theme-tokens
+    convention — Claro exposes genuine button-specific tokens
+    (`--button-bg-color`/`-fg-color`/`--hover-bg-color`/`--active-bg-
+    color`/`--disabled-bg-color`/`-fg-color`), which Gin (a Claro
+    subtheme) doesn't override, so Claro's own values still apply
+    there too; no Olivero equivalent exists, so `transparent`/
+    `currentColor` are the static fallbacks — deliberately not
+    inventing an arbitrary brand color. The icon needed no separate
+    color token: its `fill="currentColor"` already follows the
+    button's own `color`. One real catch caught during design, not
+    left to be discovered later: adding an explicit `background-color`/
+    `color` via a class selector unconditionally overrides the
+    browser's own `:disabled` dimming (an author-stylesheet rule always
+    wins over the UA stylesheet regardless of pseudo-class
+    specificity) — the topmost/bottommost item's disabled move button
+    would otherwise become visually indistinguishable from an enabled
+    one. Fixed with an explicit `:disabled` rule, chaining through
+    Claro's own disabled tokens with a static `opacity: 0.5` fallback
+    affordance (matching `.webform-ranking-matrix__radio--taken`'s
+    already-established convention for "inactive but not truly
+    disabled") for themes with no matching token.
+
+    Follow-up request: the buttons' focus indication should also
+    adhere to the theme's own styling, not just rely on the browser's
+    native default ring (the move buttons had deliberately been left
+    without an explicit `:focus-visible` rule earlier in #118, on the
+    reasoning that real `<button>`/`<input>` elements already get
+    adequate native focus styling — true as far as "some ring appears,"
+    but not "the theme's own ring appears," which is what was actually
+    being asked for). Added `--webform-ranking-button-focus-color`,
+    trying Claro's button-specific `--button--focus-border-color`
+    first — more specific than the generic focus token
+    `.webform-ranking-dragdrop__item:focus-visible` already uses —
+    before falling back through that same `--webform-ranking-focus-
+    color` chain, so a site that already overrode the generic focus
+    color gets it here too even without a button-specific override of
+    its own.
+
+    Immediate second follow-up, correctly caught: that first pass only
+    wired the focus *outline*, not background/foreground for hover,
+    active, or focus — the request was for all of those to adhere to
+    theme defaults, not just the ring. Checked Claro's actual token set
+    to see what its generic (non-primary) button really does across
+    states: it changes only `--button-bg-color` on hover/active
+    (`--button--hover-bg-color`/`--button--active-bg-color`) and
+    doesn't distinguish foreground at all, or background on focus —
+    those per-state distinctions exist only for Claro's separate
+    primary/CTA button variant (`--button-fg-color--primary`,
+    `--button--focus-bg-color--primary`, etc.), which this module isn't
+    using. So the honest, theme-faithful default for hover/active/focus
+    foreground and focus background is "unchanged from the base state"
+    — not a gap, but what Claro's own generic button actually does.
+    Still wired all six as real `--webform-ranking-button-<state>-fg`/
+    `-bg` tokens (falling back to the base `-fg`/`-bg` chain when unset)
+    so a theme that *does* distinguish these has a real override point,
+    rather than only covering what Claro itself currently needs.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
