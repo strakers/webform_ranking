@@ -115,16 +115,10 @@ class WebformRanking extends WebformElementBase {
       'require_first_place' => FALSE,
       'require_first_place_error' => '',
       'sequential_ranks_error' => '',
-      // Kept declared (unlike an earlier revision — see GitHub #129):
-      // WebformSubmissionForm::populateElements()'s only gate for
-      // repopulating #default_value from a saved submission on any
-      // rebuild (wizard back-navigation, draft resume, edit) is
-      // hasProperty('default_value'), i.e. this key's mere presence
-      // here — removing it silently broke that for every rebuild, not
-      // just the admin config widget it was meant to suppress. See
-      // ADR-0024. [] matches WebformLikert's own default and is safe:
-      // WebformRankingConverter::matrixToCanonical([]) already resolves
-      // to the correct empty canonical shape.
+      // Kept declared — Webform core's only gate for redisplaying saved
+      // submission data on rebuild is this property's mere presence,
+      // unrelated to the admin widget it was once removed to suppress.
+      // See ADR-0024 (GitHub #129).
       'default_value' => [],
     ] + parent::defineDefaultProperties();
 
@@ -158,13 +152,9 @@ class WebformRanking extends WebformElementBase {
   public function form(array $form, FormStateInterface $form_state) {
     $form = parent::form($form, $form_state);
 
-    // 'default_value' stays declared in defineDefaultProperties() now
-    // (GitHub #129/ADR-0024) so Webform core's own submission-data
-    // repopulation still works — this only removes the generic admin
-    // widget parent::form() built for it, since a scalar textfield/YAML
-    // value here still can't safely express this element's canonical
-    // {values, na} shape. Unsetting the built field directly, rather
-    // than re-removing the property, keeps that repopulation intact.
+    // Suppress only the admin widget — the property itself stays
+    // declared in defineDefaultProperties() so submission-data
+    // redisplay still works. See ADR-0024 (GitHub #129).
     unset($form['default']['default_value']);
 
     // Requires a form object with getWebform() — true for every real
