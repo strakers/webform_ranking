@@ -57,7 +57,7 @@
     function isCurrentlyVisible(item) {
       // Only trust `offsetParent`/`knownVisible` for an item with its
       // own `#states` (data-drupal-states) — otherwise it can only mean
-      // an ancestor is hidden, not this item. See ADR-0022 (GitHub #123).
+      // an ancestor is hidden, not this item. See ADR-0023 (GitHub #123).
       if (!item.hasAttribute('data-drupal-states')) {
         return true;
       }
@@ -394,7 +394,7 @@
     // — nothing else re-ran sync() when only the element's own
     // condition changed. Deferred a tick to win the same core
     // backup/restore race as setItemNa()'s checkbox sync above. See
-    // ADR-0020/ADR-0022 (GitHub #123).
+    // ADR-0020/ADR-0023 (GitHub #123).
     var elementWrapper = container.closest('.js-webform-ranking');
     if (elementWrapper) {
       $(elementWrapper).on('state:visible', function (e) {

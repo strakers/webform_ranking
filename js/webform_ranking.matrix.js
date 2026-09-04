@@ -43,7 +43,7 @@
       // see docs/adr/0012-matrix-conditional-item-visibility-sync.md.
       // Only trust `offsetParent` for a row with its own `#states`
       // (data-drupal-states) — otherwise `null` just means an ancestor
-      // is hidden, not this row. See ADR-0022 (GitHub #123).
+      // is hidden, not this row. See ADR-0023 (GitHub #123).
       var firstInput = groups[name][0];
       if (firstInput && firstInput.hasAttribute('data-drupal-states') && firstInput.offsetParent === null) {
         visible[name] = false;

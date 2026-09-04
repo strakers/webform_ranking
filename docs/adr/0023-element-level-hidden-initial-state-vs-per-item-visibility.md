@@ -1,4 +1,4 @@
-# ADR-0022: Distinguish "this element itself starts hidden" from "this item is individually hidden" in client-side visibility seeding
+# ADR-0023: Distinguish "this element itself starts hidden" from "this item is individually hidden" in client-side visibility seeding
 
 - **Status:** Accepted
 - **Date:** 2026-09-03
