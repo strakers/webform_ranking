@@ -11,13 +11,10 @@
 
 /**
  * vertical-align: middle restates the <td> UA default explicitly —
- * themes commonly reset table cells to `vertical-align: top` for
- * generic content tables, which otherwise leaves this table's shorter
- * .form-item wrapper divs (real-theme testing: GitHub issue #119)
- * shifted toward the top of a taller cell instead of centered. A
- * structural correctness fix for this component's own controls, not
- * an aesthetic theme preference — same category as border-collapse/
- * width above, so applied directly rather than deferring to a theme.
+ * themes commonly reset it to `top`, which left .form-item shifted
+ * toward the top of a taller cell (GitHub issue #119). Structural, not
+ * an aesthetic theme preference, so applied directly — see
+ * docs/CONTINUATION.md entry 42.
  */
 .webform-ranking-matrix th,
 .webform-ranking-matrix td {
@@ -54,9 +51,8 @@
  * Informational only — this radio is still enabled and clickable;
  * clicking it reassigns the rank away from whichever item currently
  * holds it (see webform_ranking.matrix.js). Not a `:disabled` style:
- * the input genuinely isn't disabled. accent-color (GitHub issue #119)
- * reuses the module's neutral border-color token, so "taken" reads as
- * a deliberately muted state, not just faded.
+ * the input genuinely isn't disabled. accent-color makes "taken" read
+ * as deliberately muted, not just faded (GitHub issue #119).
  */
 .webform-ranking-matrix__radio--taken {
   opacity: 0.5;
@@ -64,12 +60,9 @@
 }
 
 /**
- * GitHub issue #119: matrix's N/A equivalent of drag/drop's own N/A
- * dimming — reuses the same --webform-ranking-na-opacity token #120
- * introduced, for one consistent "opted out" visual language across
- * both display styles. :has() (not a JS class toggle, matching
- * markTakenRanks()'s pattern) is a pure progressive enhancement: see
- * docs/adr/0025-css-has-for-matrix-na-row-styling.md for why.
+ * Matrix's N/A equivalent of drag/drop's own N/A dimming, reusing the
+ * same --webform-ranking-na-opacity token (GitHub issue #120). :has()
+ * over a JS class toggle: see docs/adr/0025-css-has-for-matrix-na-row-styling.md.
  */
 .webform-ranking-matrix tr:has(input[value="na"]:checked) {
   opacity: var(--webform-ranking-na-opacity, var(--input--disabled-border-opacity, 0.7));
