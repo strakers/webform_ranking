@@ -9,24 +9,21 @@
   width: 100%;
 }
 
+/**
+ * vertical-align: middle restates the <td> UA default explicitly —
+ * themes commonly reset table cells to `vertical-align: top` for
+ * generic content tables, which otherwise leaves this table's shorter
+ * .form-item wrapper divs (real-theme testing: GitHub issue #119)
+ * shifted toward the top of a taller cell instead of centered. A
+ * structural correctness fix for this component's own controls, not
+ * an aesthetic theme preference — same category as border-collapse/
+ * width above, so applied directly rather than deferring to a theme.
+ */
 .webform-ranking-matrix th,
 .webform-ranking-matrix td {
   padding: 0.5em;
   text-align: center;
-}
-
-/**
- * GitHub issue #119: row/column grid lines. :where() around the class
- * drops this selector's specificity to just th/td alone — lower than
- * almost any real theme rule (e.g. a plain `table th, table td`) —
- * so a theme's own existing table border styling wins instead of
- * being silently overridden; see docs/adr/0021 for the token chain.
- */
-:where(.webform-ranking-matrix) th,
-:where(.webform-ranking-matrix) td {
-  border: var(--webform-ranking-border-width, var(--input-border-size, 1px))
-    var(--webform-ranking-border-style, solid)
-    var(--webform-ranking-border-color, var(--input-border-color, var(--color--gray-70, #ccc)));
+  vertical-align: middle;
 }
 
 .webform-ranking-matrix td:first-child,
@@ -58,8 +55,8 @@
  * clicking it reassigns the rank away from whichever item currently
  * holds it (see webform_ranking.matrix.js). Not a `:disabled` style:
  * the input genuinely isn't disabled. accent-color (GitHub issue #119)
- * reuses the same neutral border-color token as the grid lines above,
- * so "taken" reads as a deliberately muted state, not just faded.
+ * reuses the module's neutral border-color token, so "taken" reads as
+ * a deliberately muted state, not just faded.
  */
 .webform-ranking-matrix__radio--taken {
   opacity: 0.5;
