@@ -1849,7 +1849,7 @@ no-input fallback only ever see canonical shape. The plugin's
     `--webform-ranking-na-opacity` when it adds matrix's own N/A
     treatment, for consistency, rather than inventing a second one.
 
-37. **GitHub issue #123: element-level `#states` hiding a ranking
+39. **GitHub issue #123: element-level `#states` hiding a ranking
     element on initial load permanently corrupted its own rows/items,
     even once revealed — a purely client-side bug, not the server-side
     one it first looked like.** Reported as "item rows vanish, header
@@ -1909,7 +1909,7 @@ no-input fallback only ever see canonical shape. The plugin's
     for the 502-on-large-headers gotcha, both first-time hurdles hit
     fresh during this investigation.
     Full reasoning, alternatives considered, and the exact guard/fix in
-    [ADR-0022](adr/0022-element-level-hidden-initial-state-vs-per-item-visibility.md).
+    [ADR-0023](adr/0023-element-level-hidden-initial-state-vs-per-item-visibility.md).
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
