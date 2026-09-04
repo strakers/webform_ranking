@@ -181,5 +181,7 @@ inheritance:
   chaining this formalizes)
 - **GitHub Issues:** #116, #10 (parent, split), #120 (theme-derived
   border-radius/N/A-opacity, reversing this ADR's original unchained-
-  border-radius decision), #119 (matrix's first border/focus-token
-  consumer)
+  border-radius decision), #119 (matrix's first `--webform-ranking-
+  border-color` consumer, via `accent-color` on the taken-radio state;
+  an attempted `border` consumer for row/column grid lines was reverted
+  after real-theme testing — see `docs/CONTINUATION.md` entry 42)
