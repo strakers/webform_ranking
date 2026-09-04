@@ -1849,6 +1849,68 @@ no-input fallback only ever see canonical shape. The plugin's
     `--webform-ranking-na-opacity` when it adds matrix's own N/A
     treatment, for consistency, rather than inventing a second one.
 
+37. **GitHub issue #123: element-level `#states` hiding a ranking
+    element on initial load permanently corrupted its own rows/items,
+    even once revealed — a purely client-side bug, not the server-side
+    one it first looked like.** Reported as "item rows vanish, header
+    collapses to just '1st', when the element has a cross-page
+    element-level visibility condition." A second report — a second
+    ranking element's visibility depending on a first ranking element's
+    own per-item rank value (`:input[name="ranking1[matrix][item]"]`,
+    same page, no cross-page trigger at all) — showed the identical
+    symptom and was folded into the same issue once traced to the same
+    root cause.
+    Investigation exhaustively ruled out the server side first: dozens
+    of Kernel-test and real-HTTP reproduction attempts (raw render
+    array, actually-rendered HTML, AJAX and non-AJAX wizard pages, Gin
+    theme, the exact reported `drupal/webform:6.3.0-beta8`, a `#required`
+    + `#states` core-mirroring hypothesis, a mixed same-page/cross-page
+    AND condition) all produced structurally correct output — several
+    of them false leads chased at length before the real mechanism
+    surfaced (see the 2026-09-03 correction appended to ADR-0006's own
+    entry #19 above for the closest of those). The actual bug: found by
+    importing the reporter's real, full production webform YAML
+    verbatim and inspecting the live DOM directly — every `<tr>` in the
+    affected table, and its "2nd"/"3rd" header cells, carried the native
+    HTML `hidden` attribute, genuinely present in the DOM. Traced to
+    `js/webform_ranking.matrix.js`'s `initMatrix()` (and the equivalent
+    in `js/webform_ranking.dragdrop.js`): both seed per-row/item
+    visibility from `offsetParent === null`, a deliberate technique
+    (ADR-0012, ADR-0020) for recovering a *per-item* condition's
+    already-applied result — but `offsetParent` is also `null` whenever
+    *any ancestor* is hidden, including when the element's own
+    top-level `#states` is what's currently hiding the whole thing. Every
+    row/item was wrongly seeded hidden the moment the whole element
+    started hidden, permanently, since the seeding runs once and the
+    only re-sync path is a per-item `state:visible` listener that never
+    fires for an item with no condition of its own.
+    Fixed by guarding both files' `offsetParent` consultation behind a
+    `data-drupal-states`-presence check on the row/item's own element —
+    only a row/item that can genuinely be individually hidden ever
+    carries that attribute; one with no condition of its own is
+    unconditionally visible regardless of ancestor state. Matrix needed
+    nothing further (its row/column `hidden` attribute is set once,
+    correctly, from the same seeding pass). Drag/drop needed one more
+    piece, found via the new regression test itself: nothing had ever
+    re-called `sync()` (the function computing the actual submitted
+    `order`/`na` values) when only the *element's own* visibility
+    changed — a real data-loss bug, not just a display one, since a
+    wrongly-excluded item never made it into the real submission at
+    all. Now bound on the element's own wrapper's `state:visible` event,
+    deferred a tick to win the same core-`webform.states.js`
+    backup/restore race ADR-0020 already solved for the N/A checkbox's
+    own sync.
+    New regression coverage required a `FunctionalJavascript` test —
+    confirmed directly, via this same investigation, that no Kernel or
+    non-JS Functional test could ever have caught this (every
+    server-side check passed while the bug was live). One-time local
+    setup needed: `ddev add-on get ddev/ddev-selenium-standalone-chrome`
+    (see docs/TESTING.md) plus the documented `fastcgi_buffer_size` bump
+    for the 502-on-large-headers gotcha, both first-time hurdles hit
+    fresh during this investigation.
+    Full reasoning, alternatives considered, and the exact guard/fix in
+    [ADR-0022](adr/0022-element-level-hidden-initial-state-vs-per-item-visibility.md).
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,
