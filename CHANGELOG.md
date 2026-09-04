@@ -7,19 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-04
+
 ### Added
 
 - Matrix display style: the table now collapses to a vertical, stacked layout on narrow screens, matching the Webform Likert element's own mobile behavior ([#115](https://github.com/strakers/webform_ranking/issues/115)).
+- Both display styles now use theme-overridable CSS custom properties for spacing, borders, and focus rings — chaining through Olivero/Claro/Gin's own tokens where present, with static fallbacks otherwise — and the drag/drop item now has a visible focus ring ([#116](https://github.com/strakers/webform_ranking/issues/116)).
 
 ### Changed
 
 - Release tags are now plain `X.Y.Z` (no `v` prefix) on both GitHub and the new drupal.org mirror, and every historical tag/release was retargeted to match — see [CONTRIBUTING.md](docs/CONTRIBUTING.md#remotes) for the dual-remote setup.
+- Drag/drop display style: the move-up/move-down buttons' `▲`/`▼` text glyphs are now SVG icons ([#117](https://github.com/strakers/webform_ranking/issues/117)), and the move buttons/N/A checkbox now align to a uniform, theme-overridable row height instead of mismatched browser defaults; the move buttons also now pick up the active theme's own button background/text/focus-ring colors (Claro/Gin) instead of the browser's bare native chrome, with hover/active/disabled/focus states ([#118](https://github.com/strakers/webform_ranking/issues/118)).
+- Drag/drop display style: item/button corner rounding and the N/A opacity level now derive from the active theme's own tokens where available (e.g. Olivero and Claro/Gin both now round item/button corners slightly), instead of being fixed values; themes with neither token see no visual change ([#120](https://github.com/strakers/webform_ranking/issues/120)).
+- Matrix display style: items marked N/A now dim (matching drag/drop's own treatment), and taken (unavailable) rank radios have an intentional muted color instead of a flat opacity — both theme-overridable ([#119](https://github.com/strakers/webform_ranking/issues/119)).
 
 ### Fixed
 
 - Corrected outdated Drupal/Webform version requirements and conditional-logic documentation in README.md ([#107](https://github.com/strakers/webform_ranking/issues/107)).
 - Condensed CHANGELOG.md entries to be skimmable, and fixed missing version-header and issue links ([#109](https://github.com/strakers/webform_ranking/issues/109)).
 - Drag/drop display style: "Require every visible item..." is now hidden in the admin form (a no-op for this style), and a conditionally-hidden item's rank no longer leaks to other elements' conditions — it's now excluded and coalesced like a fresh submission, and reappears unranked at the end of the list when revealed ([#108](https://github.com/strakers/webform_ranking/issues/108)).
+- Element-level "only show this element when..." conditions hiding a ranking element on initial page load permanently corrupted its own rows/items even once revealed, and for drag/drop, silently excluded them from the actual submission ([#123](https://github.com/strakers/webform_ranking/issues/123)).
+- A ranking element's selections no longer reset to unranked across wizard "Previous" navigation, or appear blank on the Preview page ([#129](https://github.com/strakers/webform_ranking/issues/129)).
+- Ranking element results/Preview HTML now bolds item labels, matching the Likert element's own output ([#132](https://github.com/strakers/webform_ranking/issues/132)).
 
 ## [0.3.1] - 2026-08-30
 
@@ -120,7 +129,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release: matrix and drag/drop display styles, N/A abstention, sequential/no-duplicate-rank validation, per-item conditional visibility, per-item `#states` trigger sources, randomizable order, customizable rank labels, results/CSV export, and initial test coverage.
 
-[Unreleased]: https://github.com/strakers/webform_ranking/compare/0.3.1...HEAD
+[Unreleased]: https://github.com/strakers/webform_ranking/compare/0.3.2...HEAD
+[0.3.2]: https://github.com/strakers/webform_ranking/compare/0.3.1...0.3.2
 [0.3.1]: https://github.com/strakers/webform_ranking/compare/0.3.0...0.3.1
 [0.3.0]: https://github.com/strakers/webform_ranking/compare/0.2.2...0.3.0
 [0.2.2]: https://github.com/strakers/webform_ranking/compare/0.2.1...0.2.2

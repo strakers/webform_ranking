@@ -176,21 +176,29 @@ class WebformRankingDragdropJavaScriptTest extends WebDriverTestBase {
     $item_a = $page->find('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="a"]');
     $this->assertNotNull($item_a);
 
-    // Centers of A and C's bounding boxes, in viewport coordinates —
-    // dragging from A's center to C's center (not top-left corners,
-    // unlike dragTo()) passes squarely through B along the way and
-    // lands mid-way inside C, so the production midpoint check
-    // (event.clientY < rect.top + rect.height / 2) is expected to treat
-    // the final position as "after" C.
+    // A's center, and a point in C's lower quarter (not C's exact
+    // center, and not top-left corners, unlike dragTo()) — dragging
+    // from A's center to that point passes squarely through B along
+    // the way and lands unambiguously past C's midpoint, so the
+    // production midpoint check (event.clientY < rect.top + rect.height
+    // / 2) is expected to treat the final position as "after" C. Using
+    // C's exact center instead would land exactly ON that boundary —
+    // fragile to sub-pixel rounding (Math.round() here vs. the live,
+    // unrounded rect the production check reads), and observed to
+    // flip when GitHub issue #118 changed item height.
     $centers = $this->getSession()->evaluateScript(<<<'JS'
 (function () {
   function centerOf(selector) {
     var rect = document.querySelector(selector).getBoundingClientRect();
     return {x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2)};
   }
+  function lowerQuarterOf(selector) {
+    var rect = document.querySelector(selector).getBoundingClientRect();
+    return {x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height * 0.75)};
+  }
   return {
     a: centerOf('.webform-ranking-dragdrop__item[data-webform-ranking-value="a"]'),
-    c: centerOf('.webform-ranking-dragdrop__item[data-webform-ranking-value="c"]')
+    c: lowerQuarterOf('.webform-ranking-dragdrop__item[data-webform-ranking-value="c"]')
   };
 })()
 JS
@@ -237,8 +245,8 @@ JS
     ]);
     $webdriver_session->deleteActions();
 
-    // Landing at C's center (not its top-left corner) means "after C",
-    // not "before C" — see this method's docblock.
+    // Landing past C's midpoint (not its top-left corner) means "after
+    // C", not "before C" — see this method's docblock.
     $this->assertOrder(['b', 'c', 'a']);
   }
 
@@ -442,14 +450,16 @@ JS);
   }
 
   /**
-   * Tests that the move-button glyphs are hidden from assistive tech.
+   * Tests that the move-button icons are hidden from assistive tech.
    *
-   * Real bug: the '▲'/'▼' glyphs were the button's own text content,
-   * exposed to assistive tech alongside the button's aria-label —
-   * redundant/confusing symbol-name readout. Fixed by wrapping each
-   * glyph in an aria-hidden span nested inside the button.
+   * Real bug (predates the SVG icons themselves, GitHub issue #117):
+   * the move glyphs were the button's own text content, exposed to
+   * assistive tech alongside the button's aria-label — redundant/
+   * confusing symbol-name readout. Fixed by wrapping the icon in an
+   * aria-hidden span nested inside the button; that wrapping carried
+   * over unchanged when the text glyphs became SVG icons.
    */
-  public function testMoveButtonGlyphsAreAriaHidden(): void {
+  public function testMoveButtonIconsAreAriaHidden(): void {
     $this->drupalGet('/webform/test_ranking_dragdrop');
     $this->assertSession()->waitForElement('css', '.webform-ranking-dragdrop__item[data-webform-ranking-value="a"]');
 
@@ -457,11 +467,12 @@ JS);
       (function () {
         var button = document.querySelector('.webform-ranking-dragdrop__move-up');
         var span = button.querySelector('span');
-        return !!span && span.getAttribute('aria-hidden') === 'true' && span.textContent === '▲';
+        var svg = span ? span.querySelector('svg') : null;
+        return !!svg && span.getAttribute('aria-hidden') === 'true' && !span.textContent.trim();
       })()
 JS);
 
-    $this->assertTrue($hidden, 'Expected the move-up glyph to be in an aria-hidden span.');
+    $this->assertTrue($hidden, 'Expected the move-up icon to be an SVG inside an aria-hidden span.');
   }
 
   /**

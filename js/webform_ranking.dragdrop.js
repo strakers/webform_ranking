@@ -55,6 +55,12 @@
     var knownVisible = {};
 
     function isCurrentlyVisible(item) {
+      // Only trust `offsetParent`/`knownVisible` for an item with its
+      // own `#states` (data-drupal-states) — otherwise it can only mean
+      // an ancestor is hidden, not this item. See ADR-0023 (GitHub #123).
+      if (!item.hasAttribute('data-drupal-states')) {
+        return true;
+      }
       var value = item.getAttribute('data-webform-ranking-value');
       if (Object.prototype.hasOwnProperty.call(knownVisible, value)) {
         return knownVisible[value];
@@ -265,7 +271,11 @@
     }
 
     allItems().forEach(function (item) {
-      knownVisible[item.getAttribute('data-webform-ranking-value')] = item.offsetParent !== null;
+      // Same `data-drupal-states` guard as isCurrentlyVisible() — leave
+      // a condition-less item unseeded so its early return handles it.
+      if (item.hasAttribute('data-drupal-states')) {
+        knownVisible[item.getAttribute('data-webform-ranking-value')] = item.offsetParent !== null;
+      }
     });
 
     allItems().forEach(function (item) {
@@ -379,6 +389,20 @@
         }
       });
     });
+
+    // Re-syncs on *this element's own* visibility (not a per-item one)
+    // — nothing else re-ran sync() when only the element's own
+    // condition changed. Deferred a tick to win the same core
+    // backup/restore race as setItemNa()'s checkbox sync above. See
+    // ADR-0020/ADR-0023 (GitHub #123).
+    var elementWrapper = container.closest('.js-webform-ranking');
+    if (elementWrapper) {
+      $(elementWrapper).on('state:visible', function (e) {
+        if (e.value) {
+          window.setTimeout(sync, 0);
+        }
+      });
+    }
 
     // Initial sync: makes hidden inputs match server-rendered default
     // order/N/A state, and populates position indicators on load.

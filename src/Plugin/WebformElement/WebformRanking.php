@@ -115,17 +115,12 @@ class WebformRanking extends WebformElementBase {
       'require_first_place' => FALSE,
       'require_first_place_error' => '',
       'sequential_ranks_error' => '',
+      // Kept declared — Webform core's only gate for redisplaying saved
+      // submission data on rebuild is this property's mere presence,
+      // unrelated to the admin widget it was once removed to suppress.
+      // See ADR-0024 (GitHub #129).
+      'default_value' => [],
     ] + parent::defineDefaultProperties();
-
-    // The canonical {values, na} ranking value has no scalar
-    // representation a "Default value" textfield could express — the
-    // base class's generic textfield only ever produces a string, which
-    // crashes WebformRankingConverter::canonicalToMatrix() (a typed
-    // array parameter) the first time the element renders. Removing the
-    // property entirely means Webform's element config form stops
-    // offering it at all, rather than offering a control that can only
-    // ever produce an invalid value.
-    unset($properties['default_value']);
 
     return $properties;
   }
@@ -156,6 +151,11 @@ class WebformRanking extends WebformElementBase {
    */
   public function form(array $form, FormStateInterface $form_state) {
     $form = parent::form($form, $form_state);
+
+    // Suppress only the admin widget — the property itself stays
+    // declared in defineDefaultProperties() so submission-data
+    // redisplay still works. See ADR-0024 (GitHub #129).
+    unset($form['default']['default_value']);
 
     // Requires a form object with getWebform() — true for every real
     // caller (WebformUiElementFormBase and its WebformUiElementTestForm
@@ -807,6 +807,9 @@ class WebformRanking extends WebformElementBase {
    * live. Renders items in *rank* order rather than configured order
    * (see WebformRankingConverter::orderByRank()) — each line is still
    * self-labeled ("Pizza: 1st"), so nothing is lost by reordering.
+   *
+   * Bolds each row's label, matching WebformLikert's own 'list'-format
+   * precedent (GitHub #132).
    */
   protected function formatHtmlItem(array $element, WebformSubmissionInterface $webform_submission, array $options = []) {
     $value = $this->getValue($element, $webform_submission, $options);
@@ -816,7 +819,10 @@ class WebformRanking extends WebformElementBase {
     if ($this->getItemFormat($element) === 'raw') {
       $rows = [];
       foreach ($items as $item) {
-        $rows[$item['value']] = ['#markup' => $item['value'] . ': ' . ($value[$item['value']] ?? '')];
+        $rows[$item['value']] = [
+          'label' => ['#markup' => $item['value'], '#prefix' => '<b>', '#suffix' => ':</b> '],
+          'value' => ['#markup' => $value[$item['value']] ?? ''],
+        ];
       }
       return ['#theme' => 'item_list', '#items' => $rows];
     }
@@ -825,7 +831,8 @@ class WebformRanking extends WebformElementBase {
     $rows = [];
     foreach ($items as $item) {
       $rows[$item['value']] = [
-        '#markup' => $item['label'] . ': ' . $this->resolveRankDisplay($element, $rank_labels, $value[$item['value']] ?? NULL),
+        'label' => ['#markup' => $item['label'], '#prefix' => '<b>', '#suffix' => ':</b> '],
+        'value' => ['#markup' => $this->resolveRankDisplay($element, $rank_labels, $value[$item['value']] ?? NULL)],
       ];
     }
     return ['#theme' => 'item_list', '#items' => $rows];

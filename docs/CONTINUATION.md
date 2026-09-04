@@ -1643,6 +1643,402 @@ no-input fallback only ever see canonical shape. The plugin's
     than toggling visually-hidden ⇄ visible by breakpoint, as Likert
     does) is both simpler and correct specifically because our
     accessible name doesn't depend on it the way Likert's does.
+36. **GitHub issue #116: theme-overridable CSS custom properties for
+    both display styles.** Formalizes the ad hoc Olivero-token chaining
+    #115 introduced (`var(--sp1, 1.125rem)`) into a documented
+    `--webform-ranking-*` vocabulary, surveyed against Olivero, Claro,
+    and Gin's actual token names (Gin is a Claro subtheme —
+    `base theme: claro` — and deliberately keeps Claro's unprefixed
+    `--space-*`/`--input-*`/`--color-focus` names live, making them a
+    genuine de-facto standard beyond just plain-Claro sites). The one
+    real pitfall: a first draft declared these tokens with static
+    values directly on each component's root class
+    (`.webform-ranking-dragdrop { --webform-ranking-border-color: #ccc; }`).
+    For an inherited property, a value *specified* on an element always
+    beats one it only *inherits* — not a specificity contest — so a
+    theme's own natural `:root { --webform-ranking-border-color: ...; }`
+    override would silently never have reached the element at all.
+    Fixed by never giving these properties a specified value anywhere
+    in module CSS — only referencing `var(--webform-ranking-<name>,
+    <fallback-chain>)` inline at each point of use, leaving the
+    property genuinely unset so a theme's inheritance path is never
+    pre-empted. Full token table and reasoning in
+    [ADR-0021](adr/0021-css-custom-property-convention.md).
+    `--webform-ranking-border-radius` is the one token deliberately
+    *not* chained through a theme default (stays a literal `0`) — doing
+    so would have silently rounded every corner on any Olivero site the
+    moment this shipped, ahead of #120's actual admin-configurable
+    toggle for that. The drag/drop item (a custom
+    `role="listitem" tabindex="0"` div, not a native control) also
+    gained an explicit `:focus-visible` ring using the same token
+    chain — the move buttons/N/A checkbox are real `<button>`/`<input>`
+    and already get adequate native focus styling, so they were left
+    alone.
+37. **GitHub issues #117 + #118: drag/drop SVG move icons + uniform
+    control height, grouped into one PR** (both touch the same move-
+    button/N/A-checkbox markup and CSS). **#117:** replaced the `▲`/`▼`
+    text glyphs with real icons, built as nested `html_tag` render
+    arrays (`buildMoveIcon()`) rather than a raw markup string — no
+    prior SVG usage existed anywhere in `src/`, so this was new
+    territory. Discovered Drupal core's `HtmlTag` render element
+    already extends its void-element list to include `path`/`rect`/
+    `circle`/etc. specifically to support building inline SVG this
+    way, and confirmed via `Renderer::doRender()` that a childless
+    `svg` element with nested render-array children renders correctly
+    (children render into `#children` regardless of `#markup`, which
+    is just an empty string when `#value` is omitted). A raw markup
+    string was rejected: `Xss::filterAdmin()` (what `HtmlTag` runs
+    plain-string `#value` through) doesn't allow `svg`/`path` in its
+    tag list, so the icon would have been stripped. Full reasoning in
+    [ADR-0022](adr/0022-inline-svg-via-nested-render-arrays.md). The
+    icon itself is a simple hand-drawn two-point filled triangle (not a
+    third-party icon set — avoids any licensing/attribution question
+    for a shape this simple), `fill="currentColor"` so it needs no
+    color token of its own. **#118:** the move buttons and N/A checkbox
+    had no sizing rules at all, so they mismatched at native browser
+    defaults (buttons visibly taller). Went through two revisions
+    before landing on the final design. First attempt: give the
+    checkbox the exact same numeric width/height as the buttons via a
+    new `--webform-ranking-control-size` token. Manual review caught
+    that this made the checkbox look visibly *bigger* than the buttons,
+    not merely as tall — a native checkbox's visible graphic fills its
+    whole box, while a button's icon sits inside a much larger padded
+    box. Second attempt: leave the checkbox sized in `em` (smaller,
+    proportionate to its own text) and give its label wrapper a
+    `min-height` matching the buttons instead. Debugged via a temporary
+    computed-style dump (`getComputedStyle()` on both controls, same
+    debug-test-then-remove pattern used for #115's geometry work — see
+    entry 35) after the user reported the checkbox rendering visibly
+    *larger* than the buttons in their own browser, a different symptom
+    than either revision was meant to produce. Root cause: browsers
+    don't inherit the page's font onto native form controls by default
+    (confirmed via the dump: Chrome's UA stylesheet gives `<button>`/
+    `<input>` a ~13.3px "small-control" font regardless of the page's
+    16px root), so the checkbox's `em`-based size was relative to that
+    arbitrary, browser/OS-dependent value — not the page's type scale,
+    and not reliably reproducible across browsers, which is exactly why
+    the observed symptom differed from what either prior revision
+    intended. **Final fix:** `font: inherit` on both controls (a well-
+    known reset for this exact class of bug — Normalize.css/
+    sanitize.css both carry the same rule), plus one shared, explicit,
+    root-relative `--webform-ranking-control-size` (default raised from
+    an earlier `1.6875rem` to `2rem`/32px — clears WCAG 2.2's 24px
+    target-size minimum, SC 2.5.8, with real room to spare, short of
+    the 44px "enhanced" AAA guideline, reasonable for a tightly-packed
+    list-item row) applied identically to buttons and checkbox alike —
+    `box-sizing: border-box` so the button's native border doesn't
+    inflate its box past the declared size. A native checkbox's visible
+    graphic still fills more of its box than a button's small centered
+    icon does — an inherent, unavoidable native-widget rendering
+    difference no amount of CSS sizing alone fully equalizes — but both
+    controls now occupy the exact same box, portably. The icon's own
+    `1em` width/height also benefits from the `font: inherit` fix,
+    scaling against the page's real type scale instead of the same
+    arbitrary UA default.
+
+    Two more rounds of manual review, both verified via the same
+    debug-test-then-remove computed-style dump: (1) a screenshot
+    showing the *original* pre-fix 24px/27px split even after this fix
+    landed turned out to be stale cached CSS, not a real regression —
+    confirmed by re-running the dump after `drush cr`, which showed
+    both controls genuinely at 32px, identical `rect.top`. (2) A real,
+    separate bug the same screenshot correctly flagged: the move
+    buttons' icons weren't vertically centered, off by a couple of
+    pixels. Root cause: an inline SVG (an inline replaced element) sits
+    on its containing span's text baseline by default, leaving
+    invisible descender space below it — inflating the span's
+    effective line-box height asymmetrically and throwing off the
+    button's flex `align-items: center` by that same margin. Fixed with
+    `display: block` on `.webform-ranking-dragdrop__icon`, the standard
+    remedy for this well-known class of "mystery gap under an inline
+    image/SVG" bug — confirmed via the dump that the icon's computed
+    center now exactly matches the button's.
+
+    #118's scope was deliberately expanded once more, on request: match
+    the move buttons' background/text/icon color to the active theme's
+    own button styling, not just their size, since the buttons
+    previously had zero color styling at all (bare native chrome).
+    Follows the same ADR-0021 chain-through-real-theme-tokens
+    convention — Claro exposes genuine button-specific tokens
+    (`--button-bg-color`/`-fg-color`/`--hover-bg-color`/`--active-bg-
+    color`/`--disabled-bg-color`/`-fg-color`), which Gin (a Claro
+    subtheme) doesn't override, so Claro's own values still apply
+    there too; no Olivero equivalent exists, so `transparent`/
+    `currentColor` are the static fallbacks — deliberately not
+    inventing an arbitrary brand color. The icon needed no separate
+    color token: its `fill="currentColor"` already follows the
+    button's own `color`. One real catch caught during design, not
+    left to be discovered later: adding an explicit `background-color`/
+    `color` via a class selector unconditionally overrides the
+    browser's own `:disabled` dimming (an author-stylesheet rule always
+    wins over the UA stylesheet regardless of pseudo-class
+    specificity) — the topmost/bottommost item's disabled move button
+    would otherwise become visually indistinguishable from an enabled
+    one. Fixed with an explicit `:disabled` rule, chaining through
+    Claro's own disabled tokens with a static `opacity: 0.5` fallback
+    affordance (matching `.webform-ranking-matrix__radio--taken`'s
+    already-established convention for "inactive but not truly
+    disabled") for themes with no matching token.
+
+    Follow-up request: the buttons' focus indication should also
+    adhere to the theme's own styling, not just rely on the browser's
+    native default ring (the move buttons had deliberately been left
+    without an explicit `:focus-visible` rule earlier in #118, on the
+    reasoning that real `<button>`/`<input>` elements already get
+    adequate native focus styling — true as far as "some ring appears,"
+    but not "the theme's own ring appears," which is what was actually
+    being asked for). Added `--webform-ranking-button-focus-color`,
+    trying Claro's button-specific `--button--focus-border-color`
+    first — more specific than the generic focus token
+    `.webform-ranking-dragdrop__item:focus-visible` already uses —
+    before falling back through that same `--webform-ranking-focus-
+    color` chain, so a site that already overrode the generic focus
+    color gets it here too even without a button-specific override of
+    its own.
+
+    Immediate second follow-up, correctly caught: that first pass only
+    wired the focus *outline*, not background/foreground for hover,
+    active, or focus — the request was for all of those to adhere to
+    theme defaults, not just the ring. Checked Claro's actual token set
+    to see what its generic (non-primary) button really does across
+    states: it changes only `--button-bg-color` on hover/active
+    (`--button--hover-bg-color`/`--button--active-bg-color`) and
+    doesn't distinguish foreground at all, or background on focus —
+    those per-state distinctions exist only for Claro's separate
+    primary/CTA button variant (`--button-fg-color--primary`,
+    `--button--focus-bg-color--primary`, etc.), which this module isn't
+    using. So the honest, theme-faithful default for hover/active/focus
+    foreground and focus background is "unchanged from the base state"
+    — not a gap, but what Claro's own generic button actually does.
+    Still wired all six as real `--webform-ranking-button-<state>-fg`/
+    `-bg` tokens (falling back to the base `-fg`/`-bg` chain when unset)
+    so a theme that *does* distinguish these has a real override point,
+    rather than only covering what Claro itself currently needs.
+38. **GitHub issue #120: scope pivoted mid-planning, from "admin-
+    configurable visual options" (its literal original title) to
+    theme-derived CSS tokens — no new admin form fields shipped at
+    all.** Explicit user reconsideration: the goal was "blend into
+    whatever theme it's dropped into," and an admin toggle doesn't
+    serve that any better than the theme's own CSS custom properties
+    already do — it just adds a config surface for what's really a
+    styling concern. Concretely: `--webform-ranking-border-radius`
+    (introduced #116/#118, deliberately left unchained/static `0` at
+    the time, explicitly citing "before #120's admin toggle exists" as
+    the reason) is now chained through real theme radius tokens
+    (Claro/Gin's `--input-border-radius-size`/`--base-border-radius`,
+    Olivero's `--border-radius`) — the original blocking rationale
+    evaporated once no toggle was being added. This is a genuine
+    reversal of a documented decision, not a silent rewrite: ADR-0021
+    keeps the original reasoning in place under an explicit
+    "**Updated in #120:**" marker explaining why it no longer applies,
+    per this project's established practice for flagging deferred/
+    reversed decisions instead of just erasing them. New token
+    `--webform-ranking-na-opacity` (`css/webform_ranking.dragdrop.css`)
+    replaces the N/A item's bare `opacity: 0.7` — `0.7` stays the
+    default (unchanged behavior), Claro/Gin's
+    `--input--disabled-border-opacity: 0.5` is the closest real
+    semantic match found for "how much do we dim an inactive/opted-out
+    state," no Olivero equivalent exists. Real visual consequence worth
+    having in mind: Olivero *does* define `--border-radius`, so this is
+    the first change in the #116-120 sequence that actually changes the
+    rendered look on a stock, untouched Drupal site (a subtle ~3px
+    corner rounding on drag/drop items/buttons that wasn't there
+    before) — flagged explicitly for manual visual sign-off before
+    merge, not just assumed harmless like the rest of this token
+    vocabulary's static-`0`-by-default entries. `#119` should reuse
+    `--webform-ranking-na-opacity` when it adds matrix's own N/A
+    treatment, for consistency, rather than inventing a second one.
+
+39. **GitHub issue #123: element-level `#states` hiding a ranking
+    element on initial load permanently corrupted its own rows/items,
+    even once revealed — a purely client-side bug, not the server-side
+    one it first looked like.** Reported as "item rows vanish, header
+    collapses to just '1st', when the element has a cross-page
+    element-level visibility condition." A second report — a second
+    ranking element's visibility depending on a first ranking element's
+    own per-item rank value (`:input[name="ranking1[matrix][item]"]`,
+    same page, no cross-page trigger at all) — showed the identical
+    symptom and was folded into the same issue once traced to the same
+    root cause.
+    Investigation exhaustively ruled out the server side first: dozens
+    of Kernel-test and real-HTTP reproduction attempts (raw render
+    array, actually-rendered HTML, AJAX and non-AJAX wizard pages, Gin
+    theme, the exact reported `drupal/webform:6.3.0-beta8`, a `#required`
+    + `#states` core-mirroring hypothesis, a mixed same-page/cross-page
+    AND condition) all produced structurally correct output — several
+    of them false leads chased at length before the real mechanism
+    surfaced (see the 2026-09-03 correction appended to ADR-0006's own
+    entry #19 above for the closest of those). The actual bug: found by
+    importing the reporter's real, full production webform YAML
+    verbatim and inspecting the live DOM directly — every `<tr>` in the
+    affected table, and its "2nd"/"3rd" header cells, carried the native
+    HTML `hidden` attribute, genuinely present in the DOM. Traced to
+    `js/webform_ranking.matrix.js`'s `initMatrix()` (and the equivalent
+    in `js/webform_ranking.dragdrop.js`): both seed per-row/item
+    visibility from `offsetParent === null`, a deliberate technique
+    (ADR-0012, ADR-0020) for recovering a *per-item* condition's
+    already-applied result — but `offsetParent` is also `null` whenever
+    *any ancestor* is hidden, including when the element's own
+    top-level `#states` is what's currently hiding the whole thing. Every
+    row/item was wrongly seeded hidden the moment the whole element
+    started hidden, permanently, since the seeding runs once and the
+    only re-sync path is a per-item `state:visible` listener that never
+    fires for an item with no condition of its own.
+    Fixed by guarding both files' `offsetParent` consultation behind a
+    `data-drupal-states`-presence check on the row/item's own element —
+    only a row/item that can genuinely be individually hidden ever
+    carries that attribute; one with no condition of its own is
+    unconditionally visible regardless of ancestor state. Matrix needed
+    nothing further (its row/column `hidden` attribute is set once,
+    correctly, from the same seeding pass). Drag/drop needed one more
+    piece, found via the new regression test itself: nothing had ever
+    re-called `sync()` (the function computing the actual submitted
+    `order`/`na` values) when only the *element's own* visibility
+    changed — a real data-loss bug, not just a display one, since a
+    wrongly-excluded item never made it into the real submission at
+    all. Now bound on the element's own wrapper's `state:visible` event,
+    deferred a tick to win the same core-`webform.states.js`
+    backup/restore race ADR-0020 already solved for the N/A checkbox's
+    own sync.
+    New regression coverage required a `FunctionalJavascript` test —
+    confirmed directly, via this same investigation, that no Kernel or
+    non-JS Functional test could ever have caught this (every
+    server-side check passed while the bug was live). One-time local
+    setup needed: `ddev add-on get ddev/ddev-selenium-standalone-chrome`
+    (see docs/TESTING.md) plus the documented `fastcgi_buffer_size` bump
+    for the 502-on-large-headers gotcha, both first-time hurdles hit
+    fresh during this investigation.
+    Full reasoning, alternatives considered, and the exact guard/fix in
+    [ADR-0023](adr/0023-element-level-hidden-initial-state-vs-per-item-visibility.md).
+
+40. **GitHub issue #129: a ranking element's selections reset to
+    unranked across wizard "Previous" navigation, and never appeared on
+    the Preview page — a purely server-side, admin-config-boundary bug,
+    surfaced while live-testing the #123 patch on the reporter's real
+    production webform.** Every other field type on the same page
+    persisted correctly across the same round trip.
+    Traced to `WebformSubmissionForm::populateElements()` — the only
+    place Webform core repopulates `#default_value` from a saved
+    submission on any rebuild (wizard back-navigation, draft resume,
+    editing) — gated entirely on `hasProperty('default_value')`.
+    `WebformRanking::defineDefaultProperties()` unset that property, a
+    deliberate but too-broad fix for an unrelated concern: suppressing
+    the generic admin "Default value" widget, since a scalar/YAML value
+    there could crash `WebformRankingConverter::canonicalToMatrix()`.
+    The one flag was silently serving two different callers.
+    Confirmed via a live Kernel test driving a real
+    `\Drupal::formBuilder()->submitForm()` "Next" click that the *save*
+    path itself was never broken — data reaches the submission
+    correctly the moment "Next" is clicked. The entire symptom,
+    including the blank Preview page, is fully explained by the
+    redisplay gate alone.
+    Fixed by keeping `'default_value' => []` declared (matching
+    `WebformLikert`'s own precedent) and instead suppressing just the
+    built admin-form field directly in `form()`
+    (`unset($form['default']['default_value'])`), after
+    `parent::form()` has already built it — decoupling "is this
+    property declared" from "does the admin form need a widget for it."
+    Debugging the new Kernel regression test itself surfaced an
+    unrelated, easy-to-repeat gotcha: `FormBuilder::submitForm()`
+    overwrites any `setUserInput()` call with `$form_state->getValues()`
+    (empty on a first, from-scratch call) before processing — a
+    programmatic "as if already submitted" test must call `setValues()`
+    instead, not `setUserInput()`.
+    Full reasoning, alternatives considered, and the exact fix in
+    [ADR-0024](adr/0024-default-value-property-declaration-vs-admin-widget.md).
+
+41. **GitHub issue #132: ranking element results/Preview HTML didn't
+    bold item labels, unlike Likert's equivalent output.** Noticed
+    during #129's live-environment verification, on a real form with
+    both element types on the same Preview page. `WebformLikert::
+    formatHtmlItem()`'s `'list'` format wraps each question label with
+    `'#prefix' => '<b>', '#suffix' => ':</b> '`; `WebformRanking::
+    formatHtmlItem()` just concatenated the label as plain text with no
+    bold wrapper — a pure formatting inconsistency, not a data bug.
+    Fixed by mirroring Likert's exact `#prefix`/`#suffix` pattern, in
+    both the default and `'raw'` item-format branches (Likert bolds in
+    both). New Kernel test (`WebformRankingResultsFormattingTest`)
+    builds a real Webform + WebformSubmission and calls
+    `formatHtml()` directly, rather than the narrower reflection-based
+    coverage `WebformRankingPluginTest.php` deliberately stops short of
+    — its own docblock had flagged `formatHtmlItem()`/`formatTextItem()`
+    as needing exactly this heavier real-submission setup, previously
+    assumed to require a Functional/Nightwatch tier test; turned out
+    `WebformRankingKernelTestBase`'s existing real-Webform/-submission
+    helpers (built for #129) were already sufficient at the Kernel tier.
+42. **GitHub issue #119: matrix visual design — the last of the six
+    sub-issues split from #10 (all of #115-#120 now landed).** Three
+    pieces planned, all CSS-only, all reusing tokens #116/#118/#120
+    already established (several literally forward-provisioned in #116
+    for exactly this issue) — no new `--webform-ranking-*` tokens
+    needed. Carried #120's own "admin config serves theme-cohesion
+    worse than the theme's own CSS" reasoning forward without
+    re-litigating it: the issue's "optional row/column lines" wording
+    was read as theme-overridable-by-default, not an admin toggle.
+    **Shipped:** N/A row dimming reuses `--webform-ranking-na-opacity`
+    (#120's own forward note: reuse it here rather than inventing a
+    second one) via CSS `:has()` —
+    `.webform-ranking-matrix tr:has(input[value="na"]:checked)` — a
+    deliberate choice over a JS class toggle matching the existing
+    `markTakenRanks()` pattern: zero JS/test surface, pure progressive
+    enhancement (unsupported pre-2022 browsers just don't get the
+    dimming, nothing functional depends on it). Full reasoning in
+    [ADR-0025](adr/0025-css-has-for-matrix-na-row-styling.md).
+    Taken-radio styling adds `accent-color` (reusing the module's own
+    neutral border-color token) alongside the existing opacity, for a
+    deliberately-muted rather than just-faded look.
+    **Implemented, then reverted after real-world testing:** the third
+    piece, row/column grid lines, surfaced a real design flaw before it
+    even shipped — a first draft, `.webform-ranking-matrix th,
+    .webform-ranking-matrix td { border: ...; }`, has specificity
+    `(0,1,1)` — higher than a typical theme's own generic `table th,
+    table td` rule at `(0,0,2)` — which would have silently overridden
+    a theme's existing table border styling regardless of load order,
+    the opposite of the stated goal ("work with what a theme has
+    already defined"). Fixed by wrapping the class in `:where()`
+    (`:where(.webform-ranking-matrix) th`), which matches identically
+    but contributes zero specificity, dropping the whole selector to
+    `(0,0,1)` — lower than almost any real theme rule. Also confirmed
+    (not assumed) via `web/core/lib/Drupal/Core/Asset/
+    LibraryDiscoveryParser.php:162` that Drupal's CSS aggregation
+    always loads module CSS before the active theme's own CSS
+    regardless of a library's internal `css:` category key
+    (`base`/`component`/`theme`/etc. only affects ordering *within*
+    the module-CSS group) — a second, independent reason a theme's own
+    rule wins even at equal specificity, though `:where()` doesn't
+    depend on that alone. Despite getting the specificity/cascade
+    mechanics right, the user tested a cumulative patch against a real
+    live theme and the grid lines simply didn't look good in practice —
+    pulled entirely rather than tuned, since the underlying idea
+    ("draw internal table borders") wasn't the part that was wrong, the
+    aesthetic result was. Worth remembering if row/column lines come up
+    again: the mechanism (`:where()`-scoped, token-chained borders) is
+    still sound and documented here should a future attempt want a
+    different starting point (e.g. lighter default weight/color, or an
+    opt-in class instead of on-by-default). **Also discovered mid-
+    planning:** several
+    other issues (#123, #129, #132 — see entries 39-41) had been
+    planned, implemented, and merged by other work entirely outside
+    this thread while #119 was still being planned, consuming ADR
+    numbers 0023/0024 and CONTINUATION entries 39-41 that #119's plan
+    had reserved for itself — caught before implementation by
+    re-syncing `dev` and checking `docs/adr/`'s actual listing rather
+    than trusting the plan's own numbers, and renumbered to 0025/42
+    accordingly. **One more real-theme-testing finding, alongside the
+    grid-lines revert above:** `.form-item` (the wrapper div Drupal
+    core's own radio theme wrapper generates around each rank radio)
+    wasn't vertically centering within its `<td>` — visible as the
+    radio sitting shifted toward the top of a taller cell. Root cause:
+    plenty of themes reset generic table cells to `vertical-align: top`
+    (sensible for text-heavy content tables, wrong for this control
+    grid), and this file never restated the `<td>` UA default
+    explicitly, so a theme's reset silently won. Fixed by adding
+    `vertical-align: middle` directly to the existing `th`/`td` rule —
+    unlike the border-color question above, this one didn't need
+    `:where()`/deferring to the theme: correct vertical alignment of
+    this component's own controls is a structural requirement, not an
+    aesthetic choice a theme should get to override, the same category
+    this file's `border-collapse`/`width` rules already sit in.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
@@ -1682,13 +2078,20 @@ evidence rather than assert confidently.
   DOM**~~ — resolved by Key Design Decision #17's redesign: the checkbox
   + row-matching heuristic this referred to no longer exists (replaced
   by a per-item dialog with no row-matching step at all).
-- **No visual CSS design pass** — current CSS is still mostly structural/
-  layout only, except `webform_ranking.items_admin.css` (added for
-  GitHub issue #65), which deliberately mirrors core Webform's own +/-
-  icon-button styling for the per-item condition builder, and the
-  matrix style's new responsive collapse (#115). What used to be a
-  single tracking issue (#10) is now six focused sub-issues (#116-#120
-  remaining) — see entry 35 above.
+- ~~**No visual CSS design pass**~~ — resolved. What used to be a single
+  tracking issue (#10) split into six focused sub-issues, all now
+  landed: the matrix style's responsive collapse (#115), the theme-
+  overridable custom-property vocabulary (#116, entry 36), the drag/
+  drop SVG icons/uniform control sizing (#117+#118, entry 37),
+  theme-derived corner rounding/N/A opacity (#120, entry 38 — retitled/
+  re-scoped mid-planning, shipped as CSS tokens rather than admin
+  config), and matrix's own N/A/taken-radio styling (#119, entry 42 —
+  a third planned piece, row/column grid lines, was implemented then
+  reverted after real-theme testing looked bad in practice; see that
+  entry). `webform_ranking.items_admin.css` (added for
+  GitHub issue #65, mirroring core Webform's own +/- icon-button
+  styling for the per-item condition builder) predates and sits outside
+  this split entirely.
 - **`webform_element_states` nested-widget crash root cause never actually
   diagnosed** — worked around, not fixed/understood. Could theoretically
   be revisited if raw-YAML UX becomes a real problem.

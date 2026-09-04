@@ -1,18 +1,29 @@
 /**
- * Structural styles only — see webform_ranking.matrix.css note.
+ * Structural styles only — see webform_ranking.matrix.css note. Values
+ * below are theme-overridable custom properties: see GitHub issue #116
+ * and docs/adr/0021-css-custom-property-convention.md for the token
+ * vocabulary and why these are only ever referenced via var(), never
+ * declared, in this module's own CSS.
  */
 .webform-ranking-dragdrop {
   display: flex;
   flex-direction: column;
-  gap: 0.5em;
+  gap: var(--webform-ranking-item-gap, var(--space-xs, var(--sp0-5, 0.5em)));
 }
 
 .webform-ranking-dragdrop__item {
   display: flex;
   align-items: center;
   gap: 0.75em;
-  padding: 0.5em 0.75em;
-  border: 1px solid;
+  padding: var(--webform-ranking-item-padding-block, var(--input-padding-vertical, 0.5em))
+    var(--webform-ranking-item-padding-inline, var(--input-padding-horizontal, 0.75em));
+  border: var(--webform-ranking-border-width, var(--input-border-size, 1px))
+    var(--webform-ranking-border-style, solid)
+    var(--webform-ranking-border-color, var(--input-border-color, var(--color--gray-70, #ccc)));
+  /* Theme-derived, not admin-configurable (#120) — see ADR-0021 for
+     the fallback chain and why border-radius is chained here after
+     originally shipping unchained. */
+  border-radius: var(--webform-ranking-border-radius, var(--input-border-radius-size, var(--base-border-radius, var(--border-radius, 0))));
   cursor: grab;
   /* Without this, a press-and-drag gesture can also trigger the
      browser's native text selection, visually competing with the
@@ -28,13 +39,31 @@
   touch-action: none;
 }
 
+/**
+ * A custom role="listitem" tabindex="0" element (the real keyboard-
+ * reorder target per ADR-0008), not a native control — the move
+ * buttons/N/A checkbox are real <button>/<input> and already get
+ * theme-adaptive native focus styling, so only this element needs an
+ * explicit ring.
+ */
+.webform-ranking-dragdrop__item:focus-visible {
+  outline: var(--webform-ranking-border-width, var(--input-border-size, 1px)) solid
+    var(--webform-ranking-focus-color, var(--color-focus, var(--color--primary-50, #0f62c9)));
+  outline-offset: 2px;
+}
+
 .webform-ranking-dragdrop__item--dragging {
   opacity: 0.6;
   cursor: grabbing;
 }
 
+/**
+ * Theme-derived, not admin-configurable (#120) — 0.7 remains the
+ * default (unchanged), but a theme's own token now overrides it. See
+ * ADR-0021 for the fallback chain.
+ */
 .webform-ranking-dragdrop__item--na {
-  opacity: 0.7;
+  opacity: var(--webform-ranking-na-opacity, var(--input--disabled-border-opacity, 0.7));
   cursor: default;
 }
 
@@ -51,4 +80,112 @@
 .webform-ranking-dragdrop__position {
   min-width: 4em;
   font-variant-numeric: tabular-nums;
+}
+
+/**
+ * GitHub issue #118: move buttons and N/A checkbox share one explicit,
+ * root-relative box. `font: inherit` matters because native form
+ * controls don't inherit the page's font by default, so `em`-based
+ * sizing on them (an earlier draft of this rule) drifts off an
+ * arbitrary, browser-dependent value instead — see ADR-0021 for the
+ * full diagnosis and the 2rem/WCAG 2.5.8 sizing rationale.
+ */
+.webform-ranking-dragdrop__move-up,
+.webform-ranking-dragdrop__move-down,
+.webform-ranking-dragdrop__na-checkbox {
+  box-sizing: border-box;
+  width: var(--webform-ranking-control-size, var(--input-line-height, 2rem));
+  height: var(--webform-ranking-control-size, var(--input-line-height, 2rem));
+  margin: 0;
+  font: inherit;
+}
+
+.webform-ranking-dragdrop__move-up,
+.webform-ranking-dragdrop__move-down {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+/**
+ * GitHub issue #118: matches the buttons to the active theme's own
+ * button styling (real Claro/Gin tokens, static fallback otherwise)
+ * instead of bare native chrome — see ADR-0021's token table for the
+ * full fallback chains. The icon needs no separate color handling: its
+ * fill="currentColor" (buildMoveIcon()) already follows this `color`.
+ */
+.webform-ranking-dragdrop__move-up,
+.webform-ranking-dragdrop__move-down {
+  background-color: var(--webform-ranking-button-bg, var(--button-bg-color, transparent));
+  color: var(--webform-ranking-button-fg, var(--button-fg-color, currentColor));
+  border: var(--webform-ranking-border-width, var(--input-border-size, 1px))
+    var(--webform-ranking-border-style, solid)
+    var(--webform-ranking-border-color, var(--input-border-color, var(--color--gray-70, #ccc)));
+  border-radius: var(--webform-ranking-border-radius, var(--input-border-radius-size, var(--base-border-radius, var(--border-radius, 0))));
+}
+
+/**
+ * Sets both background and foreground per state, not just background
+ * — see ADR-0021 for why the foreground fallbacks resolve back to the
+ * base color (Claro's generic button doesn't vary it per-state).
+ */
+.webform-ranking-dragdrop__move-up:hover,
+.webform-ranking-dragdrop__move-down:hover {
+  background-color: var(--webform-ranking-button-hover-bg, var(--button--hover-bg-color, transparent));
+  color: var(--webform-ranking-button-hover-fg, var(--webform-ranking-button-fg, var(--button-fg-color, currentColor)));
+}
+
+.webform-ranking-dragdrop__move-up:active,
+.webform-ranking-dragdrop__move-down:active {
+  background-color: var(--webform-ranking-button-active-bg, var(--button--active-bg-color, transparent));
+  color: var(--webform-ranking-button-active-fg, var(--webform-ranking-button-fg, var(--button-fg-color, currentColor)));
+}
+
+/**
+ * Buttons' focus ring/background/foreground also adhere to the
+ * theme's own styling, not just the browser default — the outline
+ * tries Claro's button-specific token before the generic focus-color
+ * chain .webform-ranking-dragdrop__item:focus-visible already uses;
+ * see ADR-0021 for the full chain and background/foreground reasoning.
+ */
+.webform-ranking-dragdrop__move-up:focus-visible,
+.webform-ranking-dragdrop__move-down:focus-visible {
+  outline: var(--webform-ranking-border-width, var(--input-border-size, 1px)) solid
+    var(--webform-ranking-button-focus-color, var(--button--focus-border-color,
+    var(--webform-ranking-focus-color, var(--color-focus, var(--color--primary-50, #0f62c9)))));
+  outline-offset: 2px;
+  background-color: var(--webform-ranking-button-focus-bg, var(--webform-ranking-button-bg, var(--button-bg-color, transparent)));
+  color: var(--webform-ranking-button-focus-fg, var(--webform-ranking-button-fg, var(--button-fg-color, currentColor)));
+}
+
+/**
+ * An author-stylesheet class selector overrides the browser's native
+ * :disabled dimming regardless of pseudo-class specificity, so it's
+ * restated explicitly here — opacity is the static fallback affordance,
+ * matching .webform-ranking-matrix__radio--taken's own convention.
+ */
+.webform-ranking-dragdrop__move-up:disabled,
+.webform-ranking-dragdrop__move-down:disabled {
+  background-color: var(--webform-ranking-button-disabled-bg, var(--button--disabled-bg-color, transparent));
+  color: var(--webform-ranking-button-disabled-fg, var(--button--disabled-fg-color, currentColor));
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/**
+ * Without this, the SVG sits on its containing span's text baseline,
+ * leaving invisible descender space that throws off the button's flex
+ * vertical centering by a couple of pixels — display: block removes
+ * that baseline/line-box participation entirely.
+ */
+.webform-ranking-dragdrop__icon {
+  display: block;
+}
+
+/* Keeps the checkbox aligned with its own label text. */
+.webform-ranking-dragdrop__na-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
 }

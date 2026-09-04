@@ -1,16 +1,26 @@
 /**
- * Structural styles only — visual design (colors, spacing polish) is a
- * separate pass, see GitHub issue #119.
+ * Custom properties referenced below are theme-overridable (GitHub
+ * issue #116) — see docs/adr/0021-css-custom-property-convention.md
+ * for the token vocabulary and why they're only ever referenced via
+ * var(), never declared, in this module's own CSS.
  */
 .webform-ranking-matrix {
   border-collapse: collapse;
   width: 100%;
 }
 
+/**
+ * vertical-align: middle restates the <td> UA default explicitly —
+ * themes commonly reset it to `top`, which left .form-item shifted
+ * toward the top of a taller cell (GitHub issue #119). Structural, not
+ * an aesthetic theme preference, so applied directly — see
+ * docs/CONTINUATION.md entry 42.
+ */
 .webform-ranking-matrix th,
 .webform-ranking-matrix td {
   padding: 0.5em;
   text-align: center;
+  vertical-align: middle;
 }
 
 .webform-ranking-matrix td:first-child,
@@ -41,10 +51,21 @@
  * Informational only — this radio is still enabled and clickable;
  * clicking it reassigns the rank away from whichever item currently
  * holds it (see webform_ranking.matrix.js). Not a `:disabled` style:
- * the input genuinely isn't disabled.
+ * the input genuinely isn't disabled. accent-color makes "taken" read
+ * as deliberately muted, not just faded (GitHub issue #119).
  */
 .webform-ranking-matrix__radio--taken {
   opacity: 0.5;
+  accent-color: var(--webform-ranking-border-color, var(--input-border-color, var(--color--gray-70, #ccc)));
+}
+
+/**
+ * Matrix's N/A equivalent of drag/drop's own N/A dimming, reusing the
+ * same --webform-ranking-na-opacity token (GitHub issue #120). :has()
+ * over a JS class toggle: see docs/adr/0025-css-has-for-matrix-na-row-styling.md.
+ */
+.webform-ranking-matrix tr:has(input[value="na"]:checked) {
+  opacity: var(--webform-ranking-na-opacity, var(--input--disabled-border-opacity, 0.7));
 }
 
 /**
@@ -57,11 +78,13 @@
  * Sighted-only rank hint (GitHub issue #115), shown per radio once the
  * collapse below hides the column headers that normally convey this —
  * aria-hidden at the render layer (WebformRanking::buildMatrix()), so
- * this class only ever controls its visual display.
+ * this class only ever controls its visual display. Custom property is
+ * theme-overridable (GitHub issue #116) — see
+ * docs/adr/0021-css-custom-property-convention.md.
  */
 .webform-ranking-matrix__rank-label {
   display: none;
-  padding-inline-start: var(--sp0-5, calc(0.5 * 1.125rem));
+  padding-inline-start: var(--webform-ranking-rank-label-spacing, var(--sp0-5, calc(0.5 * 1.125rem)));
 }
 
 /**
@@ -77,7 +100,7 @@
   /* Separates the table from the element's title/description text above
      it, now that the header row providing that break is hidden. */
   .webform-ranking-matrix {
-    margin-block-start: var(--sp1, 1.125rem);
+    margin-block-start: var(--webform-ranking-narrow-margin, var(--sp1, var(--space-m, 1.125rem)));
   }
 
   .webform-ranking-matrix td {
@@ -103,6 +126,6 @@
      zeroed above. On the last cell, not `tr` itself — margin doesn't
      apply to that display type. */
   .webform-ranking-matrix td:last-child {
-    margin-block-end: var(--sp1, 1.125rem);
+    margin-block-end: var(--webform-ranking-narrow-margin, var(--sp1, var(--space-m, 1.125rem)));
   }
 }
