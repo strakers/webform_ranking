@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-04
+
 ### Added
 
 - Matrix display style: the table now collapses to a vertical, stacked layout on narrow screens, matching the Webform Likert element's own mobile behavior ([#115](https://github.com/strakers/webform_ranking/issues/115)).
@@ -24,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Corrected outdated Drupal/Webform version requirements and conditional-logic documentation in README.md ([#107](https://github.com/strakers/webform_ranking/issues/107)).
 - Condensed CHANGELOG.md entries to be skimmable, and fixed missing version-header and issue links ([#109](https://github.com/strakers/webform_ranking/issues/109)).
 - Drag/drop display style: "Require every visible item..." is now hidden in the admin form (a no-op for this style), and a conditionally-hidden item's rank no longer leaks to other elements' conditions — it's now excluded and coalesced like a fresh submission, and reappears unranked at the end of the list when revealed ([#108](https://github.com/strakers/webform_ranking/issues/108)).
+- Element-level "only show this element when..." conditions hiding a ranking element on initial page load permanently corrupted its own rows/items even once revealed, and for drag/drop, silently excluded them from the actual submission ([#123](https://github.com/strakers/webform_ranking/issues/123)).
+- A ranking element's selections no longer reset to unranked across wizard "Previous" navigation, or appear blank on the Preview page ([#129](https://github.com/strakers/webform_ranking/issues/129)).
+- Ranking element results/Preview HTML now bolds item labels, matching the Likert element's own output ([#132](https://github.com/strakers/webform_ranking/issues/132)).
 
 ## [0.3.1] - 2026-08-30
 
@@ -124,7 +129,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release: matrix and drag/drop display styles, N/A abstention, sequential/no-duplicate-rank validation, per-item conditional visibility, per-item `#states` trigger sources, randomizable order, customizable rank labels, results/CSV export, and initial test coverage.
 
-[Unreleased]: https://github.com/strakers/webform_ranking/compare/0.3.1...HEAD
+[Unreleased]: https://github.com/strakers/webform_ranking/compare/0.3.2...HEAD
+[0.3.2]: https://github.com/strakers/webform_ranking/compare/0.3.1...0.3.2
 [0.3.1]: https://github.com/strakers/webform_ranking/compare/0.3.0...0.3.1
 [0.3.0]: https://github.com/strakers/webform_ranking/compare/0.2.2...0.3.0
 [0.2.2]: https://github.com/strakers/webform_ranking/compare/0.2.1...0.2.2
