@@ -1947,6 +1947,26 @@ no-input fallback only ever see canonical shape. The plugin's
     Full reasoning, alternatives considered, and the exact fix in
     [ADR-0024](adr/0024-default-value-property-declaration-vs-admin-widget.md).
 
+41. **GitHub issue #132: ranking element results/Preview HTML didn't
+    bold item labels, unlike Likert's equivalent output.** Noticed
+    during #129's live-environment verification, on a real form with
+    both element types on the same Preview page. `WebformLikert::
+    formatHtmlItem()`'s `'list'` format wraps each question label with
+    `'#prefix' => '<b>', '#suffix' => ':</b> '`; `WebformRanking::
+    formatHtmlItem()` just concatenated the label as plain text with no
+    bold wrapper — a pure formatting inconsistency, not a data bug.
+    Fixed by mirroring Likert's exact `#prefix`/`#suffix` pattern, in
+    both the default and `'raw'` item-format branches (Likert bolds in
+    both). New Kernel test (`WebformRankingResultsFormattingTest`)
+    builds a real Webform + WebformSubmission and calls
+    `formatHtml()` directly, rather than the narrower reflection-based
+    coverage `WebformRankingPluginTest.php` deliberately stops short of
+    — its own docblock had flagged `formatHtmlItem()`/`formatTextItem()`
+    as needing exactly this heavier real-submission setup, previously
+    assumed to require a Functional/Nightwatch tier test; turned out
+    `WebformRankingKernelTestBase`'s existing real-Webform/-submission
+    helpers (built for #129) were already sufficient at the Kernel tier.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,
