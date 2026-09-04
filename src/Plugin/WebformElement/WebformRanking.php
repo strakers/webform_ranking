@@ -115,17 +115,18 @@ class WebformRanking extends WebformElementBase {
       'require_first_place' => FALSE,
       'require_first_place_error' => '',
       'sequential_ranks_error' => '',
+      // Kept declared (unlike an earlier revision — see GitHub #129):
+      // WebformSubmissionForm::populateElements()'s only gate for
+      // repopulating #default_value from a saved submission on any
+      // rebuild (wizard back-navigation, draft resume, edit) is
+      // hasProperty('default_value'), i.e. this key's mere presence
+      // here — removing it silently broke that for every rebuild, not
+      // just the admin config widget it was meant to suppress. See
+      // ADR-0024. [] matches WebformLikert's own default and is safe:
+      // WebformRankingConverter::matrixToCanonical([]) already resolves
+      // to the correct empty canonical shape.
+      'default_value' => [],
     ] + parent::defineDefaultProperties();
-
-    // The canonical {values, na} ranking value has no scalar
-    // representation a "Default value" textfield could express — the
-    // base class's generic textfield only ever produces a string, which
-    // crashes WebformRankingConverter::canonicalToMatrix() (a typed
-    // array parameter) the first time the element renders. Removing the
-    // property entirely means Webform's element config form stops
-    // offering it at all, rather than offering a control that can only
-    // ever produce an invalid value.
-    unset($properties['default_value']);
 
     return $properties;
   }
@@ -156,6 +157,15 @@ class WebformRanking extends WebformElementBase {
    */
   public function form(array $form, FormStateInterface $form_state) {
     $form = parent::form($form, $form_state);
+
+    // 'default_value' stays declared in defineDefaultProperties() now
+    // (GitHub #129/ADR-0024) so Webform core's own submission-data
+    // repopulation still works — this only removes the generic admin
+    // widget parent::form() built for it, since a scalar textfield/YAML
+    // value here still can't safely express this element's canonical
+    // {values, na} shape. Unsetting the built field directly, rather
+    // than re-removing the property, keeps that repopulation intact.
+    unset($form['default']['default_value']);
 
     // Requires a form object with getWebform() — true for every real
     // caller (WebformUiElementFormBase and its WebformUiElementTestForm
