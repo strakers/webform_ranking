@@ -60,10 +60,17 @@ class WebformRankingDefaultValueTest extends KernelTestBase {
   }
 
   /**
-   * The "Default value" property is no longer offered at all.
+   * The 'default_value' property must stay declared (GitHub #129,
+   * ADR-0024) — WebformSubmissionForm::populateElements()'s only gate
+   * for repopulating #default_value from a saved submission on any
+   * wizard/draft/edit rebuild is hasProperty('default_value'). Only the
+   * generic admin-form widget for it is suppressed (in form(), not
+   * testable here since it requires the webform_ui module's own
+   * WebformUiElementFormInterface form object, which this environment
+   * doesn't have installed) — the property itself must remain.
    */
-  public function testDefaultValuePropertyIsNotOffered(): void {
-    $this->assertFalse($this->plugin->hasProperty('default_value'));
+  public function testDefaultValuePropertyIsDeclared(): void {
+    $this->assertTrue($this->plugin->hasProperty('default_value'));
   }
 
   /**

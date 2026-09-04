@@ -1911,6 +1911,42 @@ no-input fallback only ever see canonical shape. The plugin's
     Full reasoning, alternatives considered, and the exact guard/fix in
     [ADR-0023](adr/0023-element-level-hidden-initial-state-vs-per-item-visibility.md).
 
+40. **GitHub issue #129: a ranking element's selections reset to
+    unranked across wizard "Previous" navigation, and never appeared on
+    the Preview page — a purely server-side, admin-config-boundary bug,
+    surfaced while live-testing the #123 patch on the reporter's real
+    production webform.** Every other field type on the same page
+    persisted correctly across the same round trip.
+    Traced to `WebformSubmissionForm::populateElements()` — the only
+    place Webform core repopulates `#default_value` from a saved
+    submission on any rebuild (wizard back-navigation, draft resume,
+    editing) — gated entirely on `hasProperty('default_value')`.
+    `WebformRanking::defineDefaultProperties()` unset that property, a
+    deliberate but too-broad fix for an unrelated concern: suppressing
+    the generic admin "Default value" widget, since a scalar/YAML value
+    there could crash `WebformRankingConverter::canonicalToMatrix()`.
+    The one flag was silently serving two different callers.
+    Confirmed via a live Kernel test driving a real
+    `\Drupal::formBuilder()->submitForm()` "Next" click that the *save*
+    path itself was never broken — data reaches the submission
+    correctly the moment "Next" is clicked. The entire symptom,
+    including the blank Preview page, is fully explained by the
+    redisplay gate alone.
+    Fixed by keeping `'default_value' => []` declared (matching
+    `WebformLikert`'s own precedent) and instead suppressing just the
+    built admin-form field directly in `form()`
+    (`unset($form['default']['default_value'])`), after
+    `parent::form()` has already built it — decoupling "is this
+    property declared" from "does the admin form need a widget for it."
+    Debugging the new Kernel regression test itself surfaced an
+    unrelated, easy-to-repeat gotcha: `FormBuilder::submitForm()`
+    overwrites any `setUserInput()` call with `$form_state->getValues()`
+    (empty on a first, from-scratch call) before processing — a
+    programmatic "as if already submitted" test must call `setValues()`
+    instead, not `setUserInput()`.
+    Full reasoning, alternatives considered, and the exact fix in
+    [ADR-0024](adr/0024-default-value-property-declaration-vs-admin-widget.md).
+
 41. **GitHub issue #132: ranking element results/Preview HTML didn't
     bold item labels, unlike Likert's equivalent output.** Noticed
     during #129's live-environment verification, on a real form with
@@ -1930,10 +1966,6 @@ no-input fallback only ever see canonical shape. The plugin's
     assumed to require a Functional/Nightwatch tier test; turned out
     `WebformRankingKernelTestBase`'s existing real-Webform/-submission
     helpers (built for #129) were already sufficient at the Kernel tier.
-    (Entry numbered 41, not 40 — #129's own entry above already claims
-    40 on its own not-yet-merged branch at the time this was written;
-    numbered ahead deliberately to avoid repeating the ADR-0022/entry-37
-    collision two branches hit earlier this same day.)
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about

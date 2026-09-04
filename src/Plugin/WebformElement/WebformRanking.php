@@ -115,17 +115,12 @@ class WebformRanking extends WebformElementBase {
       'require_first_place' => FALSE,
       'require_first_place_error' => '',
       'sequential_ranks_error' => '',
+      // Kept declared — Webform core's only gate for redisplaying saved
+      // submission data on rebuild is this property's mere presence,
+      // unrelated to the admin widget it was once removed to suppress.
+      // See ADR-0024 (GitHub #129).
+      'default_value' => [],
     ] + parent::defineDefaultProperties();
-
-    // The canonical {values, na} ranking value has no scalar
-    // representation a "Default value" textfield could express — the
-    // base class's generic textfield only ever produces a string, which
-    // crashes WebformRankingConverter::canonicalToMatrix() (a typed
-    // array parameter) the first time the element renders. Removing the
-    // property entirely means Webform's element config form stops
-    // offering it at all, rather than offering a control that can only
-    // ever produce an invalid value.
-    unset($properties['default_value']);
 
     return $properties;
   }
@@ -156,6 +151,11 @@ class WebformRanking extends WebformElementBase {
    */
   public function form(array $form, FormStateInterface $form_state) {
     $form = parent::form($form, $form_state);
+
+    // Suppress only the admin widget — the property itself stays
+    // declared in defineDefaultProperties() so submission-data
+    // redisplay still works. See ADR-0024 (GitHub #129).
+    unset($form['default']['default_value']);
 
     // Requires a form object with getWebform() — true for every real
     // caller (WebformUiElementFormBase and its WebformUiElementTestForm
