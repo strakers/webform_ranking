@@ -808,10 +808,8 @@ class WebformRanking extends WebformElementBase {
    * (see WebformRankingConverter::orderByRank()) — each line is still
    * self-labeled ("Pizza: 1st"), so nothing is lost by reordering.
    *
-   * Bolds each row's label (GitHub #132), matching
-   * WebformLikert::formatHtmlItem()'s own 'list'-format precedent —
-   * '#prefix'/'#suffix' rather than a raw `<b>` string in '#markup',
-   * consistent with how that base class builds it.
+   * Bolds each row's label, matching WebformLikert's own 'list'-format
+   * precedent (GitHub #132).
    */
   protected function formatHtmlItem(array $element, WebformSubmissionInterface $webform_submission, array $options = []) {
     $value = $this->getValue($element, $webform_submission, $options);
