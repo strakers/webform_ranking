@@ -1966,6 +1966,53 @@ no-input fallback only ever see canonical shape. The plugin's
     assumed to require a Functional/Nightwatch tier test; turned out
     `WebformRankingKernelTestBase`'s existing real-Webform/-submission
     helpers (built for #129) were already sufficient at the Kernel tier.
+42. **GitHub issue #119: matrix visual design — the last of the six
+    sub-issues split from #10 (all of #115-#120 now landed).** Three
+    pieces, all CSS-only, all reusing tokens #116/#118/#120 already
+    established (several literally forward-provisioned in #116 for
+    exactly this issue) — no new `--webform-ranking-*` tokens needed.
+    Carried #120's own "admin config serves theme-cohesion worse than
+    the theme's own CSS" reasoning forward without re-litigating it:
+    the issue's "optional row/column lines" wording was read as
+    theme-overridable-by-default, not an admin toggle. N/A row dimming
+    reuses `--webform-ranking-na-opacity` (#120's own forward note:
+    reuse it here rather than inventing a second one) via CSS `:has()`
+    — `.webform-ranking-matrix tr:has(input[value="na"]:checked)` — a
+    deliberate choice over a JS class toggle matching the existing
+    `markTakenRanks()` pattern: zero JS/test surface, pure progressive
+    enhancement (unsupported pre-2022 browsers just don't get the
+    dimming, nothing functional depends on it). Full reasoning in
+    [ADR-0025](adr/0025-css-has-for-matrix-na-row-styling.md).
+    Taken-radio styling adds `accent-color` (reusing the same border-
+    color token as the new grid lines) alongside the existing opacity,
+    for a deliberately-muted rather than just-faded look. The row/
+    column-lines rule surfaced a real design flaw before it shipped:
+    a first draft, `.webform-ranking-matrix th, .webform-ranking-matrix
+    td { border: ...; }`, has specificity `(0,1,1)` — higher than a
+    typical theme's own generic `table th, table td` rule at `(0,0,2)`
+    — which would have silently overridden a theme's existing table
+    border styling regardless of load order, the opposite of the
+    stated goal ("work with what a theme has already defined"). Fixed
+    by wrapping the class in `:where()`
+    (`:where(.webform-ranking-matrix) th`), which matches identically
+    but contributes zero specificity, dropping the whole selector to
+    `(0,0,1)` — lower than almost any real theme rule. Also confirmed
+    (not assumed) via `web/core/lib/Drupal/Core/Asset/
+    LibraryDiscoveryParser.php:162` that Drupal's CSS aggregation
+    always loads module CSS before the active theme's own CSS
+    regardless of a library's internal `css:` category key
+    (`base`/`component`/`theme`/etc. only affects ordering *within*
+    the module-CSS group) — a second, independent reason a theme's own
+    rule wins even at equal specificity, though `:where()` doesn't
+    depend on that alone. **Also discovered mid-planning:** several
+    other issues (#123, #129, #132 — see entries 39-41) had been
+    planned, implemented, and merged by other work entirely outside
+    this thread while #119 was still being planned, consuming ADR
+    numbers 0023/0024 and CONTINUATION entries 39-41 that #119's plan
+    had reserved for itself — caught before implementation by
+    re-syncing `dev` and checking `docs/adr/`'s actual listing rather
+    than trusting the plan's own numbers, and renumbered to 0025/42
+    accordingly.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
@@ -2005,18 +2052,18 @@ evidence rather than assert confidently.
   DOM**~~ — resolved by Key Design Decision #17's redesign: the checkbox
   + row-matching heuristic this referred to no longer exists (replaced
   by a per-item dialog with no row-matching step at all).
-- **No visual CSS design pass** — current CSS is still mostly structural/
-  layout only, except `webform_ranking.items_admin.css` (added for
-  GitHub issue #65), which deliberately mirrors core Webform's own +/-
-  icon-button styling for the per-item condition builder, the matrix
-  style's responsive collapse (#115), the theme-overridable custom-
-  property vocabulary (#116, entry 36 above), and the drag/drop SVG
-  icons/uniform control sizing (#117+#118, entry 37 above), and
-  theme-derived corner rounding/N/A opacity (#120, entry 38 above —
-  retitled/re-scoped mid-planning; shipped as CSS tokens, not admin
-  config). What used to be a single tracking issue (#10) is now six
-  focused sub-issues; remaining: #119 (matrix N/A/row-column-line/
-  taken-radio styling), last.
+- ~~**No visual CSS design pass**~~ — resolved. What used to be a single
+  tracking issue (#10) split into six focused sub-issues, all now
+  landed: the matrix style's responsive collapse (#115), the theme-
+  overridable custom-property vocabulary (#116, entry 36), the drag/
+  drop SVG icons/uniform control sizing (#117+#118, entry 37),
+  theme-derived corner rounding/N/A opacity (#120, entry 38 — retitled/
+  re-scoped mid-planning, shipped as CSS tokens rather than admin
+  config), and matrix's own N/A/row-column-line/taken-radio styling
+  (#119, entry 42). `webform_ranking.items_admin.css` (added for
+  GitHub issue #65, mirroring core Webform's own +/- icon-button
+  styling for the per-item condition builder) predates and sits outside
+  this split entirely.
 - **`webform_element_states` nested-widget crash root cause never actually
   diagnosed** — worked around, not fixed/understood. Could theoretically
   be revisited if raw-YAML UX becomes a real problem.

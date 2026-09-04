@@ -1,10 +1,8 @@
 /**
- * Structural styles only — visual design (colors, spacing polish) is a
- * separate pass, see GitHub issue #119. Custom properties referenced
- * below are theme-overridable (GitHub issue #116) — see
- * docs/adr/0021-css-custom-property-convention.md for the token
- * vocabulary and why they're only ever referenced via var(), never
- * declared, in this module's own CSS.
+ * Custom properties referenced below are theme-overridable (GitHub
+ * issue #116) — see docs/adr/0021-css-custom-property-convention.md
+ * for the token vocabulary and why they're only ever referenced via
+ * var(), never declared, in this module's own CSS.
  */
 .webform-ranking-matrix {
   border-collapse: collapse;
@@ -15,6 +13,20 @@
 .webform-ranking-matrix td {
   padding: 0.5em;
   text-align: center;
+}
+
+/**
+ * GitHub issue #119: row/column grid lines. :where() around the class
+ * drops this selector's specificity to just th/td alone — lower than
+ * almost any real theme rule (e.g. a plain `table th, table td`) —
+ * so a theme's own existing table border styling wins instead of
+ * being silently overridden; see docs/adr/0021 for the token chain.
+ */
+:where(.webform-ranking-matrix) th,
+:where(.webform-ranking-matrix) td {
+  border: var(--webform-ranking-border-width, var(--input-border-size, 1px))
+    var(--webform-ranking-border-style, solid)
+    var(--webform-ranking-border-color, var(--input-border-color, var(--color--gray-70, #ccc)));
 }
 
 .webform-ranking-matrix td:first-child,
@@ -45,10 +57,25 @@
  * Informational only — this radio is still enabled and clickable;
  * clicking it reassigns the rank away from whichever item currently
  * holds it (see webform_ranking.matrix.js). Not a `:disabled` style:
- * the input genuinely isn't disabled.
+ * the input genuinely isn't disabled. accent-color (GitHub issue #119)
+ * reuses the same neutral border-color token as the grid lines above,
+ * so "taken" reads as a deliberately muted state, not just faded.
  */
 .webform-ranking-matrix__radio--taken {
   opacity: 0.5;
+  accent-color: var(--webform-ranking-border-color, var(--input-border-color, var(--color--gray-70, #ccc)));
+}
+
+/**
+ * GitHub issue #119: matrix's N/A equivalent of drag/drop's own N/A
+ * dimming — reuses the same --webform-ranking-na-opacity token #120
+ * introduced, for one consistent "opted out" visual language across
+ * both display styles. :has() (not a JS class toggle, matching
+ * markTakenRanks()'s pattern) is a pure progressive enhancement: see
+ * docs/adr/0025-css-has-for-matrix-na-row-styling.md for why.
+ */
+.webform-ranking-matrix tr:has(input[value="na"]:checked) {
+  opacity: var(--webform-ranking-na-opacity, var(--input--disabled-border-opacity, 0.7));
 }
 
 /**
