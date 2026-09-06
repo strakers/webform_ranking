@@ -180,6 +180,34 @@ class WebformRankingConverter {
   }
 
   /**
+   * Finds the item ranked at a given position (1st place by default).
+   *
+   * GitHub issue #137.
+   *
+   * @param array $items
+   *   The element's configured items (value/label/etc. each).
+   * @param array $value
+   *   The submission's stored flat item-value => rank map
+   *   (matrixToCanonical()'s input shape).
+   * @param int $rank
+   *   1-based rank position to look up. Defaults to 1st place.
+   *
+   * @return array|null
+   *   The matched item's full configured definition ('value', 'label',
+   *   and any other keys it carries), or NULL if nothing holds that
+   *   rank (including an out-of-range/invalid $rank).
+   */
+  public static function getItemAtRank(array $items, array $value, int $rank = 1): ?array {
+    $canonical = static::matrixToCanonical($value);
+    $item_value = $canonical['values'][$rank - 1] ?? NULL;
+    if ($item_value === NULL) {
+      return NULL;
+    }
+    $items_by_value = array_column($items, NULL, 'value');
+    return $items_by_value[$item_value] ?? NULL;
+  }
+
+  /**
    * Checks whether raw matrix input's numeric ranks are sequential from 1.
    *
    * Enforced at validation time to keep a #states condition's live DOM
