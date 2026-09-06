@@ -319,6 +319,77 @@ class WebformRankingConverterTest extends UnitTestCase {
   }
 
   /**
+   * Tests that the 1st-place item's full data is returned by default.
+   */
+  public function testGetItemAtRankDefaultsToFirstPlace(): void {
+    $value = ['item_a' => '2', 'item_b' => '1', 'item_c' => '3'];
+
+    $result = WebformRankingConverter::getItemAtRank($this->items(), $value);
+
+    $this->assertSame(['value' => 'item_b', 'label' => 'Item B'], $result);
+  }
+
+  /**
+   * Tests that a rank beyond 1st can be looked up explicitly.
+   */
+  public function testGetItemAtRankFindsAnyRankPosition(): void {
+    $value = ['item_a' => '2', 'item_b' => '1', 'item_c' => '3'];
+
+    $result = WebformRankingConverter::getItemAtRank($this->items(), $value, 3);
+
+    $this->assertSame(['value' => 'item_c', 'label' => 'Item C'], $result);
+  }
+
+  /**
+   * Tests that no item at all being ranked returns NULL.
+   */
+  public function testGetItemAtRankWithNothingRankedReturnsNull(): void {
+    $this->assertNull(WebformRankingConverter::getItemAtRank($this->items(), []));
+  }
+
+  /**
+   * Tests that a rank position with nothing that far returns NULL.
+   */
+  public function testGetItemAtRankBeyondRankedCountReturnsNull(): void {
+    $value = ['item_a' => '1'];
+
+    $this->assertNull(WebformRankingConverter::getItemAtRank($this->items(), $value, 2));
+  }
+
+  /**
+   * Tests that an invalid rank position (0, negative) returns NULL.
+   */
+  public function testGetItemAtRankWithInvalidRankReturnsNull(): void {
+    $value = ['item_a' => '1'];
+
+    $this->assertNull(WebformRankingConverter::getItemAtRank($this->items(), $value, 0));
+    $this->assertNull(WebformRankingConverter::getItemAtRank($this->items(), $value, -1));
+  }
+
+  /**
+   * Tests that N/A entries are never returned by a rank-position lookup.
+   */
+  public function testGetItemAtRankIgnoresNaEntries(): void {
+    $value = ['item_a' => 'na', 'item_b' => '1'];
+
+    $this->assertNull(WebformRankingConverter::getItemAtRank($this->items(), $value, 2));
+  }
+
+  /**
+   * Tests that a rank held by a since-removed item returns NULL.
+   *
+   * Mirrors testOrderByRankIgnoresValuesForItemsNoLongerConfigured()'s
+   * own reasoning: a value referencing an item no longer in the
+   * configured item set must be silently treated as absent, not
+   * surfaced as a phantom result.
+   */
+  public function testGetItemAtRankForRemovedItemReturnsNull(): void {
+    $value = ['item_removed' => '1'];
+
+    $this->assertNull(WebformRankingConverter::getItemAtRank($this->items(), $value));
+  }
+
+  /**
    * Tests that no ranks at all is vacuously sequential.
    */
   public function testMatrixRanksAreSequentialWithNoRanksAtAllIsTrue(): void {

@@ -736,6 +736,24 @@ class WebformRanking extends WebformElementBase {
   }
 
   /**
+   * Finds the item ranked at a given position in a submission.
+   *
+   * The inverse of getItemRankValue() above (rank -> item, not item ->
+   * rank). Thin wrapper around WebformRankingConverter::getItemAtRank()
+   * that also pulls the stored value off the submission, matching the
+   * same getValue() pattern formatHtmlItem()/formatTextItem() use.
+   * GitHub issue #137.
+   *
+   * @return array|null
+   *   The matched item ('value', 'label', etc.), or NULL if nothing
+   *   holds that rank.
+   */
+  public function getItemAtRank(array $element, WebformSubmissionInterface $webform_submission, int $rank = 1, array $options = []): ?array {
+    $value = $this->getValue($element, $webform_submission, $options);
+    return WebformRankingConverter::getItemAtRank($element['#items'] ?? [], is_array($value) ? $value : [], $rank);
+  }
+
+  /**
    * {@inheritdoc}
    *
    * Without this override, the server-side conditions validator falls
