@@ -19,23 +19,18 @@ use Psr\Log\LoggerInterface;
 class WebformRankingVisibilityResolver {
 
   /**
-   * The Webform conditions validator service.
+   * The class constructor.
    *
-   * @var \Drupal\webform\WebformSubmissionConditionsValidatorInterface
-   */
-  protected $conditionsValidator;
-
-  /**
-   * The webform_ranking logger channel.
+   * @var \Drupal\webform\WebformSubmissionConditionsValidatorInterface $conditionsValidator
+   *  The Webform conditions validator service.
    *
-   * @var \Psr\Log\LoggerInterface
+   * @var \Psr\Log\LoggerInterface $logger
+   *  The webform_ranking logger channel.
    */
-  protected $logger;
-
-  public function __construct(WebformSubmissionConditionsValidatorInterface $conditions_validator, LoggerInterface $logger) {
-    $this->conditionsValidator = $conditions_validator;
-    $this->logger = $logger;
-  }
+  public function __construct(
+    protected WebformSubmissionConditionsValidatorInterface $conditionsValidator,
+    protected LoggerInterface $logger,
+  ) {}
 
   /**
    * Returns the item values currently visible/applicable.
