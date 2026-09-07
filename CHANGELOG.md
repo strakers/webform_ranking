@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added methods to easily to identify which item from a submission is ranked at a given position (1st place by default) — useful for custom submission handlers built on top of this element ([#137](https://github.com/strakers/webform_ranking/issues/137)).
+
+### Fixed
+
+- Brought the ranking element's server-side visibility-check service in line with Drupal's PHP 8 constructor property-promotion coding standard, per drupal.org packaging review feedback ([#139](https://github.com/strakers/webform_ranking/issues/139)).
+
 ## [0.3.2] - 2026-09-04
 
 ### Added

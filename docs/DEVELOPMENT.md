@@ -80,6 +80,12 @@ that summary for you.
   under `js/` still use `var` as of this writing — bringing them in line
   is tracked as a separate cleanup, not something to mix into unrelated
   changes.
+- Constructors with injected dependencies should use PHP 8 constructor
+  property promotion (`public function __construct(protected FooInterface
+  $foo) {}`), matching Drupal core's own convention as of 10.3+. Flagged
+  during drupal.org packaging review ([#139](https://github.com/strakers/webform_ranking/issues/139));
+  see a core class like `Drupal\Core\Render\Placeholder\CachedStrategy`
+  for the plain-DI case with no per-parameter docblock needed.
 - `#webform_multiple`'s row markup should be treated as unverified unless
   you've confirmed it directly (see `CONTINUATION.md`'s "Pattern Worth
   Knowing" section) — more than one bug in this module traced back to an

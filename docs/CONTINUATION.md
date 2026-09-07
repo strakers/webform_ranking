@@ -2039,6 +2039,31 @@ no-input fallback only ever see canonical shape. The plugin's
     this component's own controls is a structural requirement, not an
     aesthetic choice a theme should get to override, the same category
     this file's `border-collapse`/`width` rules already sit in.
+43. **GitHub issue #137: `WebformRankingConverter::getItemAtRank()` +
+    a `WebformRanking::getItemAtRank()` plugin wrapper**, for finding
+    which item a submission ranked at a given position (1st place by
+    default) — a new public API for custom code built on top of this
+    element, not part of the `#10` UI-polish sequence. Confirmed
+    nothing like this already existed before adding it:
+    `getItemRankValue()` (the plugin class) answers the *inverse*
+    question (given one item, what rank does it hold), and
+    `require_first_place` validation deliberately never computes "who
+    is 1st" at all — it relies on the proven invariant that ranks are
+    gapless from 1, so a non-empty canonical `values` array is already
+    logically equivalent to "something is 1st." The converter method
+    reuses `matrixToCanonical()` exactly the way `orderByRank()`
+    already does internally — `values[$rank - 1]` is "the item value
+    ranked at $rank." Returns the matched item's full configured
+    definition (`value`, `label`, etc.) rather than a single scalar: an
+    earlier draft took a `$format` parameter ('raw' vs 'label',
+    deliberately reusing `getItemFormat()`'s own existing terminology)
+    but the user preferred returning both together so a caller can pick
+    whichever it needs without a second call. SemVer: milestoned to
+    v0.3.3 (a patch bump), not v0.4.0 — purely additive/backward-
+    compatible, and far smaller in scope than the `#10` epic that
+    prompted the v0.4.0 question the same week; also avoids repeating
+    that epic's own branch-restructuring cost, since a patch bump
+    continues the same `0.3.x` line already set up on both remotes.
 
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
