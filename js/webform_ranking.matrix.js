@@ -9,7 +9,10 @@
  * disabling caused a permanent rearrange lockout once every item held a
  * distinct rank. See docs/adr/0011-matrix-rank-reassignment.md. Also
  * keeps conditionally-hidden items' rows/rank-columns in sync — see
- * docs/adr/0012-matrix-conditional-item-visibility-sync.md.
+ * docs/adr/0012-matrix-conditional-item-visibility-sync.md. Also
+ * live-toggles a #required_all matrix's native 'required' attribute
+ * against this element's own visibility — see
+ * docs/adr/0026-element-level-required-toggle-via-mutation-observer.md.
  */
 
 (function (Drupal, once, $) {
@@ -50,6 +53,8 @@
       }
       toggleRow(firstInput, visible[name] !== false);
     });
+
+    initElementLevelRequiredToggle(table);
 
     markTakenRanks(groups, groupNames, selected, visible);
     updateRankColumns(table, groups, groupNames, visible);
@@ -215,6 +220,59 @@
     if (row) {
       row.hidden = !isVisible;
     }
+  }
+
+  /**
+   * Live-toggles native `required` against this element's own top-level
+   * visibility (GitHub issue #142).
+   *
+   * Observes the wrapper's actual rendered visibility directly, rather
+   * than Drupal's 'state:visible' event — that event doesn't always
+   * fire for this element (confirmed via live reproduction, not
+   * theorized), so a hidden-but-required radio could otherwise fail
+   * native HTML5 validation and silently block a wizard step. See
+   * docs/adr/0026-element-level-required-toggle-via-mutation-observer.md.
+   *
+   * @param {HTMLTableElement} table
+   *   The matrix table.
+   */
+  function initElementLevelRequiredToggle(table) {
+    var requiredInputs = Array.prototype.slice.call(table.querySelectorAll('input[required]'));
+    if (!requiredInputs.length) {
+      return;
+    }
+    var wrapper = table.closest('.js-webform-ranking');
+    if (!wrapper) {
+      return;
+    }
+
+    var lastKnownVisible = wrapper.offsetParent !== null;
+    applyRequired(requiredInputs, lastKnownVisible);
+
+    new MutationObserver(function () {
+      var visible = wrapper.offsetParent !== null;
+      if (visible === lastKnownVisible) {
+        return;
+      }
+      lastKnownVisible = visible;
+      applyRequired(requiredInputs, visible);
+    }).observe(wrapper, {attributes: true});
+  }
+
+  /**
+   * Sets/clears the native `required` attribute on every given input.
+   *
+   * @param {HTMLInputElement[]} inputs
+   *   Inputs that carried `required` at initial render.
+   * @param {boolean} isRequired
+   *   Whether `required` should currently be present.
+   */
+  function applyRequired(inputs, isRequired) {
+    inputs.forEach(function (input) {
+      // Reflected IDL property — setting it adds/removes the actual HTML
+      // attribute, same convention toggleRow() above uses for `hidden`.
+      input.required = isRequired;
+    });
   }
 
   /**

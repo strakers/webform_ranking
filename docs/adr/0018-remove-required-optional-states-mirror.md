@@ -107,3 +107,8 @@ source" field, so the dropdown removal can't be silently bypassed.
   and remain in effect).
 - **GitHub Issues:** #68 (original mirror fix, now reverted), #102 (this
   fix)
+- **Extended by:** ADR-0026 — the *element's own* top-level `#states`
+  (as opposed to a row's per-item condition, handled here) hits this same
+  crash class if mirrored the same way; that ADR's client-side
+  `MutationObserver` approach sidesteps the `#states`-mirroring route
+  entirely rather than reworking it for the element-level case.

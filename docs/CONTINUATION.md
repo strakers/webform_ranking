@@ -2065,6 +2065,62 @@ no-input fallback only ever see canonical shape. The plugin's
     that epic's own branch-restructuring cost, since a patch bump
     continues the same `0.3.x` line already set up on both remotes.
 
+44. **GitHub issue #142: a `#required_all` matrix element's native
+    `required` radios silently blocked a wizard step from advancing,
+    with one "not focusable" console warning per radio, whenever the
+    element's own top-level visibility depended on a *chained* trigger
+    — another ranking element's own per-item-conditionally-hidden row,
+    not an ordinary field.** Reported from production; root-caused
+    entirely via live reproduction against a sandboxed copy of the
+    reporter's real site (same methodology as #123, entry 39), not
+    source reading alone — extensive attempts to isolate the bug in a
+    plain Kernel/FunctionalJavascript test with a matching config
+    initially all passed *without* the eventual fix applied, a real dead
+    end that took most of the investigation to resolve (see below).
+    `buildMatrix()` unconditionally writes `required` on every rank/N/A
+    cell when `#required_all` is on; it already withholds this for a
+    row with its *own* per-item condition (`$suppress_static_required`,
+    ADR-0018), but had no equivalent for the *element's own* top-level
+    `#states`. Normally harmless — Webform core's `webform.states.js`
+    generically clears `required` on any `:input` inside an element
+    whenever its wrapper's own `state:visible` fires false — but that
+    event was confirmed, via direct instrumentation, to never fire at
+    all when the trigger selector points at an `:input` inside a
+    *different* ranking element's own per-item-hidden row. Mirroring
+    `required`/`optional` into `#states` on the bare radio cells
+    (Webform core's own technique for this, via
+    `WebformElementHelper::getRequiredFromVisibleStates()`) was
+    considered and rejected outright — ADR-0018 already found that
+    crashes `WebformSubmissionConditionsValidator::validateFormElement()`
+    for any bare `radio`/`container` sub-element carrying such a key,
+    regardless of which condition is mirrored.
+    Fixed via a `MutationObserver` on the element's wrapper, deriving
+    actual visibility from `offsetParent` (the same ground truth this
+    file's row-seeding already trusts over events, ADR-0012/ADR-0023)
+    rather than depending on `state:visible` firing at all — correct
+    regardless of *why* that event doesn't fire in this shape. See
+    [ADR-0026](adr/0026-element-level-required-toggle-via-mutation-observer.md).
+    **Two hard-won reproduction lessons, in case a similar report
+    surfaces again:** (1) the chained-trigger config shape alone was
+    *not* sufficient to reproduce the reported symptom in isolation —
+    every isolated attempt (matching `#required`, `#required_all`,
+    `#require_first_place`, `#allow_na`, even the reporter's exact
+    `drupal/webform` version pinned locally) passed cleanly without the
+    fix, until the test webform was rebuilt as a genuine multi-page
+    **wizard** with the ranking elements on one page and a "Next" click
+    advancing past them — a flat single-page submit tolerated the bug
+    every time. (2) A site-specific custom module search (turned up
+    while chasing this) revealed the reporter's site already had at
+    least one other bespoke JS workaround for a related-sounding
+    "webform states doesn't know validation should be skipped when
+    hidden" issue on a *different* form — confirming this general class
+    of bug is a recurring, known hazard on that site, even though it
+    wasn't the direct cause here. Neither the exact webform-core
+    mechanism behind the `state:visible` gap nor why a wizard transition
+    specifically (vs. a flat submit) is needed to trigger the *browser
+    block* was reverse-engineered — both are documented as confirmed
+    empirical facts, not theories, in ADR-0026.
+
 ## Pattern Worth Knowing
 Several rounds of this thread involved *wrong, unverified guesses* about
 Drupal/Webform internals (service IDs, `FormBuilder` submission detection,
