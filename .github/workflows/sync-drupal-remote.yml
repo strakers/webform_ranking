@@ -1,0 +1,86 @@
+name: Sync to drupal.org mirror
+
+# Keeps the `drupal` remote (git.drupalcode.org/project/webform_ranking,
+# a receive-only mirror required for drupal.org packaging) in sync with
+# GitHub, automatically. See docs/CONTRIBUTING.md's "Remotes" and
+# "Releases" sections for the full policy this implements.
+#
+# Two independent triggers:
+#   - A PR merges into `main` or a version-line branch (e.g. `0.3.x`)
+#     -> that branch is pushed to the identically-named branch on
+#     `drupal`. Deliberately scoped to `main`/`*.*.x` only — never
+#     `dev`, never any other branch. A direct/manual push (rebase,
+#     force-push, local rectification) does NOT match `pull_request:
+#     closed`, so it's excluded on purpose; handle those manually.
+#   - Any tag is pushed to GitHub -> that tag is mirrored to `drupal`.
+#
+# Neither push ever uses `--force`. A non-fast-forward push failing is
+# a deliberate, loud signal that something on the mirror has diverged
+# and needs manual attention — not something to silently override.
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+      - '*.*.x'
+  push:
+    tags:
+      - '*'
+
+# This workflow only ever reads from GitHub (checkout) and writes to
+# the external drupal.org remote over its own SSH credential — it never
+# needs to write back to this GitHub repo, so the default GITHUB_TOKEN
+# is scoped to read-only.
+permissions:
+  contents: read
+
+jobs:
+  sync-branch:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out merged branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+
+      - name: Load drupal.org SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DRUPAL_ORG_SSH_KEY }}
+
+      - name: Trust git.drupalcode.org host key
+        run: ssh-keyscan -H git.drupalcode.org >> ~/.ssh/known_hosts
+
+      - name: Push merged branch to drupal.org mirror
+        run: |
+          set -euo pipefail
+          BRANCH="${{ github.event.pull_request.base.ref }}"
+          git remote add drupal git@git.drupalcode.org:project/webform_ranking.git
+          git push drupal "HEAD:refs/heads/$BRANCH"
+
+  sync-tag:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Load drupal.org SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DRUPAL_ORG_SSH_KEY }}
+
+      - name: Trust git.drupalcode.org host key
+        run: ssh-keyscan -H git.drupalcode.org >> ~/.ssh/known_hosts
+
+      - name: Push tag to drupal.org mirror
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          git remote add drupal git@git.drupalcode.org:project/webform_ranking.git
+          git push drupal "refs/tags/$TAG"
