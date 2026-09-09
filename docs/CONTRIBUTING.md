@@ -32,6 +32,23 @@ agent-authored.
   issues, even with `Fixes #N` in the PR, since GitHub only does that
   for merges into the repo's actual default branch (`main`), not `dev`.
   See the Issues section below for the manual step this requires.
+- **Version-line branches (`X.Y.x`, e.g. `0.3.x`) are long-lived, not
+  disposable mirrors of `main`.** Each one can receive its own direct
+  PRs (e.g. a backport that shouldn't also land on `main`), same as
+  `main` itself. A new line is created by branching a fresh `X.Y.x` off
+  `main` (or an existing line) when work on the next version starts.
+  These branches are automatically mirrored to the `drupal` remote on
+  every merge — see Remotes below.
+- **Current primary line:** `0.3.x` — the line `dev`'s next release
+  ships to, and what's recommended by default. Update this line
+  whenever a new version line becomes primary (e.g. when `0.4.x` is
+  cut and takes over from `0.3.x`).
+- **Open question, not yet decided:** a single shared `dev` branch
+  assumes only one version line is ever "in progress" at a time. Once
+  multiple `X.Y.x` lines are actively worked on in parallel, `dev` may
+  need to become per-line (e.g. `0.3.x-dev`, `0.4.x-dev`, or some other
+  naming scheme) — flagged here for a future discussion/issue, not
+  resolved as part of introducing the version-line-branch model itself.
 
 ## Remotes
 
@@ -39,14 +56,22 @@ agent-authored.
   review happens here. `drupal` (`git.drupalcode.org/project/webform_ranking`)
   is a receive-only mirror for drupal.org packaging/distribution, not a
   second place to develop against.
-- Never commit or push directly to the `drupal` remote outside the
-  documented sync step below — the two histories would otherwise fork
-  silently, since nothing keeps them in sync automatically.
+- Never commit or push directly to the `drupal` remote — the two
+  histories would otherwise fork silently.
+- **Syncing to `drupal` is automated** via
+  `.github/workflows/sync-drupal-remote.yml`: any PR merging into
+  `main` or a version-line branch (`X.Y.x`) pushes that branch to the
+  identically-named branch on `drupal`, and any tag pushed to GitHub is
+  mirrored there too. `dev` is deliberately never synced. A direct/
+  manual push to `main`/`X.Y.x` (rebase, force-push, local branch
+  rectification) does *not* trigger the sync — handle that case's
+  `drupal` counterpart manually, the same way you'd have to before this
+  workflow existed.
 - Tags are plain `X.Y.Z`, no `v` prefix — required by drupal.org, and
   kept identical on GitHub rather than running two schemes.
 - drupal.org also requires a version-named release branch (`X.Y.x`,
-  e.g. `0.3.x`) in addition to `main`/`dev` — see Releases below for
-  when that gets created/updated.
+  e.g. `0.3.x`) in addition to `main`/`dev` — see Branching above for
+  how that branch is created/maintained.
 
 ## Issues
 
@@ -141,8 +166,6 @@ agent-authored.
 - SemVer bump decisions (patch vs. minor, especially pre-1.0) are the
   maintainer's own case-by-case judgment call, not a mechanical reading
   of the changelog.
-- After the GitHub Release is published: mirror `main` to the `drupal`
-  remote's `main` and current `X.Y.x` branch (today: `0.3.x`), and push
-  the matching plain-version tag there too — see Remotes above. There's
-  no separate patch-only release line yet, so `X.Y.x` currently just
-  tracks `main` wholesale rather than diverging from it.
+- Syncing to the `drupal` remote no longer needs a manual step here —
+  it happens automatically on merge and on tag push, independent of
+  when (or whether) a GitHub Release gets published. See Remotes above.
