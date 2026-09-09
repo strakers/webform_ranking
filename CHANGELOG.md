@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Brought the ranking element's server-side visibility-check service in line with Drupal's PHP 8 constructor property-promotion coding standard, per drupal.org packaging review feedback ([#139](https://github.com/strakers/webform_ranking/issues/139)).
+- Matrix display style: a "require every visible item ranked" element whose own conditional visibility depended on another ranking element's item could get stuck hidden-but-required, silently blocking a wizard step from advancing ([#142](https://github.com/strakers/webform_ranking/issues/142)).
 
 ## [0.3.2] - 2026-09-04
 
