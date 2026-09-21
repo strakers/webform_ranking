@@ -889,6 +889,14 @@ class WebformRanking extends FormElementBase {
       $wrapper_id = $element['#id'] . '--wrapper';
       $element['#wrapper_attributes']['id'] = $wrapper_id;
       $element['#wrapper_attributes']['data-drupal-selector'] = $wrapper_id;
+
+      // Restores the required-field asterisk when this element becomes
+      // required via conditional logic: states.js's live toggle looks
+      // up the label by the wrapper's own id, so the label's 'for' has
+      // to match it too.
+      // @see https://github.com/strakers/webform_ranking/issues/151
+      // @see doc://docs/adr/0009-prerender-attributes-states-and-error-display.md
+      $element['#label_for'] = $wrapper_id;
     }
 
     // Mirrors RenderElementBase::setAttributes()'s own error-state
