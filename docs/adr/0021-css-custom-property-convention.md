@@ -89,6 +89,8 @@ Olivero-specific name, then a static literal:
 | `--webform-ranking-button-focus-bg` | `var(--webform-ranking-button-bg, var(--button-bg-color, transparent))` (same reasoning as `-hover-fg` above, applied to the focus state's background) |
 | `--webform-ranking-button-focus-fg` | Same fallback shape as `-hover-fg`, for `:focus-visible` |
 | `--webform-ranking-na-opacity` | `var(--input--disabled-border-opacity, 0.7)` (added in #120 — `.webform-ranking-dragdrop__item--na`'s opacity; `0.7` is the original literal value, preserved as the static default so behavior is unchanged absent a matching theme token; Claro/Gin's disabled-state opacity is the closest real semantic match found, no Olivero equivalent exists) |
+| `--webform-ranking-error-color` | `var(--input--error-color, #e32700)` (added in #152 — `.webform-ranking__errors`' text color; needed since that element is a bare `container`, not a genuine `.form-item`, so it never reliably inherited a theme's own error-message color via cascade; Claro's real token, no Olivero equivalent exists) |
+| `--webform-ranking-error-spacing` | `var(--sp1, var(--space-m, 1.125rem))` (added in #152 — `.webform-ranking__errors`' `margin-top`, closing the gap between the error text and the table/item list above it; deliberately its own token rather than reusing `--webform-ranking-narrow-margin` or a hypothetical shared `--webform-ranking-spacing` — see the "Alternatives Considered" note below on why a single shared spacing token was already rejected) |
 
 **Updated in #120:** `--webform-ranking-border-radius` originally
 shipped in #116/#118 as a **deliberate exception** to "chain through a

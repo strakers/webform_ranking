@@ -40,7 +40,10 @@ Separately, rank columns (1st, 2nd, 3rd, ... + N/A) are built server-side from t
 - The `offsetParent === null` seeding trick is an "after the fact" inference, not a direct read of `states.js`'s own internal condition state — it depends on `states.js` having already run and hidden the element by the time this code executes, an implicit attach-order dependency (declared via the library dependency, but not something the browser enforces beyond that declaration).
 - `updateRankColumns()`'s "at least one column always visible" floor is a special case a future change to the visible-item-counting logic could accidentally remove, leaving a genuinely columnless table when every item happens to be hidden.
 
+> **Confirmed (2026-09-21, GitHub #152):** a production report suspected the failed-validation round trip itself (a required-item error redisplaying the same page) might leave a conditionally-hidden row's `hidden` attribute stale, showing an empty gap. Investigated by driving a real failed submission (a `#require_first_place` violation) through a same-page trigger/ranking pair in `WebformRankingChainedVisibilityRowJavaScriptTest` — the row stayed correctly `hidden` after the page redisplayed with the error; this mechanism already handles that round trip correctly (the page redisplay is a fresh render, going through the same initial-state seeding described above, same as any other page load). Also confirmed, separately: putting the trigger field on an *earlier wizard page* than the ranking element does **not** exercise this mechanism at all — that's a cross-page condition, resolved entirely server-side (the item is excluded from rendering outright, never reaching this per-item client-side path at all; see `WebformRankingCrossPageItemStatesJavaScriptTest`).
+
 ## Related Code & Docs
 
 - **Files:** `js/webform_ranking.matrix.js` (`initMatrix()`, `toggleRow()`, `updateRankColumns()`)
-- **GitHub Issues:** #59 (row hiding), #60 (rank-column trimming), #104 (see ADR-0019 for the correction above)
+- **Tests:** `WebformRankingChainedVisibilityRowJavaScriptTest` (2026-09-21 confirmation above)
+- **GitHub Issues:** #59 (row hiding), #60 (rank-column trimming), #104 (see ADR-0019 for the correction above), #152 (confirmation above)
