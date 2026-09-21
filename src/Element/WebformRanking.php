@@ -897,6 +897,21 @@ class WebformRanking extends FormElementBase {
       // @see https://github.com/strakers/webform_ranking/issues/151
       // @see doc://docs/adr/0009-prerender-attributes-states-and-error-display.md
       $element['#label_for'] = $wrapper_id;
+
+      // Gives core's error-summary "jump to this field" link something
+      // to actually land on — it always links to the plain '#id',
+      // which this element otherwise never renders anywhere.
+      // @see https://github.com/strakers/webform_ranking/issues/153
+      // @see doc://docs/adr/0009-prerender-attributes-states-and-error-display.md
+      $element['webform_ranking_anchor'] = [
+        '#type' => 'html_tag',
+        '#tag' => 'span',
+        '#attributes' => [
+          'id' => $element['#id'],
+          'class' => ['visually-hidden'],
+        ],
+        '#weight' => -1000,
+      ];
     }
 
     // Mirrors RenderElementBase::setAttributes()'s own error-state

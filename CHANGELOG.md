@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Matrix display style: a "require every visible item ranked" element whose own conditional visibility depended on another ranking element's item could get stuck hidden-but-required, silently blocking a wizard step from advancing ([#142](https://github.com/strakers/webform_ranking/issues/142)).
 - The required-field asterisk no longer fails to appear when a ranking question becomes required via conditional logic (combining Webform's own "Required" and "Conditional logic" settings), instead of being statically required from page load ([#151](https://github.com/strakers/webform_ranking/issues/151)).
 - Matrix display style: the inline validation error message is now visibly styled as an error with proper spacing above the table (instead of relying on unreliable theme cascade), and unchecked required radios no longer show a confusing native browser invalid-outline before submission ([#152](https://github.com/strakers/webform_ranking/issues/152)).
+- The "jump to this field" link in a failed submission's error summary (with `inline_form_errors` enabled) now correctly scrolls to the ranking question instead of doing nothing ([#153](https://github.com/strakers/webform_ranking/issues/153)).
 
 ## [0.3.2] - 2026-09-04
 

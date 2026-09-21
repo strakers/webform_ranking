@@ -10,7 +10,7 @@ use PHPUnit\Framework\Attributes\Group;
 
 /**
  * Tests WebformRanking::preRenderWebformRanking(), for GitHub issues
- * #47/#48/#151.
+ * #47/#48/#151/#153.
  *
  * Called directly with a hand-built element rather than driven through a
  * real form submission — #errors/#validated population is core's own
@@ -113,6 +113,22 @@ class WebformRankingErrorDisplayTest extends KernelTestBase {
 
     $this->assertContains('webform-ranking', $element['#wrapper_attributes']['class']);
     $this->assertContains('js-webform-ranking', $element['#wrapper_attributes']['class']);
+    $this->assertSame('edit-ranking--wrapper', $element['#wrapper_attributes']['id']);
+    $this->assertSame('edit-ranking--wrapper', $element['#wrapper_attributes']['data-drupal-selector']);
+  }
+
+  /**
+   * The plain '#id' is always rendered, alongside the '--wrapper' one.
+   *
+   * inline_form_errors' error-summary link always points at the plain
+   * '#id', so it needs to exist somewhere in the markup.
+   *
+   * @see https://github.com/strakers/webform_ranking/issues/153
+   */
+  public function testPlainIdAnchorIsRendered(): void {
+    $element = WebformRankingElement::preRenderWebformRanking($this->element());
+
+    $this->assertSame('edit-ranking', $element['webform_ranking_anchor']['#attributes']['id']);
     $this->assertSame('edit-ranking--wrapper', $element['#wrapper_attributes']['id']);
     $this->assertSame('edit-ranking--wrapper', $element['#wrapper_attributes']['data-drupal-selector']);
   }
