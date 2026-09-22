@@ -490,6 +490,20 @@ class WebformRanking extends FormElementBase {
         foreach ($cell_keys as $cell_key) {
           $element['matrix'][$row_key][$cell_key]['#access'] = FALSE;
         }
+        // Per-cell '#access' above leaves the <tr> itself empty but
+        // present (Table::preRenderTable() reads a row's own
+        // '#attributes' — not its children's '#access' — to decide
+        // what the <tr> looks like; it never omits the row itself).
+        // Set the same 'hidden' attribute toggleRow() applies
+        // client-side for a same-page condition (originally added for
+        // #59, the same-page version of this exact empty-row problem),
+        // directly server-side here: this item is already statically
+        // resolved, so nothing client-side ever needs to react to it.
+        // @see https://github.com/strakers/webform_ranking/issues/59
+        // @see https://github.com/strakers/webform_ranking/issues/152
+        // @see doc://docs/adr/0006-cross-page-item-condition-resolution.md
+        // @see doc://docs/adr/0012-matrix-conditional-item-visibility-sync.md
+        $element['matrix'][$row_key]['#attributes']['hidden'] = 'hidden';
       }
       elseif (!empty($item['states'])) {
         foreach ($cell_keys as $cell_key) {
@@ -889,6 +903,29 @@ class WebformRanking extends FormElementBase {
       $wrapper_id = $element['#id'] . '--wrapper';
       $element['#wrapper_attributes']['id'] = $wrapper_id;
       $element['#wrapper_attributes']['data-drupal-selector'] = $wrapper_id;
+
+      // Restores the required-field asterisk when this element becomes
+      // required via conditional logic: states.js's live toggle looks
+      // up the label by the wrapper's own id, so the label's 'for' has
+      // to match it too.
+      // @see https://github.com/strakers/webform_ranking/issues/151
+      // @see doc://docs/adr/0009-prerender-attributes-states-and-error-display.md
+      $element['#label_for'] = $wrapper_id;
+
+      // Gives core's error-summary "jump to this field" link something
+      // to actually land on — it always links to the plain '#id',
+      // which this element otherwise never renders anywhere.
+      // @see https://github.com/strakers/webform_ranking/issues/153
+      // @see doc://docs/adr/0009-prerender-attributes-states-and-error-display.md
+      $element['webform_ranking_anchor'] = [
+        '#type' => 'html_tag',
+        '#tag' => 'span',
+        '#attributes' => [
+          'id' => $element['#id'],
+          'class' => ['visually-hidden'],
+        ],
+        '#weight' => -1000,
+      ];
     }
 
     // Mirrors RenderElementBase::setAttributes()'s own error-state
@@ -899,9 +936,15 @@ class WebformRanking extends FormElementBase {
       $element['#wrapper_attributes']['class'][] = 'error';
       $element['#wrapper_attributes']['aria-invalid'] = 'true';
 
+      // 'form-item__error-message' (double underscore) is core's real
+      // BEM class for this — form-element.html.twig/fieldset.html.twig
+      // both use it, and Claro/Gin/Olivero all style it out of the
+      // box. Picking it up for free avoids needing our own CSS for
+      // anything beyond a static-fallback color.
+      // @see https://github.com/strakers/webform_ranking/issues/152
       $element['ranking_errors'] = [
         '#type' => 'container',
-        '#attributes' => ['class' => ['webform-ranking__errors', 'form-item--error-message']],
+        '#attributes' => ['class' => ['webform-ranking__errors', 'form-item__error-message']],
         '#weight' => 1000,
         'message' => [
           '#markup' => $element['#errors'],

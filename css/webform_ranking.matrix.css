@@ -69,6 +69,31 @@
 }
 
 /**
+ * Styles the error message as a real error — a bare 'container'
+ * element doesn't reliably inherit a theme's own error color on its
+ * own, unlike the correctly-classed core error text it sits next to.
+ *
+ * @see https://github.com/strakers/webform_ranking/issues/152
+ * @see doc://docs/adr/0021-css-custom-property-convention.md
+ */
+.webform-ranking__errors {
+  color: var(--webform-ranking-error-color, var(--input--error-color, #e32700));
+}
+
+/**
+ * Suppresses the native invalid-outline browsers otherwise paint on
+ * every unchecked required radio before the form is even submitted —
+ * this element's own '.error'/'aria-invalid' state is the only
+ * invalid-state cue that should show.
+ *
+ * @see https://github.com/strakers/webform_ranking/issues/152
+ */
+.webform-ranking-matrix input[type="radio"]:invalid {
+  box-shadow: none;
+  outline: none;
+}
+
+/**
  * '.visually-hidden' is intentionally NOT redefined here — a weaker
  * local definition used to shadow core's own (system/base, now a
  * declared library dependency instead).

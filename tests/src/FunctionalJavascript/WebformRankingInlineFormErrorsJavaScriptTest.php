@@ -30,6 +30,11 @@ use PHPUnit\Framework\Attributes\Group;
  * rank submission never reaches the server at all, client-side, so
  * couldn't exercise this server-side error-rendering path in the first
  * place).
+ *
+ * Also covers the error-summary "jump to this field" link working
+ * correctly, see testErrorSummaryLinkResolvesToElement().
+ *
+ * @see https://github.com/strakers/webform_ranking/issues/153
  */
 #[Group('webform_ranking')]
 class WebformRankingInlineFormErrorsJavaScriptTest extends WebDriverTestBase {
@@ -93,6 +98,30 @@ class WebformRankingInlineFormErrorsJavaScriptTest extends WebDriverTestBase {
     $html = $this->getSession()->getPage()->getHtml();
     $occurrences = substr_count($html, 'must be ranked in order');
     $this->assertSame(1, $occurrences, "Expected the error message exactly once, found $occurrences.");
+  }
+
+  /**
+   * The error summary's "jump to this field" link actually works.
+   *
+   * @see https://github.com/strakers/webform_ranking/issues/153
+   */
+  public function testErrorSummaryLinkResolvesToElement(): void {
+    $this->drupalGet('/webform/test_ranking_inline_errors');
+
+    $this->assertSession()->waitForElement('css', 'input[name="ranking[matrix][a]"][value="2"]')->click();
+    $this->getSession()->getPage()->find('css', 'input[name="ranking[matrix][b]"][value="3"]')->click();
+    $this->getSession()->getPage()->find('css', 'input[name="ranking[matrix][c]"][value="na"]')->click();
+    $this->getSession()->getPage()->pressButton('Submit');
+    $this->assertNotNull($this->assertSession()->waitForText('must be ranked in order'));
+
+    $link = $this->assertSession()->elementExists('css', 'a[href="#edit-ranking"]');
+    $anchor = $this->assertSession()->elementExists('css', '#edit-ranking');
+    $this->assertNotSame('edit-ranking--wrapper', $anchor->getAttribute('id'), 'The link must resolve to the plain id, not the --wrapper-suffixed one.');
+
+    $link->click();
+    $this->assertTrue($this->getSession()->getPage()->waitFor(4, function () {
+      return strpos((string) $this->getSession()->getCurrentUrl(), '#edit-ranking') !== FALSE;
+    }), 'Clicking the error summary link should navigate to the #edit-ranking fragment.');
   }
 
 }
