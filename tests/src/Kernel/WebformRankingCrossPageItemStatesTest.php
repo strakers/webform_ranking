@@ -104,6 +104,17 @@ class WebformRankingCrossPageItemStatesTest extends WebformRankingKernelTestBase
     // resolved — there's nothing on this page that could ever change
     // 'constituency' again.
     $this->assertArrayNotHasKey('#states', $uab_label);
+
+    // GitHub #152 (related to #59): per-cell '#access' above leaves
+    // the <tr> itself present but empty (Table::preRenderTable() reads
+    // a row's own '#attributes', never its children's '#access', to
+    // decide what the <tr> looks like) — the row itself needs the same
+    // 'hidden' attribute a same-page condition gets from toggleRow()
+    // (added for #59), set here directly server-side since this item
+    // is already statically resolved.
+    $uab_row = $form['elements']['pg_two']['ranking']['matrix']['uab'] ?? NULL;
+    $this->assertNotNull($uab_row);
+    $this->assertSame('hidden', $uab_row['#attributes']['hidden'] ?? NULL);
   }
 
   /**

@@ -191,14 +191,13 @@
 }
 
 /**
- * Styles the error message as a real error, with breathing room above
- * the item list — a bare 'container' element doesn't reliably inherit
- * a theme's own error styling on its own.
+ * Styles the error message as a real error — a bare 'container'
+ * element doesn't reliably inherit a theme's own error color on its
+ * own, unlike the correctly-classed core error text it sits next to.
  *
  * @see https://github.com/strakers/webform_ranking/issues/152
  * @see doc://docs/adr/0021-css-custom-property-convention.md
  */
 .webform-ranking__errors {
   color: var(--webform-ranking-error-color, var(--input--error-color, #e32700));
-  margin-top: var(--webform-ranking-error-spacing, var(--sp1, var(--space-m, 1.125rem)));
 }

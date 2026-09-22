@@ -490,6 +490,20 @@ class WebformRanking extends FormElementBase {
         foreach ($cell_keys as $cell_key) {
           $element['matrix'][$row_key][$cell_key]['#access'] = FALSE;
         }
+        // Per-cell '#access' above leaves the <tr> itself empty but
+        // present (Table::preRenderTable() reads a row's own
+        // '#attributes' — not its children's '#access' — to decide
+        // what the <tr> looks like; it never omits the row itself).
+        // Set the same 'hidden' attribute toggleRow() applies
+        // client-side for a same-page condition (originally added for
+        // #59, the same-page version of this exact empty-row problem),
+        // directly server-side here: this item is already statically
+        // resolved, so nothing client-side ever needs to react to it.
+        // @see https://github.com/strakers/webform_ranking/issues/59
+        // @see https://github.com/strakers/webform_ranking/issues/152
+        // @see doc://docs/adr/0006-cross-page-item-condition-resolution.md
+        // @see doc://docs/adr/0012-matrix-conditional-item-visibility-sync.md
+        $element['matrix'][$row_key]['#attributes']['hidden'] = 'hidden';
       }
       elseif (!empty($item['states'])) {
         foreach ($cell_keys as $cell_key) {
@@ -922,9 +936,15 @@ class WebformRanking extends FormElementBase {
       $element['#wrapper_attributes']['class'][] = 'error';
       $element['#wrapper_attributes']['aria-invalid'] = 'true';
 
+      // 'form-item__error-message' (double underscore) is core's real
+      // BEM class for this — form-element.html.twig/fieldset.html.twig
+      // both use it, and Claro/Gin/Olivero all style it out of the
+      // box. Picking it up for free avoids needing our own CSS for
+      // anything beyond a static-fallback color.
+      // @see https://github.com/strakers/webform_ranking/issues/152
       $element['ranking_errors'] = [
         '#type' => 'container',
-        '#attributes' => ['class' => ['webform-ranking__errors', 'form-item--error-message']],
+        '#attributes' => ['class' => ['webform-ranking__errors', 'form-item__error-message']],
         '#weight' => 1000,
         'message' => [
           '#markup' => $element['#errors'],

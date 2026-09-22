@@ -90,6 +90,14 @@ class WebformRankingCrossPageItemStatesJavaScriptTest extends WebDriverTestBase 
     $this->assertSession()->elementNotExists('css', 'input[name="ranking[matrix][uab]"]');
     // The unconditional item is unaffected.
     $this->assertSession()->elementExists('css', '[data-drupal-selector="edit-ranking-matrix-ab-label"]');
+
+    // GitHub #152 (the cross-page counterpart to #59): the label/input
+    // being gone (#access) doesn't by itself remove the <tr> — it must
+    // also carry 'hidden', or an empty, padded row is left behind.
+    $uab_row = $this->getSession()->getPage()->find('css', 'tr[data-drupal-selector="edit-ranking-matrix-uab"]');
+    $this->assertNotNull($uab_row, 'University Affairs Board row should still exist in the DOM.');
+    $this->assertTrue($uab_row->hasAttribute('hidden'), 'University Affairs Board row should carry the `hidden` attribute.');
+    $this->assertFalse($uab_row->isVisible(), 'University Affairs Board row should not be visible.');
   }
 
   /**
